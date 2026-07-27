@@ -1,0 +1,197 @@
+# Graph (Node / Edge / Mixin)
+
+Base classes for graph traversal with adjacency list pattern and ltree hierarchies.
+
+## Imports
+
+```python
+from tortoise_extended import GraphNode, GraphEdge, HierarchyModel
+```
+
+---
+
+## GraphNode
+
+Abstract base class for graph nodes with adjacency list traversal.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `UUIDField` | Primary key |
+| `name` | `CharField(100)` | Node name |
+| `parent_id` | `UUIDField(null=True)` | Parent node ID |
+| `depth` | `IntField(default=0)` | Hierarchy depth (root=0) |
+| `is_root` | `BooleanField(default=False)` | True if root node |
+| `child_count` | `IntField(default=0)` | Denormalized child count |
+| `namespace` | `CharField(100, default="default")` | Multi-tenant namespace |
+| `metadata_json` | `JSONField(default=dict)` | Arbitrary metadata |
+| `created_at` | `DatetimeField(auto_now_add=True)` | Created timestamp |
+| `updated_at` | `DatetimeField(auto_now=True)` | Updated timestamp |
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `children()` | `QuerySet` | Direct children, ordered by name |
+| `descendants(max_depth)` | `QuerySet` | All descendants within depth |
+| `ancestors()` | `QuerySet` | All ancestors, ordered by depth |
+| `siblings()` | `QuerySet` | Siblings (same parent, excluding self) |
+| `path_to_root()` | `list[GraphNode]` | Path from root to this node |
+| `subtree(max_depth)` | `list[GraphNode]` | BFS subtree traversal |
+| `is_leaf` | `bool` | Property: no children |
+
+### Usage
+
+```python
+from tortoise import fields, models
+from tortoise_extended import GraphNode
+
+class Category(GraphNode, models.Model):
+    description = fields.TextField(default="")
+
+    class Meta:
+        table = "categories"
+
+# Create root
+root = await Category.create(name="Electronics", is_root=True, depth=0)
+
+# Create child
+laptops = await Category.create(
+    name="Laptops",
+    parent_id=root.id,
+    depth=1,
+)
+
+# Query children
+kids = await laptops.children().all()
+```
+
+---
+
+## GraphEdge
+
+Abstract base class for typed, weighted graph edges.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `UUIDField` | Primary key |
+| `source_id` | `UUIDField(index=True)` | Source node ID |
+| `target_id` | `UUIDField(index=True)` | Target node ID |
+| `edge_type` | `CharField(50, index=True)` | Relationship type |
+| `weight` | `FloatField(default=1.0)` | Edge weight |
+| `properties` | `JSONField(default=dict)` | Edge metadata |
+| `namespace` | `CharField(100, default="default")` | Multi-tenant namespace |
+| `is_bidirectional` | `BooleanField(default=False)` | Undirected edge flag |
+| `created_at` | `DatetimeField(auto_now_add=True)` | Created timestamp |
+| `updated_at` | `DatetimeField(auto_now=True)` | Updated timestamp |
+
+### Class Methods (QuerySet-returning, sync)
+
+| Method | Description |
+|--------|-------------|
+| `between(source_id, target_id, edge_type?, namespace?)` | Edges between two nodes |
+| `between_any(node_id, edge_type?, namespace?)` | Edges where node is source OR target |
+| `outgoing(source_id, edge_type?, namespace?)` | Outgoing edges from a node |
+| `incoming(target_id, edge_type?, namespace?)` | Incoming edges to a node |
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `is_self_loop` | `bool` | True if source == target |
+
+### Usage
+
+```python
+from tortoise import fields, models
+from tortoise_extended import GraphEdge
+
+class Relationship(GraphEdge, models.Model):
+    class Meta:
+        table = "relationships"
+
+# Create edge
+rel = await Relationship.create(
+    source_id=node1.id,
+    target_id=node2.id,
+    edge_type="parent_of",
+    weight=1.0,
+)
+
+# Query edges
+outgoing = await Relationship.outgoing(node1.id, edge_type="parent_of")
+between = await Relationship.between(node1.id, node2.id)
+any_edge = await Relationship.between_any(node1.id)
+```
+
+---
+
+## HierarchyMixin
+
+Mixin providing tree operations for models with `LTreeField` path.
+
+### Requirements
+
+- Model must have `path: LTreeField` field
+- Model must have `name: CharField` field
+- Model must have `parent_id` and `depth` fields (from `GraphNode` or manual)
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get_ancestors(include_self?)` | `QuerySet` | All ancestors via ltree |
+| `get_descendants(include_self?)` | `QuerySet` | All descendants via ltree |
+| `get_children()` | `QuerySet` | Direct children (one level) |
+| `get_siblings(include_self?)` | `QuerySet` | Siblings (same parent) |
+| `get_root()` | `Model \| None` | Root node of this tree |
+| `get_path_to_root()` | `list` | Nodes from root to this node |
+| `move_to(new_parent)` | `None` | Move subtree to new parent |
+| `validate_hierarchy()` | `list[str]` | Integrity check (errors list) |
+
+### Usage
+
+```python
+from tortoise import fields, models
+from tortoise_extended import LTreeField, HierarchyModel, GraphNode
+
+
+class Category(HierarchyModel, GraphNode, models.Model):
+    path = LTreeField(max_length=1024)
+    description = fields.TextField(default="")
+
+    class Meta:
+        table = "categories"
+
+
+# Create hierarchy
+root = await Category.create(name="Electronics", path="electronics", is_root=True, depth=0)
+laptops = await Category.create(name="Laptops", path="electronics.laptops", parent_id=root.id, depth=1)
+macbook = await Category.create(name="MacBook", path="electronics.laptops.macbook", parent_id=laptops.id, depth=2)
+
+# Query ancestors
+ancestors = await macbook.get_ancestors()
+# => [root, laptops]
+
+# Query descendants
+descendants = await root.get_descendants()
+# => [laptops, macbook]
+
+# Move subtree
+phones = await Category.create(name="Phones", path="electronics.phones", parent_id=root.id, depth=1)
+await macbook.move_to(phones)
+# macbook.path = "electronics.phones.macbook"
+
+# Validate integrity
+errors = await root.validate_hierarchy()
+```
+
+## Notes
+
+- `GraphNode` and `GraphEdge` are abstract — subclass them for concrete models
+- QuerySet-returning methods on `GraphEdge` are sync (not async) — they return lazy QuerySets
+- `HierarchyMixin.move_to()` updates all descendant paths atomically
+- Use `namespace` field for multi-tenant graph isolation

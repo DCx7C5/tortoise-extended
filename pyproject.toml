@@ -1,0 +1,38 @@
+[project]
+name = "tortoise-extended"
+version = "0.1.0"
+description = "Tortoise ORM extensions: pgvector, TimescaleDB, HNSW indexes, recursive CTEs, and Redis caching"
+requires-python = ">=3.14"
+license = "MIT"
+dependencies = [
+    "tortoise-orm>=1.1.7,<1.2",
+    "msgspec>=0.21.0",
+    "tortoise-orm[asyncpg]>=1.1.7",
+    "tortoise-orm-stubs>=1.0.2",
+    "pypika-tortoise>=0.6.5,<0.7",
+]
+
+[project.optional-dependencies]
+redis = ["redis[hiredis]>=5.0.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
+[tool.ruff.lint]
+ignore = ["RUF002"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tortoise_extended"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+]
