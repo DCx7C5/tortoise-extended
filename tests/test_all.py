@@ -2,7 +2,7 @@
 
 This file is an aggregator, not a collection of individual tests. Running it
 executes every test module in ``tests/`` (unit + PostgreSQL/Redis integration)
-in a single subprocess, so one execution in PyCharm gives maximal coverage.
+in a single execution, so one run in PyCharm gives maximal coverage.
 
 Usage:
 
@@ -10,13 +10,15 @@ Usage:
   or run it as a plain Python script (``Run 'test_all'``).
 * CLI: ``python tests/test_all.py`` or ``uv run pytest tests/test_all.py -v``.
 
+The suite runs **in-process** via ``pytest.main`` (not a subprocess) so an
+active coverage tracer — PyCharm's built-in coverage or ``coverage run`` —
+keeps measuring the whole suite, including the ``src/`` package.
+
 The inner run ignores this file to avoid recursion. When ``tests/`` is run as
 a whole (``uv run pytest tests/ -q``), the aggregator skips itself so the
 suite never executes twice.
 """
 
-import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -27,15 +29,15 @@ _THIS_FILE = Path(__file__).resolve()
 
 
 def _run_suite() -> int:
-    """Run the entire ``tests/`` directory in a fresh pytest subprocess.
+    """Run the entire ``tests/`` directory in the current process.
+
+    Runs via ``pytest.main`` so an active coverage tracer keeps measuring the
+    whole suite (a subprocess would hide it from PyCharm's coverage window).
 
     Returns:
         The pytest exit code (0 = all tests passed).
     """
-    cmd = [
-        sys.executable,
-        "-m",
-        "pytest",
+    args = [
         str(_ROOT / "tests"),
         "--ignore",
         str(_THIS_FILE),
@@ -43,17 +45,16 @@ def _run_suite() -> int:
         str(_ROOT),
         "-q",
     ]
-    env = dict(os.environ)  # preserves TORTOISE_TEST_DB / docker env
-    proc = subprocess.run(cmd, env=env, check=False)
-    return proc.returncode
+    result = pytest.main(args)
+    return int(result)
 
 
 def test_full_suite(pytestconfig: pytest.Config) -> None:
     """Run every test module in ``tests/`` from a single PyCharm execution.
 
-    The nested pytest subprocess replaces this process's stdout, so the full
-    suite output (including PostgreSQL integration tests) appears in the IDE
-    console.
+    The nested in-process pytest session replaces this process's output, so
+    the full suite results (including PostgreSQL integration tests) appear in
+    the IDE console and coverage keeps tracking the ``src/`` package.
 
     Skipped when this file was collected as part of a full-directory run
     (``pytest tests/``) so the suite is not executed twice.

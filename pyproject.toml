@@ -40,6 +40,13 @@ addopts = "-ra --strict-markers"
 # Any warning outside the explicitly ignored upstream categories fails the run.
 filterwarnings = ["error"]
 
+[tool.coverage.run]
+# src-layout: measure only the package, never the tests themselves.
+source = ["src/tortoise_extended"]
+
+[tool.coverage.report]
+show_missing = true
+
 [dependency-groups]
 dev = [
     "coverage>=7.15.2",
