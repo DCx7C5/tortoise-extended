@@ -9,7 +9,7 @@ ModelMeta and _FieldMeta are partially unknown.
 """
 
 from collections.abc import AsyncGenerator, Generator, Iterator
-from typing import Any, Generic, Literal, TypeAlias, TypeVar, overload
+from typing import Any, Generic, Literal, TypeAlias, TypeVar, overload, override
 
 from tortoise.backends.base.client import BaseDBAsyncClient
 from tortoise.expressions import Q
@@ -99,9 +99,11 @@ class RelationalField(Field[_MODEL]):
     def __get__(
         self, instance: Model, owner: type[Model]
     ) -> _MODEL: ...
+    @override
     def __get__(
         self, instance: Model | None, owner: type[Model]
     ) -> RelationalField[_MODEL] | _MODEL: ...
+    @override
     def __set__(self, instance: Model, value: _MODEL) -> None: ...
 
 
@@ -126,9 +128,11 @@ class ForeignKeyFieldInstance(RelationalField[_MODEL]):
     def __get__(
         self, instance: Model, owner: type[Model]
     ) -> _MODEL: ...
+    @override
     def __get__(
         self, instance: Model | None, owner: type[Model]
     ) -> ForeignKeyFieldInstance[_MODEL] | _MODEL: ...
+    @override
     def __set__(self, instance: Model, value: _MODEL) -> None: ...
 
 

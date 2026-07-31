@@ -19,7 +19,7 @@ metaclass injects dynamically:
 """
 
 from collections.abc import Callable, Iterable
-from typing import Any, Self
+from typing import Any, Self, override
 
 from pypika_tortoise.queries import Table
 from pypika_tortoise.terms import Term
@@ -71,10 +71,12 @@ class Model:
 
     def __init__(self, **kwargs: Any) -> None: ...
 
+    @override
     def __str__(self) -> str: ...
+    @override
     def __repr__(self) -> str: ...
 
-    def update_from_dict(self, data: dict) -> Self: ...
+    def update_from_dict(self, data: dict[str, object]) -> Self: ...
     def clone(self, pk: Any = ...) -> Self: ...
 
     async def save(
@@ -128,7 +130,7 @@ class Model:
     @classmethod
     async def get_or_create(
         cls,
-        defaults: dict | None = None,
+        defaults: dict[str, object] | None = None,
         using_db: BaseDBAsyncClient | None = None,
         **kwargs: Any,
     ) -> tuple[Self, bool]: ...
@@ -136,7 +138,7 @@ class Model:
     @classmethod
     async def update_or_create(
         cls,
-        defaults: dict | None = None,
+        defaults: dict[str, object] | None = None,
         using_db: BaseDBAsyncClient | None = None,
         **kwargs: Any,
     ) -> tuple[Self, bool]: ...

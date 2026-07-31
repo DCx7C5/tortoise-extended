@@ -10,7 +10,7 @@ public surface concretely so subclass ``super().__init__`` calls and
 """
 
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, overload
 
 import tortoise.validators
 
@@ -76,7 +76,11 @@ class Field(Generic[VALUE]):
         **kwargs: Any,
     ) -> None: ...
 
-    def __get__(self, instance: Any, owner: Any = None) -> Any: ...
+    @overload
+    def __get__(self, instance: None, owner: type[Any]) -> Field[VALUE]: ...
+    @overload
+    def __get__(self, instance: Any, owner: type[Any]) -> VALUE: ...
+    def __get__(self, instance: Any | None, owner: type[Any]) -> Field[VALUE] | VALUE: ...
 
     def __set__(self, instance: Any, value: VALUE) -> None: ...
 
