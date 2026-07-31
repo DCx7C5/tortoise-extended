@@ -17,6 +17,7 @@ Usage::
             table = "categories"
 """
 
+from collections import deque
 from typing import TYPE_CHECKING, Self, override
 from uuid import UUID
 
@@ -70,7 +71,7 @@ class GraphNode(Model):
         default=0,
         description="Hierarchy depth level (root=0)",
     )
-    is_root = fields.BooleanField(
+    is_root: fields.Field[bool] = fields.BooleanField(
         default=False,
         description="True if this is a root node",
     )
@@ -179,9 +180,9 @@ class GraphNode(Model):
             List of nodes from root to this node
         """
         path: list[Self] = []
-        current: Self | None = self
         visited: set[UUID] = set()
-        while current is not None:
+        current = self
+        while True:
             if current.pk in visited:
                 break  # defensive cycle guard
             visited.add(current.pk)
@@ -201,11 +202,11 @@ class GraphNode(Model):
             List of nodes in breadth-first order
         """
         result: list[Self] = [self]
-        queue: list[Self] = [self]
+        queue: deque[Self] = deque([self])
         visited = {self.id}
 
         while queue:
-            current = queue.pop(0)
+            current = queue.popleft()
             children = await current.children().all()
             for child in children:
                 if child.id not in visited:

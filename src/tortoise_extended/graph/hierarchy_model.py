@@ -149,7 +149,9 @@ class HierarchyModel(Model):
 
     # ── Tree Queries (sync — return lazy QuerySets) ──────────────────────
 
-    def get_ancestors(self, *, include_self: bool = False) -> QuerySet[HierarchyModel] | QuerySet[Self]:
+    def get_ancestors(
+        self, *, include_self: bool = False
+    ) -> QuerySet[HierarchyModel] | QuerySet[Self]:
         """Return all ancestor nodes from root down to this node's parent.
 
         Uses the ltree ``@>`` (ancestor-of) operator so PostgreSQL can walk
@@ -166,16 +168,22 @@ class HierarchyModel(Model):
         if not path_str:
             return type(self).filter(pk__in=[])
 
-        q: QuerySet[Self] | QuerySet[HierarchyModel] = type(self).filter(
-            path__ancestor_of=path_str,
-        ).order_by("path")
+        q: QuerySet[Self] | QuerySet[HierarchyModel] = (
+            type(self)
+            .filter(
+                path__ancestor_of=path_str,
+            )
+            .order_by("path")
+        )
 
         if not include_self:
             q = q.exclude(pk=self.pk)
 
         return q
 
-    def get_descendants(self, *, include_self: bool = False) -> QuerySet[HierarchyModel] | QuerySet[Self]:
+    def get_descendants(
+        self, *, include_self: bool = False
+    ) -> QuerySet[HierarchyModel] | QuerySet[Self]:
         """Return all descendant nodes below this node.
 
         Uses the ltree ``<@`` (descendant-of) operator so PostgreSQL can walk
@@ -192,9 +200,13 @@ class HierarchyModel(Model):
         if not path_str:
             return type(self).filter(pk__in=[])
 
-        q: QuerySet[Self] | QuerySet[HierarchyModel] = type(self).filter(
-            path__descendant_of=path_str,
-        ).order_by("path")
+        q: QuerySet[Self] | QuerySet[HierarchyModel] = (
+            type(self)
+            .filter(
+                path__descendant_of=path_str,
+            )
+            .order_by("path")
+        )
 
         if not include_self:
             q = q.exclude(pk=self.pk)
@@ -211,11 +223,17 @@ class HierarchyModel(Model):
         Returns:
             Lazy QuerySet of child nodes.
         """
-        return type(self).filter(
-            parent_id=self.pk,
-        ).order_by("name")
+        return (
+            type(self)
+            .filter(
+                parent_id=self.pk,
+            )
+            .order_by("name")
+        )
 
-    def get_siblings(self, *, include_self: bool = False) -> QuerySet[Self] | QuerySet[HierarchyModel]:
+    def get_siblings(
+        self, *, include_self: bool = False
+    ) -> QuerySet[Self] | QuerySet[HierarchyModel]:
         """Return sibling nodes that share the same parent and depth.
 
         Uses the adjacency-list ``parent_id`` for matching.  Results are
@@ -230,10 +248,14 @@ class HierarchyModel(Model):
         if self.parent_id is None:
             return type(self).filter(pk__in=[])
 
-        q: QuerySet[Self] | QuerySet[HierarchyModel] = type(self).filter(
-            parent_id=self.parent_id,
-            depth=self.depth,
-        ).order_by("name")
+        q: QuerySet[Self] | QuerySet[HierarchyModel] = (
+            type(self)
+            .filter(
+                parent_id=self.parent_id,
+                depth=self.depth,
+            )
+            .order_by("name")
+        )
 
         if not include_self:
             q = q.exclude(pk=self.pk)
@@ -282,20 +304,22 @@ class HierarchyModel(Model):
             return [self]
 
         components = path_str.split(".")
-        ancestor_paths = [
-            ".".join(components[: i + 1]) for i in range(len(components))
-        ]
+        ancestor_paths = [".".join(components[: i + 1]) for i in range(len(components))]
 
-        nodes = await type(self).filter(
-            path__in=ancestor_paths,
-            namespace=self.namespace,
-        ).order_by("path")
+        nodes = (
+            await type(self)
+            .filter(
+                path__in=ancestor_paths,
+                namespace=self.namespace,
+            )
+            .order_by("path")
+        )
 
         result = list(nodes)
 
         # Ensure self is present (maybe an unsaved / detached instance).
         if not any(n.pk == self.pk for n in result):
-            result.append(self)  # type: ignore[arg-type]
+            result.append(self)
 
         return sorted(result, key=lambda n: n.depth)
 
@@ -331,10 +355,14 @@ class HierarchyModel(Model):
         depth_delta = new_parent.depth - self.depth + 1
 
         # Update this node.
-        _ = await type(self).filter(pk=self.pk).update(
-            path=new_path,
-            parent_id=new_parent.pk,
-            depth=new_parent.depth + 1,
+        _ = (
+            await type(self)
+            .filter(pk=self.pk)
+            .update(
+                path=new_path,
+                parent_id=new_parent.pk,
+                depth=new_parent.depth + 1,
+            )
         )
 
         # Cascade path prefix replacement to every descendant.
@@ -342,9 +370,13 @@ class HierarchyModel(Model):
             old_desc_path = _path_to_str(desc.path)
             new_desc_path = old_desc_path.replace(old_path, new_path, 1)
 
-            _ = await type(self).filter(pk=desc.pk).update(
-                path=new_desc_path,
-                depth=desc.depth + depth_delta,
+            _ = (
+                await type(self)
+                .filter(pk=desc.pk)
+                .update(
+                    path=new_desc_path,
+                    depth=desc.depth + depth_delta,
+                )
             )
 
     # ── Validation ───────────────────────────────────────────────────────
@@ -394,9 +426,7 @@ class HierarchyModel(Model):
                 errors.append(f"Parent {self.parent_id} does not exist")
             else:
                 parent_path_str = _path_to_str(parent.path)
-                if parent_path_str and not path_str.startswith(
-                    parent_path_str + "."
-                ):
+                if parent_path_str and not path_str.startswith(parent_path_str + "."):
                     errors.append(
                         f"Parent path {parent_path_str!r} is not a prefix "
                         f"of {path_str!r}"
