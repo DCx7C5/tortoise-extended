@@ -25,6 +25,22 @@ from typing import Any
 from tortoise import connections
 
 
+def _et_clause(edge_type: str | None, param_index: int) -> tuple[str, list[Any]]:
+    """Build a parameterized edge_type filter clause.
+
+    Args:
+        edge_type: Optional edge type to filter on.
+        param_index: Positional ``$N`` parameter number to use.
+
+    Returns:
+        Tuple of ``(sql_clause, params)`` where the clause is empty and
+        params is an empty list when *edge_type* is ``None``.
+    """
+    if edge_type is None:
+        return "", []
+    return f"AND e.edge_type = ${param_index}", [edge_type]
+
+
 class GraphTraversal:
     """CTE-based graph traversal with depth limits and cycle detection.
 
@@ -88,7 +104,7 @@ class GraphTraversal:
         :param edge_type: Filter by edge type (None = all types).
         :returns: List of node dicts ordered by depth ascending (root first).
         """
-        et_filter = f"AND e.edge_type = '{edge_type}'" if edge_type else ""
+        et_clause, et_params = _et_clause(edge_type, 3)
 
         sql = f"""
             WITH RECURSIVE ancestors AS (
@@ -99,26 +115,28 @@ class GraphTraversal:
                 UNION
 
                 SELECT n.id, n.name, n.depth, a.path_depth + 1
-                FROM {self._node_table} n
+                FROM ancestors a
                 JOIN {self._edge_table} e ON (
                     e.{self._target_field} = a.id
                     OR (e.is_bidirectional AND e.{self._source_field} = a.id)
                 )
-                JOIN ancestors a ON (
-                    e.{self._source_field} = a.id
-                    OR (e.is_bidirectional AND e.{self._target_field} = a.id)
+                JOIN {self._node_table} n ON (
+                    n.id = e.{self._source_field}
+                    OR (e.is_bidirectional AND n.id = e.{self._target_field})
                 )
-                WHERE a.path_depth < $2 {et_filter}
+                WHERE a.path_depth < $2 {et_clause}
                 AND n.id != $1
             )
-            SELECT DISTINCT id, name, depth, path_depth
+            SELECT id, MIN(name) AS name, MIN(depth) AS depth, MIN(path_depth) AS path_depth
             FROM ancestors
             WHERE id != $1
-            ORDER BY path_depth, name
+            GROUP BY id
+            ORDER BY MIN(path_depth), MIN(name)
         """
 
         conn = connections.get("default")
-        results, _ = await conn.execute_query(sql, [node_id, max_depth])
+        params: list[Any] = [node_id, max_depth, *et_params]
+        _, results = await conn.execute_query(sql, params)
         return [dict(r) for r in results]
 
     async def descendants(
@@ -137,7 +155,7 @@ class GraphTraversal:
         :param edge_type: Filter by edge type (None = all types).
         :returns: List of node dicts ordered by depth ascending (children first).
         """
-        et_filter = f"AND e.edge_type = '{edge_type}'" if edge_type else ""
+        et_clause, et_params = _et_clause(edge_type, 3)
 
         sql = f"""
             WITH RECURSIVE descendants AS (
@@ -148,26 +166,28 @@ class GraphTraversal:
                 UNION
 
                 SELECT n.id, n.name, n.depth, d.path_depth + 1
-                FROM {self._node_table} n
+                FROM descendants d
                 JOIN {self._edge_table} e ON (
                     e.{self._source_field} = d.id
                     OR (e.is_bidirectional AND e.{self._target_field} = d.id)
                 )
-                JOIN descendants d ON (
-                    e.{self._target_field} = d.id
-                    OR (e.is_bidirectional AND e.{self._source_field} = d.id)
+                JOIN {self._node_table} n ON (
+                    n.id = e.{self._target_field}
+                    OR (e.is_bidirectional AND n.id = e.{self._source_field})
                 )
-                WHERE d.path_depth < $2 {et_filter}
+                WHERE d.path_depth < $2 {et_clause}
                 AND n.id != $1
             )
-            SELECT DISTINCT id, name, depth, path_depth
+            SELECT id, MIN(name) AS name, MIN(depth) AS depth, MIN(path_depth) AS path_depth
             FROM descendants
             WHERE id != $1
-            ORDER BY path_depth, name
+            GROUP BY id
+            ORDER BY MIN(path_depth), MIN(name)
         """
 
         conn = connections.get("default")
-        results, _ = await conn.execute_query(sql, [node_id, max_depth])
+        params: list[Any] = [node_id, max_depth, *et_params]
+        _, results = await conn.execute_query(sql, params)
         return [dict(r) for r in results]
 
     async def neighbors(
@@ -185,79 +205,58 @@ class GraphTraversal:
         :param max_depth: Maximum traversal depth (1 = direct neighbors only).
         :returns: List of neighbor node dicts with edge metadata.
         """
-        et_filter = f"AND e.edge_type = '{edge_type}'" if edge_type else ""
+        et_clause, et_params = _et_clause(edge_type, 3)
 
-        # Build direction-specific CTE SQL
         if direction == "outgoing":
-            sql = f"""
-                WITH RECURSIVE bfs AS (
-                    SELECT n.id, n.name, n.depth, 0 AS hops
-                    FROM {self._node_table} n
-                    WHERE n.id = $1
-
-                    UNION
-
-                    SELECT n.id, n.name, n.depth, b.hops + 1
-                    FROM {self._node_table} n
-                    JOIN {self._edge_table} e ON e.{self._source_field} = b.id
-                    JOIN bfs b ON e.{self._target_field} = b.id
-                    WHERE b.hops < $2 {et_filter}
-                    AND n.id != $1
-                )
-                SELECT DISTINCT id, name, depth, hops
-                FROM bfs WHERE id != $1
-                ORDER BY hops, name
-            """
+            edge_join = (
+                f"e.{self._source_field} = b.id "
+                f"OR (e.is_bidirectional AND e.{self._target_field} = b.id)"
+            )
+            node_join = (
+                f"(e.{self._source_field} = b.id AND n.id = e.{self._target_field}) "
+                f"OR (e.is_bidirectional AND e.{self._target_field} = b.id AND n.id = e.{self._source_field})"
+            )
         elif direction == "incoming":
-            sql = f"""
-                WITH RECURSIVE bfs AS (
-                    SELECT n.id, n.name, n.depth, 0 AS hops
-                    FROM {self._node_table} n
-                    WHERE n.id = $1
-
-                    UNION
-
-                    SELECT n.id, n.name, n.depth, b.hops + 1
-                    FROM {self._node_table} n
-                    JOIN {self._edge_table} e ON e.{self._target_field} = b.id
-                    JOIN bfs b ON e.{self._source_field} = b.id
-                    WHERE b.hops < $2 {et_filter}
-                    AND n.id != $1
-                )
-                SELECT DISTINCT id, name, depth, hops
-                FROM bfs WHERE id != $1
-                ORDER BY hops, name
-            """
+            edge_join = (
+                f"e.{self._target_field} = b.id "
+                f"OR (e.is_bidirectional AND e.{self._source_field} = b.id)"
+            )
+            node_join = (
+                f"(e.{self._target_field} = b.id AND n.id = e.{self._source_field}) "
+                f"OR (e.is_bidirectional AND e.{self._source_field} = b.id AND n.id = e.{self._target_field})"
+            )
         else:
-            # "both" — outgoing + bidirectional
-            sql = f"""
-                WITH RECURSIVE bfs AS (
-                    SELECT n.id, n.name, n.depth, 0 AS hops
-                    FROM {self._node_table} n
-                    WHERE n.id = $1
+            # "both" — follow edges in either direction.
+            edge_join = f"e.{self._source_field} = b.id OR e.{self._target_field} = b.id"
+            node_join = (
+                f"(e.{self._source_field} = b.id AND n.id = e.{self._target_field}) "
+                f"OR (e.{self._target_field} = b.id AND n.id = e.{self._source_field})"
+            )
 
-                    UNION
+        sql = f"""
+            WITH RECURSIVE bfs AS (
+                SELECT n.id, n.name, n.depth, 0 AS hops
+                FROM {self._node_table} n
+                WHERE n.id = $1
 
-                    SELECT n.id, n.name, n.depth, b.hops + 1
-                    FROM {self._node_table} n
-                    JOIN {self._edge_table} e ON (
-                        e.{self._source_field} = b.id
-                        OR (e.is_bidirectional AND e.{self._target_field} = b.id)
-                    )
-                    JOIN bfs b ON (
-                        e.{self._target_field} = b.id
-                        OR (e.is_bidirectional AND e.{self._source_field} = b.id)
-                    )
-                    WHERE b.hops < $2 {et_filter}
-                    AND n.id != $1
-                )
-                SELECT DISTINCT id, name, depth, hops
-                FROM bfs WHERE id != $1
-                ORDER BY hops, name
-            """
+                UNION
+
+                SELECT n.id, n.name, n.depth, b.hops + 1
+                FROM bfs b
+                JOIN {self._edge_table} e ON ({edge_join})
+                JOIN {self._node_table} n ON ({node_join})
+                WHERE b.hops < $2 {et_clause}
+                AND n.id != $1
+            )
+            SELECT id, MIN(name) AS name, MIN(depth) AS depth, MIN(hops) AS hops
+            FROM bfs WHERE id != $1
+            GROUP BY id
+            ORDER BY MIN(hops), MIN(name)
+        """
 
         conn = connections.get("default")
-        results, _ = await conn.execute_query(sql, [node_id, max_depth])
+        params: list[Any] = [node_id, max_depth, *et_params]
+        _, results = await conn.execute_query(sql, params)
         return [dict(r) for r in results]
 
     async def has_cycle(
@@ -267,39 +266,47 @@ class GraphTraversal:
     ) -> bool:
         """Check if the graph contains any cycles.
 
-        Traverses from every node and checks if any node can reach itself.
+        Follows every directed edge (plus both directions of bidirectional
+        edges) and checks whether any node can reach itself via one or more
+        hops. Self-loops are detected as depth-1 cycles.
 
         :param edge_type: Filter by edge type (None = all types).
         :param max_depth: Maximum traversal depth to check.
         :returns: True if a cycle is detected.
         """
-        et_filter = f"AND e.edge_type = '{edge_type}'" if edge_type else ""
+        et_clause, et_params = _et_clause(edge_type, 2)
+        anchor_filter = (
+            "WHERE e.edge_type = $2" if edge_type is not None else ""
+        )
 
         sql = f"""
             SELECT EXISTS (
-                WITH RECURSIVE walk AS (
-                    SELECT n.id, 0 AS depth
-                    FROM {self._node_table} n
+                WITH RECURSIVE reach AS (
+                    SELECT e.id AS eid, e.{self._source_field} AS from_id,
+                           e.{self._target_field} AS to_id, 1 AS depth
+                    FROM {self._edge_table} e
+                    {anchor_filter}
 
                     UNION
 
-                    SELECT n.id, w.depth + 1
-                    FROM {self._node_table} n
+                    SELECT r.eid, r.from_id,
+                           CASE
+                               WHEN e.{self._source_field} = r.to_id THEN e.{self._target_field}
+                               ELSE e.{self._source_field}
+                           END AS to_id,
+                           r.depth + 1
+                    FROM reach r
                     JOIN {self._edge_table} e ON (
-                        e.{self._source_field} = w.id
-                        OR (e.is_bidirectional AND e.{self._target_field} = w.id)
+                        e.{self._source_field} = r.to_id
+                        OR (e.is_bidirectional AND e.{self._target_field} = r.to_id)
                     )
-                    JOIN walk w ON (
-                        e.{self._target_field} = w.id
-                        OR (e.is_bidirectional AND e.{self._source_field} = w.id)
-                    )
-                    WHERE w.depth < $1 {et_filter}
-                    AND n.id = w.id
+                    WHERE r.depth < $1 {et_clause}
                 )
-                SELECT 1 FROM walk WHERE depth > 0 LIMIT 1
+                SELECT 1 FROM reach WHERE from_id = to_id LIMIT 1
             ) AS has_cycle
         """
 
         conn = connections.get("default")
-        results, _ = await conn.execute_query(sql, [max_depth])
+        params: list[Any] = [max_depth, *et_params]
+        _, results = await conn.execute_query(sql, params)
         return bool(results[0]["has_cycle"])

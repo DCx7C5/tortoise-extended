@@ -1,0 +1,46 @@
+services:
+
+  postgres:
+    build:
+      context: docker/postgres-css
+      dockerfile: Dockerfile
+    container_name: css-postgres
+    ports:
+      - "127.0.0.1:5433:5432"
+    env_file:
+      - .env
+    tty: true
+    volumes:
+      - pg-data:/var/lib/postgresql
+      - ./docker/postgres-css/scripts:/docker-entrypoint-initdb.d:ro
+      - /var/run/postgresql:/var/run/postgresql
+    command: >
+      postgres
+      -c unix_socket_directories=/var/run/postgresql
+      -c unix_socket_permissions=0770
+      -c max_connections=100
+      -c shared_buffers=256MB
+
+  redis:
+    image: redis:7-alpine
+    container_name: css-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - redis-data:/var/lib/redis/
+      - ./docker/redis-css/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - /var/run/redis:/var/run/redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+volumes:
+  pg-data:
+    driver: local
+  redis-data:
+    driver: local

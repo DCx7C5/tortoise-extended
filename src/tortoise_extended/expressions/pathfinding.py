@@ -16,6 +16,22 @@ from typing import Any
 from tortoise import connections
 
 
+def _et_clause(edge_type: str | None, param_index: int) -> tuple[str, list[Any]]:
+    """Build a parameterized edge_type filter clause.
+
+    Args:
+        edge_type: Optional edge type to filter on.
+        param_index: Positional ``$N`` parameter number to use.
+
+    Returns:
+        Tuple of ``(sql_clause, params)`` where the clause is empty and
+        params is an empty list when *edge_type* is ``None``.
+    """
+    if edge_type is None:
+        return "", []
+    return f"AND e.edge_type = ${param_index}", [edge_type]
+
+
 async def shortest_path(
     node_model: type,
     edge_model: type,
@@ -51,13 +67,14 @@ async def shortest_path(
     """
     node_table = node_model._meta.db_table
     edge_table = edge_model._meta.db_table
-    et_filter = f"AND e.edge_type = '{edge_type}'" if edge_type else ""
+    et_clause, et_params = _et_clause(edge_type, 4)
 
     sql = f"""
         WITH RECURSIVE paths AS (
             SELECT
                 n.id, n.name, n.depth,
                 ARRAY[n.id] AS path_ids,
+                ARRAY[n.name::text] AS path_names,
                 0 AS hops
             FROM {node_table} n
             WHERE n.id = $1
@@ -67,21 +84,22 @@ async def shortest_path(
             SELECT
                 n.id, n.name, n.depth,
                 p.path_ids || n.id,
+                p.path_names || n.name,
                 p.hops + 1
-            FROM {node_table} n
+            FROM paths p
             JOIN {edge_table} e ON (
                 e.source_id = p.id
                 OR (e.is_bidirectional AND e.target_id = p.id)
             )
-            JOIN paths p ON (
-                e.target_id = p.id
-                OR (e.is_bidirectional AND e.source_id = p.id)
+            JOIN {node_table} n ON (
+                (e.source_id = p.id AND n.id = e.target_id)
+                OR (e.is_bidirectional AND e.target_id = p.id AND n.id = e.source_id)
             )
             WHERE p.hops < $2
             AND NOT (n.id = ANY(p.path_ids))
-            {et_filter}
+            {et_clause}
         )
-        SELECT id, name, depth, hops
+        SELECT path_ids, path_names, hops
         FROM paths
         WHERE id = $3
         ORDER BY hops
@@ -89,10 +107,15 @@ async def shortest_path(
     """
 
     conn = connections.get("default")
-    results, _ = await conn.execute_query(sql, [from_id, max_hops, to_id])
+    params: list[Any] = [from_id, max_hops, to_id, *et_params]
+    _, results = await conn.execute_query(sql, params)
     if not results:
         return None
-    return [dict(r) for r in results]
+    row = results[0]
+    return [
+        {"id": pid, "name": pname}
+        for pid, pname in zip(row["path_ids"], row["path_names"], strict=False)
+    ]
 
 
 async def all_paths(
@@ -132,14 +155,14 @@ async def all_paths(
     """
     node_table = node_model._meta.db_table
     edge_table = edge_model._meta.db_table
-    et_filter = f"AND e.edge_type = '{edge_type}'" if edge_type else ""
+    et_clause, et_params = _et_clause(edge_type, 5)
 
     sql = f"""
         WITH RECURSIVE paths AS (
             SELECT
                 n.id, n.name, n.depth,
                 ARRAY[n.id] AS path_ids,
-                ARRAY[n.name] AS path_names,
+                ARRAY[n.name::text] AS path_names,
                 0 AS hops
             FROM {node_table} n
             WHERE n.id = $1
@@ -151,20 +174,20 @@ async def all_paths(
                 p.path_ids || n.id,
                 p.path_names || n.name,
                 p.hops + 1
-            FROM {node_table} n
+            FROM paths p
             JOIN {edge_table} e ON (
                 e.source_id = p.id
                 OR (e.is_bidirectional AND e.target_id = p.id)
             )
-            JOIN paths p ON (
-                e.target_id = p.id
-                OR (e.is_bidirectional AND e.source_id = p.id)
+            JOIN {node_table} n ON (
+                (e.source_id = p.id AND n.id = e.target_id)
+                OR (e.is_bidirectional AND e.target_id = p.id AND n.id = e.source_id)
             )
             WHERE p.hops < $2
             AND NOT (n.id = ANY(p.path_ids))
-            {et_filter}
+            {et_clause}
         )
-        SELECT path_ids, path_names, hops
+        SELECT DISTINCT path_ids, path_names, hops
         FROM paths
         WHERE id = $3
         ORDER BY hops
@@ -172,7 +195,8 @@ async def all_paths(
     """
 
     conn = connections.get("default")
-    results, _ = await conn.execute_query(sql, [from_id, max_hops, to_id, max_paths])
+    params: list[Any] = [from_id, max_hops, to_id, max_paths, *et_params]
+    _, results = await conn.execute_query(sql, params)
 
     paths = []
     for row in results:
@@ -192,14 +216,17 @@ async def find_cycles(
 ) -> list[list[dict[str, Any]]]:
     """Detect cycles in the graph.
 
-    Returns a list of cycles found. Each cycle is a list of node
-    dicts forming a closed loop. Returns empty list if no cycles.
+    Walks every edge (plus both directions of bidirectional edges) and
+    returns each simple cycle exactly once — the cycle is canonicalized
+    so the walk always starts at its minimum node ID, rotations are not
+    duplicated, and walks never circle a cycle more than once.
 
     :param node_model: Tortoise ORM model for nodes.
     :param edge_model: Tortoise ORM model for edges.
     :param max_depth: Maximum cycle length to detect.
     :param edge_type: Filter by edge type (None = all types).
-    :returns: List of cycles, each cycle is a list of node dicts.
+    :returns: List of cycles, each cycle is a list of node dicts
+        (without the repeated closing node).
 
     Usage::
 
@@ -209,95 +236,65 @@ async def find_cycles(
     """
     node_table = node_model._meta.db_table
     edge_table = edge_model._meta.db_table
-    et_filter = f"AND e.edge_type = '{edge_type}'" if edge_type else ""
+    et_clause, et_params = _et_clause(edge_type, 2)
 
     sql = f"""
         WITH RECURSIVE walk AS (
             SELECT
-                n.id, n.name,
+                n.id AS start_id,
+                n.id AS curr_id,
                 ARRAY[n.id] AS path_ids,
-                ARRAY[n.name] AS path_names,
+                ARRAY[n.name::text] AS path_names,
                 0 AS depth
             FROM {node_table} n
 
             UNION
 
             SELECT
-                n.id, n.name,
+                w.start_id,
+                n.id AS curr_id,
                 w.path_ids || n.id,
                 w.path_names || n.name,
                 w.depth + 1
-            FROM {node_table} n
+            FROM walk w
             JOIN {edge_table} e ON (
-                e.source_id = w.id
-                OR (e.is_bidirectional AND e.target_id = w.id)
+                e.source_id = w.curr_id
+                OR (e.is_bidirectional AND e.target_id = w.curr_id)
             )
-            JOIN walk w ON (
-                e.target_id = w.id
-                OR (e.is_bidirectional AND e.source_id = w.id)
+            JOIN {node_table} n ON (
+                (e.source_id = w.curr_id AND n.id = e.target_id)
+                OR (e.is_bidirectional AND e.target_id = w.curr_id AND n.id = e.source_id)
             )
-            WHERE w.depth < $1 {et_filter}
-            AND NOT (n.id = ANY(w.path_ids))
+            WHERE w.depth < $1 {et_clause}
+            -- Allow the anchor (depth 0) to take its first hop, but never
+            -- extend a walk that has already closed (curr_id = start_id).
+            AND (w.depth = 0 OR w.curr_id <> w.start_id)
+            -- Close the walk when returning to the start; otherwise only
+            -- visit unvisited nodes that sort after the start so each
+            -- cycle is reported once, starting at its minimum node.
+            AND (n.id = w.start_id OR (NOT (n.id = ANY(w.path_ids)) AND n.id > w.start_id))
         )
         SELECT DISTINCT path_ids, path_names, depth
         FROM walk
         WHERE depth > 0
-        AND id = (
-            SELECT walk.path_ids[1] FROM walk
-            WHERE walk.path_ids[walk.depth + 1] = walk.id
-            AND walk.depth > 0
-            LIMIT 1
-        )
-        ORDER BY depth
-        LIMIT 100
-    """
-
-    # Simpler approach: find nodes that can reach themselves
-    sql = f"""
-        WITH RECURSIVE walk AS (
-            SELECT
-                n.id, n.name,
-                ARRAY[n.id] AS path_ids,
-                ARRAY[n.name] AS path_names,
-                0 AS depth
-            FROM {node_table} n
-
-            UNION
-
-            SELECT
-                n.id, n.name,
-                w.path_ids || n.id,
-                w.path_names || n.name,
-                w.depth + 1
-            FROM {node_table} n
-            JOIN {edge_table} e ON (
-                e.source_id = w.id
-                OR (e.is_bidirectional AND e.target_id = w.id)
-            )
-            JOIN walk w ON (
-                e.target_id = w.id
-                OR (e.is_bidirectional AND e.source_id = w.id)
-            )
-            WHERE w.depth < $1 {et_filter}
-            AND NOT (n.id = ANY(w.path_ids))
-        )
-        SELECT path_ids, path_names, depth
-        FROM walk
-        WHERE depth > 0
-        AND id = path_ids[1]
-        GROUP BY path_ids, path_names, depth
+        AND curr_id = path_ids[1]
         ORDER BY depth
         LIMIT 100
     """
 
     conn = connections.get("default")
-    results, _ = await conn.execute_query(sql, [max_depth])
+    params: list[Any] = [max_depth, *et_params]
+    _, results = await conn.execute_query(sql, params)
 
     cycles = []
     for row in results:
+        # The closing start node is repeated at the end of the walk —
+        # strip it so the printed cycle reads "a → b → a".
+        path_ids = row["path_ids"][:-1]
+        path_names = row["path_names"][:-1]
         cycle = [
             {"id": cid, "name": cname}
-            for cid, cname in zip(row["path_ids"], row["path_names"], strict=False)
+            for cid, cname in zip(path_ids, path_names, strict=False)
         ]
         cycles.append(cycle)
     return cycles
