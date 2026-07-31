@@ -19,9 +19,14 @@ Usage::
     )
 """
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 from tortoise import connections
+
+from tortoise_extended._types import RowMapping
+
+if TYPE_CHECKING:
+    from tortoise.models import Model
 
 from tortoise_extended.expressions.graph_filters import vector_encoder
 
@@ -66,7 +71,7 @@ class HybridSearch:
 
     def __init__(
         self,
-        model: type,
+        model: type[Model],
         vector_field: str = "embedding",
         text_field: str = "description",
         tsvector_field: str | None = None,
@@ -105,7 +110,7 @@ class HybridSearch:
         query_text: str | None = None,
         max_results: int = 20,
         min_distance: float | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[RowMapping]:
         """Execute hybrid search with weighted scoring.
 
         :param query_vector: Query embedding (list of floats or pgvector string).
@@ -146,7 +151,7 @@ class HybridSearch:
                 ORDER BY combined_score DESC
                 LIMIT $3
             """
-            params: list[Any] = [vector_literal, query_text, max_results]
+            params: list[object] = [vector_literal, query_text, max_results]
             if min_distance is not None:
                 params.append(min_distance)
         else:

@@ -15,10 +15,12 @@ Usage::
             table = "relationships"
 """
 
-from typing import TYPE_CHECKING, Any, Self, override
+from typing import TYPE_CHECKING, Self, override
 
 from tortoise import fields
 from tortoise.models import Model
+
+from tortoise_extended._types import LibraryAny
 
 if TYPE_CHECKING:
     from tortoise.queryset import QuerySet
@@ -139,7 +141,7 @@ class GraphEdge(Model):
         Returns:
             QuerySet of edges matching the criteria
         """
-        filters: dict[str, Any] = {
+        filters: dict[str, LibraryAny] = {  # pyright: ignore[reportExplicitAny]
             "source_id": source_id,
             "target_id": target_id,
             "namespace": namespace,
@@ -191,7 +193,7 @@ class GraphEdge(Model):
         Returns:
             QuerySet of outgoing edges
         """
-        filters: dict[str, Any] = {
+        filters: dict[str, LibraryAny] = {  # pyright: ignore[reportExplicitAny]
             "source_id": source_id,
             "namespace": namespace,
         }
@@ -216,7 +218,7 @@ class GraphEdge(Model):
         Returns:
             QuerySet of incoming edges
         """
-        filters: dict[str, Any] = {
+        filters: dict[str, LibraryAny] = {  # pyright: ignore[reportExplicitAny]
             "target_id": target_id,
             "namespace": namespace,
         }

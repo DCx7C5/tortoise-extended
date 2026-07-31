@@ -14,13 +14,39 @@ Usage::
             indexes = [GiSTIndex(fields=("path",))]
 """
 
-from typing import TYPE_CHECKING, override
+from collections.abc import Callable
+from typing import TYPE_CHECKING, cast, override
 
 from tortoise.indexes import Index
 
 if TYPE_CHECKING:
     from tortoise.backends.base.schema_generator import BaseSchemaGenerator
     from tortoise.models import Model
+
+
+def _qualify_table_name(schema_generator: object, table_name: str, schema: str | None) -> str:
+    """Call the schema generator's ``_qualify_table_name`` helper.
+
+    ``getattr`` is required because pyright flags protected-member access
+    against the declaring class (see ``_types.py`` note on Protocols).
+    """
+    method = cast(
+        Callable[[str, str | None], str],
+        getattr(schema_generator, "_qualify_table_name"),
+    )
+    return method(table_name, schema)
+
+
+def _get_index_name(schema_generator: object, prefix: str, model: object, field_names: list[str]) -> str:
+    """Call the schema generator's ``_get_index_name`` helper."""
+    method = cast(Callable[[str, object, list[str]], str], getattr(schema_generator, "_get_index_name"))
+    return method(prefix, model, field_names)
+
+
+def _format_index_fields(schema_generator: object, field_names: list[str]) -> str:
+    """Call the schema generator's ``_format_index_fields`` helper."""
+    method = cast(Callable[[list[str]], str], getattr(schema_generator, "_format_index_fields"))
+    return method(field_names)
 
 
 class GiSTIndex(Index):
@@ -48,13 +74,9 @@ class GiSTIndex(Index):
     @override
     def get_sql(self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool) -> str:
         self.resolve_expressions(model)
-        table_name = schema_generator._qualify_table_name(
-            model._meta.db_table, model._meta.schema
-        )
-        index_name = self.name or schema_generator._get_index_name(
-            "gist", model, self.field_names
-        )
-        fields = schema_generator._format_index_fields(self.field_names)
+        table_name = _qualify_table_name(schema_generator, model._meta.db_table, model._meta.schema)
+        index_name = self.name or _get_index_name(schema_generator, "gist", model, self.field_names)
+        fields = _format_index_fields(schema_generator, self.field_names)
         exists = "IF NOT EXISTS " if safe else ""
         return (
             f'CREATE INDEX {exists}"{index_name}" ON {table_name} '
