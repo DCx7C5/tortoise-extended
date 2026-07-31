@@ -7,7 +7,34 @@ and state_forward no-op. No database connection required.
 from tortoise_extended.migrations.operations import (
     CreateContinuousAggregate,
     CreateHypertable,
+    _quote_ident,
+    _quote_literal,
 )
+
+
+# ---------------------------------------------------------------------------
+# SQL quoting helpers
+# ---------------------------------------------------------------------------
+
+
+class TestSqlQuoting:
+    """Tests for SQL quoting helpers used by migration operations."""
+
+    def test_quote_ident(self) -> None:
+        """Identifiers should be double-quoted."""
+        assert _quote_ident("events") == '"events"'
+
+    def test_quote_ident_escapes_double_quote(self) -> None:
+        """Embedded double quotes should be doubled."""
+        assert _quote_ident('weird"name') == '"weird""name"'
+
+    def test_quote_literal(self) -> None:
+        """Literals should be single-quoted."""
+        assert _quote_literal("7 days") == "'7 days'"
+
+    def test_quote_literal_escapes_quote(self) -> None:
+        """Embedded single quotes should be doubled."""
+        assert _quote_literal("it's") == "'it''s'"
 
 
 # ---------------------------------------------------------------------------

@@ -40,6 +40,7 @@ class HybridSearch:
     :param distance_metric: ``"cosine"``, ``"l2"``, or ``"inner_product"``.
     :param vector_weight: Weight for vector similarity (default: 0.7).
     :param text_weight: Weight for text ranking (default: 0.3).
+    :raises ValueError: If ``distance_metric`` is not one of the supported metrics.
 
     Usage::
 
@@ -61,6 +62,8 @@ class HybridSearch:
             print(f"{r['name']}: score={r['combined_score']:.3f}")
     """
 
+    _METRICS: tuple[str, ...] = ("cosine", "l2", "inner_product")
+
     def __init__(
         self,
         model: type,
@@ -71,6 +74,11 @@ class HybridSearch:
         vector_weight: float = 0.7,
         text_weight: float = 0.3,
     ) -> None:
+        if distance_metric not in self._METRICS:
+            raise ValueError(
+                f"Unsupported distance_metric {distance_metric!r}; "
+                f"expected one of {', '.join(self._METRICS)}"
+            )
         self.model = model
         self.vector_field = vector_field
         self.text_field = text_field
@@ -79,14 +87,17 @@ class HybridSearch:
         self.vector_weight = vector_weight
         self.text_weight = text_weight
 
-    def _distance_sql(self, field: str, vector_str: str) -> str:
-        """Generate distance SQL expression for the selected metric."""
-        metric_map = {
-            "cosine": f"{field} <=> '{vector_str}'::vector",
-            "l2": f"{field} <-> '{vector_str}'::vector",
-            "inner_product": f"(-1) * ({field} <#> '{vector_str}'::vector)",
-        }
-        return metric_map[self.distance_metric]
+    def _distance_sql(self, field: str, param_index: int) -> str:
+        """Generate a distance SQL expression for the selected metric.
+
+        The query vector is referenced as ``${param_index}::vector`` so it is
+        bound as a query parameter rather than interpolated into the SQL text.
+        """
+        if self.distance_metric == "cosine":
+            return f"{field} <=> ${param_index}::vector"
+        if self.distance_metric == "l2":
+            return f"{field} <-> ${param_index}::vector"
+        return f"(-1) * ({field} <#> ${param_index}::vector)"
 
     async def search(
         self,
@@ -98,41 +109,53 @@ class HybridSearch:
         """Execute hybrid search with weighted scoring.
 
         :param query_vector: Query embedding (list of floats or pgvector string).
+            A string is passed as a pgvector literal (``"[0.1,0.2]"``), without
+            surrounding SQL quotes.
         :param query_text: Text query for FTS (None = vector-only search).
         :param max_results: Maximum results to return.
         :param min_distance: Minimum distance threshold (None = no filter).
         :returns: List of dicts with model fields + score metadata.
         """
         table = self.model._meta.db_table
-        vector_str = (
-            query_vector
-            if isinstance(query_vector, str)
-            else vector_encoder(query_vector)
-        )
-
-        distance_expr = self._distance_sql(self.vector_field, vector_str)
+        if isinstance(query_vector, str):
+            vector_literal = query_vector.strip().strip("'\"")
+        else:
+            vector_literal = vector_encoder(query_vector)
 
         if query_text and self.text_weight > 0:
-            # Combined score: weighted vector + text ranking
+            # Combined score: weighted vector + text ranking.
+            # $1 = vector literal, $2 = query_text, $3 = max_results,
+            # $4 = min_distance (only when a threshold is set).
+            distance_expr = self._distance_sql(self.vector_field, 1)
+            distance_filter = (
+                f"AND ({distance_expr}) <= $4" if min_distance is not None else ""
+            )
             sql = f"""
                 SELECT
                     t.*,
                     {distance_expr} AS distance,
-                    ts_rank_cd(t.{self.tsvector_field}, plainto_tsquery('english', $1)) AS text_score,
+                    ts_rank_cd(t.{self.tsvector_field}, plainto_tsquery('english', $2)) AS text_score,
                     (
                         {self.vector_weight} * (1.0 - ({distance_expr})) +
-                        {self.text_weight} * ts_rank_cd(t.{self.tsvector_field}, plainto_tsquery('english', $1))
+                        {self.text_weight} * ts_rank_cd(t.{self.tsvector_field}, plainto_tsquery('english', $2))
                     ) AS combined_score
                 FROM {table} t
                 WHERE t.{self.vector_field} IS NOT NULL
                 AND t.{self.tsvector_field} IS NOT NULL
-                {"AND " + distance_expr + f" <= {min_distance}" if min_distance is not None else ""}
+                {distance_filter}
                 ORDER BY combined_score DESC
-                LIMIT $2
+                LIMIT $3
             """
-            params: list[Any] = [query_text, max_results]
+            params: list[Any] = [vector_literal, query_text, max_results]
+            if min_distance is not None:
+                params.append(min_distance)
         else:
-            # Vector-only search
+            # Vector-only search.
+            # $1 = vector literal, $2 = max_results, $3 = min_distance.
+            distance_expr = self._distance_sql(self.vector_field, 1)
+            distance_filter = (
+                f"AND ({distance_expr}) <= $3" if min_distance is not None else ""
+            )
             sql = f"""
                 SELECT
                     t.*,
@@ -141,12 +164,14 @@ class HybridSearch:
                     (1.0 - ({distance_expr})) AS combined_score
                 FROM {table} t
                 WHERE t.{self.vector_field} IS NOT NULL
-                {"AND " + distance_expr + f" <= {min_distance}" if min_distance is not None else ""}
+                {distance_filter}
                 ORDER BY combined_score DESC
-                LIMIT $1
+                LIMIT $2
             """
-            params = [max_results]
+            params = [vector_literal, max_results]
+            if min_distance is not None:
+                params.append(min_distance)
 
         conn = connections.get("default")
-        results, _ = await conn.execute_query(sql, params)
+        _, results = await conn.execute_query(sql, params)
         return [dict(r) for r in results]

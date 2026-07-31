@@ -62,21 +62,27 @@ class TestHybridSearchDistanceMetrics:
 
     def test_cosine_distance_sql(self, mock_model: MagicMock) -> None:
         search = HybridSearch(model=mock_model, distance_metric="cosine")
-        sql = search._distance_sql("embedding", "[1.0,2.0]")
+        sql = search._distance_sql("embedding", 1)
         assert "<=>" in sql
         assert "embedding" in sql
-        assert "[1.0,2.0]" in sql
+        assert "$1::vector" in sql
 
     def test_l2_distance_sql(self, mock_model: MagicMock) -> None:
         search = HybridSearch(model=mock_model, distance_metric="l2")
-        sql = search._distance_sql("embedding", "[1.0,2.0]")
+        sql = search._distance_sql("embedding", 2)
         assert "<->" in sql
+        assert "$2::vector" in sql
 
     def test_inner_product_distance_sql(self, mock_model: MagicMock) -> None:
         search = HybridSearch(model=mock_model, distance_metric="inner_product")
-        sql = search._distance_sql("embedding", "[1.0,2.0]")
+        sql = search._distance_sql("embedding", 3)
         assert "<#>" in sql
         assert "(-1)" in sql
+        assert "$3::vector" in sql
+
+    def test_invalid_distance_metric_raises(self, mock_model: MagicMock) -> None:
+        with pytest.raises(ValueError, match="distance_metric"):
+            HybridSearch(model=mock_model, distance_metric="hamming")
 
 
 class TestHybridSearchMethod:

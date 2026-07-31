@@ -15,6 +15,16 @@ if TYPE_CHECKING:
     from tortoise.migrations.writer import ImportManager
 
 
+def _quote_ident(name: str) -> str:
+    """Double-quote a PostgreSQL identifier, escaping embedded double quotes."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _quote_literal(value: str) -> str:
+    """Single-quote a PostgreSQL string literal, escaping embedded quotes."""
+    return "'" + value.replace("'", "''") + "'"
+
+
 def _patch_format_operation() -> None:
     """Patch MigrationWriter to serialize custom operations generically."""
     _original = MigrationWriter._format_operation
@@ -100,15 +110,17 @@ class CreateHypertable(Operation):
             return
 
         sql = (
-            f"SELECT create_hypertable('{self.table_name}', '{self.time_column}', "
+            f"SELECT create_hypertable({_quote_literal(self.table_name)}, "
+            f"{_quote_literal(self.time_column)}, "
             f"if_not_exists => TRUE, migrate_data => {str(self.migrate_data).upper()})"
         )
         await state_editor._run_sql(sql)
 
         if self.chunk_time_interval != "7 days":
             interval_sql = (
-                f"ALTER TABLE {self.table_name} "
-                f"SET (timescaledb.chunk_time_interval = '{self.chunk_time_interval}')"
+                f"ALTER TABLE {_quote_ident(self.table_name)} "
+                f"SET (timescaledb.chunk_time_interval = "
+                f"{_quote_literal(self.chunk_time_interval)})"
             )
             await state_editor._run_sql(interval_sql)
 
@@ -134,7 +146,8 @@ class CreateHypertable(Operation):
         if state_editor is None:
             return
         sql = (
-            f"SELECT convert_from_hypertable('{self.table_name}', if_exists => TRUE)"
+            f"SELECT convert_from_hypertable("
+            f"{_quote_literal(self.table_name)}, if_exists => TRUE)"
         )
         await state_editor._run_sql(sql)
 
@@ -190,17 +203,18 @@ class CreateContinuousAggregate(Operation):
 
         # Create the continuous aggregate view
         create_sql = (
-            f"CREATE MATERIALIZED VIEW IF NOT EXISTS {self.view_name} "
+            f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_quote_ident(self.view_name)} "
             f"WITH (timescaledb.continuous) AS {self.query}"
         )
         await state_editor._run_sql(create_sql)
 
         # Add refresh policy
         refresh_sql = (
-            f"SELECT add_continuous_aggregate_policy('{self.view_name}', "
+            f"SELECT add_continuous_aggregate_policy("
+            f"{_quote_literal(self.view_name)}, "
             f"start_offset => INTERVAL '1 hour', "
             f"end_offset => INTERVAL '0', "
-            f"schedule_interval => INTERVAL '{self.refresh_interval}')"
+            f"schedule_interval => INTERVAL {_quote_literal(self.refresh_interval)})"
         )
         await state_editor._run_sql(refresh_sql)
 
@@ -225,5 +239,5 @@ class CreateContinuousAggregate(Operation):
     ) -> None:
         if state_editor is None:
             return
-        sql = f"DROP MATERIALIZED VIEW IF EXISTS {self.view_name}"
+        sql = f"DROP MATERIALIZED VIEW IF EXISTS {_quote_ident(self.view_name)}"
         await state_editor._run_sql(sql)
