@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, Any, override
 
 from tortoise.indexes import Index
+from tortoise_extended.exceptions import IndexDefinitionError
 
 if TYPE_CHECKING:
     from tortoise.backends.base.schema_generator import BaseSchemaGenerator
@@ -45,7 +46,7 @@ class HNSWIndex(Index):
         dist_metric: str = "vector_l2_ops",
     ) -> None:
         if dist_metric not in _VALID_HNSW_METRICS:
-            raise ValueError(
+            raise IndexDefinitionError(
                 f"Invalid dist_metric: {dist_metric!r}. "
                 f"Must be one of {sorted(_VALID_HNSW_METRICS)}"
             )
@@ -71,7 +72,9 @@ class HNSWIndex(Index):
         return path, args, kwargs
 
     @override
-    def get_sql(self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool) -> str:
+    def get_sql(
+        self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool
+    ) -> str:
         # NOTE: Can't use _get_index_sql() — pgvector's USING ... WITH ()
         # syntax doesn't match INDEX_CREATE_TEMPLATE. If Tortoise adds a
         # hook for custom index SQL, migrate to that.
@@ -114,7 +117,7 @@ class IVFFlatIndex(Index):
         dist_metric: str = "vector_l2_ops",
     ) -> None:
         if dist_metric not in _VALID_IVFFLAT_METRICS:
-            raise ValueError(
+            raise IndexDefinitionError(
                 f"Invalid dist_metric: {dist_metric!r}. "
                 f"Must be one of {sorted(_VALID_IVFFLAT_METRICS)}"
             )
@@ -137,7 +140,9 @@ class IVFFlatIndex(Index):
         return path, args, kwargs
 
     @override
-    def get_sql(self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool) -> str:
+    def get_sql(
+        self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool
+    ) -> str:
         # NOTE: Can't use _get_index_sql() — pgvector's USING ... WITH ()
         # syntax doesn't match INDEX_CREATE_TEMPLATE. If Tortoise adds a
         # hook for custom index SQL, migrate to that.

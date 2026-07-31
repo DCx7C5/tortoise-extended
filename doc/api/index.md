@@ -15,6 +15,7 @@ Complete API documentation for all tortoise-extended modules.
 - **[Graph (Node/Edge/Mixin)](graph.md)** — GraphNode, GraphEdge, HierarchyMixin base classes
 - **[TimescaleDB](timescale.md)** — HypertableManager, CompressionManager, RetentionPolicy, ContinuousAggregateManager
 - **[Cache (Redis)](cache.md)** — RedisCache, CacheableModel, CachedQuerySet, decorators
+- **[Exceptions](exceptions.md)** — domain error hierarchy (all derive from `TortoiseExtendedError`)
 - **[Migrations](migrations.md)** — CreateHypertable, CreateContinuousAggregate migration operations
 
 ## Quick Reference
@@ -68,4 +69,18 @@ from tortoise_extended import (
 ### Migrations
 ```python
 from tortoise_extended import CreateHypertable, CreateContinuousAggregate
+```
+
+### Exceptions
+All errors derive from `TortoiseExtendedError`:
+
+```python
+from tortoise_extended import (
+    CacheError, CacheKeyError, CacheSerializationError, CacheDataError,
+    CacheBackendNotInitializedError, RedisCacheError,
+    FieldDefinitionError, VectorFieldError, LTreeFieldError,
+    IndexDefinitionError, GraphError, GraphTraversalError, HierarchyError,
+    RecursiveCTEError, HybridSearchError, TimescaleError,
+    MigrationOperationError, TortoiseExtendedError,
+)
 ```

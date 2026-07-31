@@ -10,6 +10,7 @@ import pytest
 from tortoise import fields
 from tortoise.models import Model
 
+from tortoise_extended.exceptions import HybridSearchError
 from tortoise_extended.expressions.hybrid_search import HybridSearch
 from tortoise_extended.fields.vector_field import VectorField
 
@@ -87,7 +88,7 @@ class TestHybridSearchDistanceMetrics:
         assert "$3::vector" in sql
 
     def test_invalid_distance_metric_raises(self) -> None:
-        with pytest.raises(ValueError, match="distance_metric"):
+        with pytest.raises(HybridSearchError, match="distance_metric"):
             HybridSearch(model=SearchEntity, distance_metric="hamming")
 
 

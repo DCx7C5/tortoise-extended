@@ -13,6 +13,7 @@ import pytest
 from tortoise import Tortoise
 
 import tortoise_extended  # noqa: F401 — apply patches
+from tortoise_extended.exceptions import HierarchyError
 from tortoise_extended.graph.hierarchy_model import HierarchyModel
 
 # ---------------------------------------------------------------------------
@@ -247,7 +248,7 @@ class TestHierarchyMutations:
     @pytest.mark.asyncio
     async def test_move_into_own_descendant_raises(self) -> None:
         electronics, laptops, macbook, phones = await _make_tree()
-        with pytest.raises(ValueError):
+        with pytest.raises(HierarchyError):
             await electronics.move_to(macbook)
 
     @pytest.mark.asyncio

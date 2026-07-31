@@ -10,7 +10,8 @@ Requires: PostgreSQL + ``CREATE EXTENSION IF NOT EXISTS ltree;``
 Usage::
 
     from tortoise import fields
-    from tortoise_extended.graph.hierarchy_model import HierarchyModel
+    from tortoise_extended.exceptions import HierarchyError
+from tortoise_extended.graph.hierarchy_model import HierarchyModel
 
     class Category(HierarchyModel):
         slug = fields.CharField(max_length=50)
@@ -25,6 +26,7 @@ from typing import Self, override
 
 from tortoise import fields
 from tortoise.models import Model
+from tortoise_extended.exceptions import HierarchyError
 from tortoise.queryset import QuerySet
 
 from tortoise_extended.fields.ltree_field import LTreeField
@@ -344,11 +346,11 @@ class HierarchyModel(Model):
         new_parent_path_str = _path_to_str(new_parent.path)
 
         if not self_path_str or not new_parent_path_str:
-            raise ValueError("Both source and target must have paths")
+            raise HierarchyError("Both source and target must have paths")
 
         # Cycle guard — new_parent must not sit inside this node's subtree.
         if new_parent_path_str.startswith(self_path_str + "."):
-            raise ValueError("Cannot move a node into its own descendant")
+            raise HierarchyError("Cannot move a node into its own descendant")
 
         old_path = self_path_str
         new_path = f"{new_parent_path_str}.{self.name}"

@@ -2,6 +2,7 @@
 
 import pytest
 
+from tortoise_extended.exceptions import IndexDefinitionError
 from tortoise_extended.indexes.hnsw_index import HNSWIndex, IVFFlatIndex
 
 
@@ -20,7 +21,7 @@ class TestHNSWIndex:
         assert idx.dist_metric == "vector_cosine_ops"
 
     def test_dist_metric_validation(self) -> None:
-        with pytest.raises(ValueError, match="Invalid dist_metric"):
+        with pytest.raises(IndexDefinitionError, match="Invalid dist_metric"):
             HNSWIndex(fields=("embedding",), dist_metric="euclidean")
 
     def test_dist_metric_valid_options(self) -> None:
@@ -61,7 +62,7 @@ class TestIVFFlatIndex:
         assert idx.dist_metric == "vector_ip_ops"
 
     def test_dist_metric_validation(self) -> None:
-        with pytest.raises(ValueError, match="Invalid dist_metric"):
+        with pytest.raises(IndexDefinitionError, match="Invalid dist_metric"):
             IVFFlatIndex(fields=("embedding",), dist_metric="vector_cosine_ops")
 
     def test_dist_metric_valid_options(self) -> None:

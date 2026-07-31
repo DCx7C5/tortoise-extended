@@ -28,10 +28,17 @@ Usage:
 
 import contextlib
 import logging
+from collections.abc import Iterable
 from datetime import datetime
-from typing import Any, ClassVar, Self, override
+from typing import TYPE_CHECKING, ClassVar, Self, cast, override
 
 from tortoise import models
+
+from tortoise_extended._types import LibraryAny, ModelKwargs, SerializedRecord
+from tortoise_extended.exceptions import CacheDataError, CacheError
+
+if TYPE_CHECKING:
+    from tortoise.backends.base.client import BaseDBAsyncClient
 
 from tortoise_extended.cache.base import CacheBackend, CacheKey, Serializer
 from tortoise_extended.cache.redis import RedisCache
@@ -71,7 +78,7 @@ class CacheableModel(models.Model):
         )
 
     @classmethod
-    def _cache_key_for(cls, **kwargs: Any) -> str:
+    def _cache_key_for(cls, **kwargs: LibraryAny) -> str:  # pyright: ignore[reportExplicitAny]
         """Build cache key from lookup kwargs."""
         key = CacheKey(cls.__name__)
         for k, v in sorted(kwargs.items()):
@@ -79,7 +86,7 @@ class CacheableModel(models.Model):
         return key.build()
 
     @classmethod
-    async def get_cached(cls, **kwargs: Any) -> Self | None:
+    async def get_cached(cls, **kwargs: ModelKwargs) -> Self | None:
         """Get instance by kwargs, using cache.
 
         Usage:
@@ -87,35 +94,35 @@ class CacheableModel(models.Model):
             entity = await Entity.get_cached(id="uuid-here")
         """
         if cls._cache_ttl <= 0:
-            return await cls.get(**kwargs)
+            return await cls.get(**cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
 
         backend = cls._get_backend()
-        cache_key = cls._cache_key_for(**kwargs)
+        cache_key = cls._cache_key_for(**cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
 
         # Try cache
         try:
             cached = await backend.get(cache_key)
             if cached is not None:
                 if not isinstance(cached, dict):
-                    raise TypeError(f"Expected dict from cache, got {type(cached).__name__}")
-                return cls._from_cache(cached)
-        except Exception:
+                    raise CacheDataError(f"Expected dict from cache, got {type(cached).__name__}")
+                return cls._from_cache(cast(SerializedRecord, cached))
+        except CacheError:
             logger.debug("Cache read error for key %s", cache_key, exc_info=True)
 
         # Query database
         try:
-            instance = await cls.get(**kwargs)
+            instance = await cls.get(**cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
         except models.Model.DoesNotExist:
             return None
 
         # Cache result
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(CacheError):
             await backend.set(cache_key, cls._to_cache(instance), ttl=cls._cache_ttl)
 
         return instance
 
     @classmethod
-    async def filter_cached(cls, **kwargs: Any) -> list[Self]:
+    async def filter_cached(cls, **kwargs: ModelKwargs) -> list[Self]:
         """Filter instances using cache.
 
         Usage:
@@ -123,37 +130,37 @@ class CacheableModel(models.Model):
             entities = await Entity.filter_cached(type="TECHNOLOGY")
         """
         if cls._cache_ttl <= 0:
-            return await cls.filter(**kwargs).all()
+            return await cls.filter(**cast(dict[str, LibraryAny], kwargs)).all()  # pyright: ignore[reportExplicitAny]
 
         backend = cls._get_backend()
-        cache_key = cls._cache_key_for(**kwargs)
+        cache_key = cls._cache_key_for(**cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
 
         # Try cache
         try:
             cached = await backend.get(cache_key)
             if cached is not None:
                 if not isinstance(cached, list):
-                    raise TypeError(f"Expected list from cache, got {type(cached).__name__}")
-                return [cls._from_cache(item) for item in cached]
-        except Exception:
+                    raise CacheDataError(f"Expected list from cache, got {type(cached).__name__}")
+                return [cls._from_cache(item) for item in cast(list[SerializedRecord], cached)]
+        except CacheError:
             logger.debug("Cache read error for key %s", cache_key, exc_info=True)
 
         # Query database
-        instances = await cls.filter(**kwargs).all()
+        instances = await cls.filter(**cast(dict[str, LibraryAny], kwargs)).all()  # pyright: ignore[reportExplicitAny]
 
         # Cache results
         try:
             serialized = [cls._to_cache(i) for i in instances]
             await backend.set(cache_key, serialized, ttl=cls._cache_ttl)
-        except Exception:
+        except CacheError:
             logger.debug("Cache write error for key %s", cache_key, exc_info=True)
 
         return instances
 
     @classmethod
-    def _to_cache(cls, instance: models.Model) -> dict:
+    def _to_cache(cls, instance: models.Model) -> SerializedRecord:
         """Serialize instance to cache format."""
-        data: dict[str, Any] = {
+        data: SerializedRecord = {
             "_model": cls.__name__,
             "_pk": str(instance.pk),
         }
@@ -165,19 +172,19 @@ class CacheableModel(models.Model):
             if isinstance(value, datetime):
                 value = value.isoformat()
             # Handle ForeignKey (store PK)
-            elif hasattr(value, "pk"):
+            elif value is not None and hasattr(value, "pk"):
                 value = str(value.pk)
             data[field_name] = value
 
         return data
 
     @classmethod
-    def _from_cache(cls, data: dict) -> Self:
+    def _from_cache(cls, data: SerializedRecord) -> Self:
         """Deserialize instance from cache format.
 
         Uses ``Model.construct()`` to create instances without validation.
         """
-        kwargs: dict[str, Any] = {}
+        kwargs: ModelKwargs = {}
 
         # Restore primary key
         pk_field = cls._meta.pk_attr
@@ -208,25 +215,40 @@ class CacheableModel(models.Model):
         _ = await backend.delete(pk_key)
 
     @override
-    async def save(self, *args: Any, **kwargs: Any) -> None:
+    async def save(
+        self,
+        using_db: BaseDBAsyncClient | None = None,
+        update_fields: Iterable[str] | None = None,
+        force_create: bool = False,
+        force_update: bool = False,
+    ) -> None:
         """Save and invalidate cache."""
-        await super().save(*args, **kwargs)
+        await super().save(
+            using_db=using_db,
+            update_fields=update_fields,
+            force_create=force_create,
+            force_update=force_update,
+        )
         await self._invalidate_cache()
 
     @override
-    async def delete(self, *args: Any, **kwargs: Any) -> None:
+    async def delete(self, using_db: BaseDBAsyncClient | None = None) -> None:
         """Delete and invalidate cache."""
-        await super().delete(*args, **kwargs)
+        await super().delete(using_db=using_db)
         await self._invalidate_cache()
 
     @override
-    async def refresh_from_db(self, *args: Any, **kwargs: Any) -> None:
+    async def refresh_from_db(
+        self,
+        fields: Iterable[str] | None = None,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> None:
         """Refresh from DB and update cache."""
-        await super().refresh_from_db(*args, **kwargs)
+        await super().refresh_from_db(fields=fields, using_db=using_db)
         if self._cache_ttl > 0:
             backend = self._get_backend()
             cache_key = self._cache_key_for(id=str(self.pk))
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(CacheError):
                 await backend.set(
                     cache_key,
                     self._to_cache(self),

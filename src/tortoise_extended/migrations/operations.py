@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, cast, override
 from tortoise.migrations.operations import Operation
 from tortoise.migrations.writer import MigrationWriter
 from tortoise_extended._types import Deconstructable
+from tortoise_extended.exceptions import MigrationOperationError
 
 if TYPE_CHECKING:
     from tortoise.migrations.schema_editor.base import BaseSchemaEditor
@@ -59,7 +60,7 @@ def _patch_format_operation() -> None:
             pass
 
         if not hasattr(operation, "deconstruct"):
-            raise TypeError(
+            raise MigrationOperationError(
                 f"Operation {type(operation).__name__} has no deconstruct method"
             )
 

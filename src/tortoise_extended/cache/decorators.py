@@ -15,6 +15,7 @@ from typing import Concatenate, cast
 
 from tortoise_extended._types import P, R
 from tortoise_extended.cache.base import CacheBackend, CacheKey
+from tortoise_extended.exceptions import CacheError
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ def cached(
                 cached_value = await backend.get(cache_key)
                 if cached_value is not None:
                     return cast(R, cached_value)
-            except Exception:
+            except CacheError:
                 logger.debug("Cache read error for key %s", cache_key, exc_info=True)
 
             # Execute function
@@ -96,7 +97,7 @@ def cached(
 
             # Store in cache
             if result is not None:
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(CacheError):
                     await backend.set(cache_key, result, ttl=ttl)
 
             return result
@@ -164,7 +165,7 @@ def cached_method(
                 cached_value = await backend.get(cache_key)
                 if cached_value is not None:
                     return cast(R, cached_value)
-            except Exception:
+            except CacheError:
                 logger.debug("Cache read error for method %s", cache_key, exc_info=True)
 
             # Execute method
@@ -172,7 +173,7 @@ def cached_method(
 
             # Store in cache
             if result is not None:
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(CacheError):
                     await backend.set(cache_key, result, ttl=ttl)
 
             return result
@@ -237,7 +238,7 @@ def invalidate(
                 else:
                     for pattern in patterns:
                         _ = await backend.delete_pattern(pattern)
-            except Exception:
+            except CacheError:
                 logger.debug(
                     "Cache invalidation error for patterns %s", patterns, exc_info=True
                 )

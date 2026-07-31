@@ -5,7 +5,6 @@ pypika-tortoise auto-detects recursion when a CTE's ``from_`` references itself.
 
 Usage::
 
-    from tortoise_extended.expressions.recursive_cte import RecursiveCTE
     from pypika_tortoise import Table
     from pypika_tortoise.terms import RawSQL
 
@@ -39,6 +38,8 @@ Usage::
 """
 
 from pypika_tortoise.queries import QueryBuilder, Table
+
+from tortoise_extended.exceptions import RecursiveCTEError
 
 
 class RecursiveCTE:
@@ -74,9 +75,9 @@ class RecursiveCTE:
         The caller can chain ``.select()``, ``.where()`` etc. on the result.
         """
         if self._anchor_query is None:
-            raise ValueError("Anchor query not set — call .anchor() first")
+            raise RecursiveCTEError("Anchor query not set — call .anchor() first")
         if self._union_query is None:
-            raise ValueError("Union query not set — call .union() first")
+            raise RecursiveCTEError("Union query not set — call .union() first")
 
         # UNION ALL the anchor and recursive step
         combined = self._anchor_query.union_all(self._union_query)

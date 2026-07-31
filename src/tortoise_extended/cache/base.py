@@ -14,6 +14,7 @@ from abc import ABC, abstractmethod
 from typing import override
 
 from tortoise_extended._types import LibraryAny
+from tortoise_extended.exceptions import CacheKeyError
 
 
 class CacheKey:
@@ -38,7 +39,7 @@ class CacheKey:
         components = [self.prefix, *self._parts] if self.prefix else self._parts
         if not components:
             msg = "CacheKey requires a prefix or at least one part"
-            raise ValueError(msg)
+            raise CacheKeyError(msg)
         return self.separator.join(components)
 
     @staticmethod

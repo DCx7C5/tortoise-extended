@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from tortoise import connections
 
 from tortoise_extended._types import RowMapping
+from tortoise_extended.exceptions import HybridSearchError
 
 if TYPE_CHECKING:
     from tortoise.models import Model
@@ -80,7 +81,7 @@ class HybridSearch:
         text_weight: float = 0.3,
     ) -> None:
         if distance_metric not in self._METRICS:
-            raise ValueError(
+            raise HybridSearchError(
                 f"Unsupported distance_metric {distance_metric!r}; "
                 f"expected one of {', '.join(self._METRICS)}"
             )

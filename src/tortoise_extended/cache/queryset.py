@@ -13,6 +13,7 @@ from typing import Any, cast, override
 from tortoise.queryset import QuerySet
 
 from tortoise_extended.cache.base import CacheBackend, CacheKey
+from tortoise_extended.exceptions import CacheDataError, CacheError
 from tortoise_extended.cache.redis import RedisCache
 
 logger = logging.getLogger(__name__)
@@ -111,9 +112,9 @@ class CachedQuerySet(QuerySet):
             cached_result = await backend.get(cache_key)
             if cached_result is not None:
                 if not isinstance(cached_result, list):
-                    raise TypeError(f"Expected list from cache, got {type(cached_result).__name__}")
+                    raise CacheDataError(f"Expected list from cache, got {type(cached_result).__name__}")
                 return self._deserialize_results(cached_result)
-        except Exception:
+        except CacheError:
             logger.debug("Cache read error for key %s", cache_key, exc_info=True)
 
         # Execute query
@@ -123,7 +124,7 @@ class CachedQuerySet(QuerySet):
         try:
             serialized = self._serialize_results(results)
             await backend.set(cache_key, serialized, ttl=self._cache_ttl)
-        except Exception:
+        except CacheError:
             logger.debug("Cache write error for key %s", cache_key, exc_info=True)
 
         return results

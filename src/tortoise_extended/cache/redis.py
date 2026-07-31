@@ -9,21 +9,36 @@ Requires: redis[hiredis] >= 5.0.0
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Self, TypeAlias, cast, override
+from typing import TYPE_CHECKING, NoReturn, Self, TypeAlias, cast, override
 
 from tortoise_extended._types import LibraryAny
+from tortoise_extended.cache.base import CacheBackend, JSONSerializer, Serializer
+from tortoise_extended.exceptions import (
+    CacheBackendNotInitializedError,
+    CacheSerializationError,
+    RedisCacheError,
+)
 
 try:
     import redis.asyncio as aioredis
+    from redis.exceptions import RedisError as _RedisError
 except ImportError:  # pragma: no cover
     aioredis = None
+    _RedisError = None
+
+# Exceptions that indicate an infrastructure-level Redis failure. Used to
+# translate raw driver errors into :class:`RedisCacheError` at the backend
+# boundary so consumers can catch a single domain type.
+_REDIS_INFRA_ERRORS: tuple[type[Exception], ...] = (
+    (_RedisError, ConnectionError, OSError, TimeoutError)
+    if _RedisError is not None
+    else (ConnectionError, OSError, TimeoutError)
+)
 
 if TYPE_CHECKING:
     import redis.asyncio as _redis_asyncio
 
     RedisClient: TypeAlias = _redis_asyncio.Redis
-
-from tortoise_extended.cache.base import CacheBackend, JSONSerializer, Serializer
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +113,7 @@ class RedisCache:
         """
         instance = cls()
         if instance._pool is None:
-            raise RuntimeError(
+            raise CacheBackendNotInitializedError(
                 "Redis cache not initialized. Call RedisCache.init() first."
             )
         return instance._pool
@@ -128,6 +143,11 @@ class RedisCache:
 class RedisCacheBackend(CacheBackend):
     """Redis implementation of CacheBackend."""
 
+    @staticmethod
+    def _raise_redis(exc: Exception) -> NoReturn:
+        """Translate a driver-level Redis failure into :class:`RedisCacheError`."""
+        raise RedisCacheError(str(exc)) from exc
+
     def __init__(
         self,
         pool: LibraryAny,  # pyright: ignore[reportExplicitAny]
@@ -148,36 +168,57 @@ class RedisCacheBackend(CacheBackend):
     @override
     async def get(self, key: str) -> LibraryAny | None:  # pyright: ignore[reportExplicitAny]
         """Get value from Redis."""
-        data = await self.pool.get(self._key(key))
+        try:
+            data = await self.pool.get(self._key(key))
+        except _REDIS_INFRA_ERRORS as exc:
+            self._raise_redis(exc)
         if data is None:
             return None
-        return self.deserialize(data)
+        try:
+            return self.deserialize(data)
+        except (TypeError, ValueError) as exc:
+            raise CacheSerializationError(str(exc)) from exc
 
     @override
     async def set(self, key: str, value: LibraryAny, ttl: int | None = None) -> None:  # pyright: ignore[reportExplicitAny]
         """Set value in Redis with TTL."""
         ttl = ttl or self.default_ttl
-        data = self.serialize(value)
-        if ttl > 0:
-            await self.pool.setex(self._key(key), ttl, data)
-        else:
-            await self.pool.set(self._key(key), data)
+        try:
+            data = self.serialize(value)
+        except (TypeError, ValueError) as exc:
+            raise CacheSerializationError(str(exc)) from exc
+        try:
+            if ttl > 0:
+                await self.pool.setex(self._key(key), ttl, data)
+            else:
+                await self.pool.set(self._key(key), data)
+        except _REDIS_INFRA_ERRORS as exc:
+            self._raise_redis(exc)
 
     @override
     async def delete(self, key: str) -> bool:
         """Delete key from Redis."""
-        count = await self.pool.delete(self._key(key))
+        try:
+            count = await self.pool.delete(self._key(key))
+        except _REDIS_INFRA_ERRORS as exc:
+            self._raise_redis(exc)
         return count > 0
 
     @override
     async def exists(self, key: str) -> bool:
         """Check if key exists in Redis."""
-        return bool(await self.pool.exists(self._key(key)))
+        try:
+            return bool(await self.pool.exists(self._key(key)))
+        except _REDIS_INFRA_ERRORS as exc:
+            self._raise_redis(exc)
 
     @override
     async def expire(self, key: str, ttl: int) -> bool:
         """Update TTL on existing key."""
-        return bool(await self.pool.expire(self._key(key), ttl))
+        try:
+            return bool(await self.pool.expire(self._key(key), ttl))
+        except _REDIS_INFRA_ERRORS as exc:
+            self._raise_redis(exc)
 
     @override
     async def keys(self, pattern: str = "*") -> list[str]:
@@ -185,8 +226,11 @@ class RedisCacheBackend(CacheBackend):
         full_pattern = self._key(pattern)
         prefix = f"{self.namespace}:"
         result: list[str] = []
-        async for key in self.pool.scan_iter(match=full_pattern, count=100):
-            result.append(cast(bytes, key).decode().removeprefix(prefix))
+        try:
+            async for key in self.pool.scan_iter(match=full_pattern, count=100):
+                result.append(cast(bytes, key).decode().removeprefix(prefix))
+        except _REDIS_INFRA_ERRORS as exc:
+            self._raise_redis(exc)
         return result
 
     @override
@@ -194,9 +238,12 @@ class RedisCacheBackend(CacheBackend):
         """Delete all keys matching pattern in namespace using SCAN."""
         full_pattern = self._key(pattern)
         count = 0
-        async for key in self.pool.scan_iter(match=full_pattern, count=100):
-            await self.pool.delete(key)
-            count += 1
+        try:
+            async for key in self.pool.scan_iter(match=full_pattern, count=100):
+                await self.pool.delete(key)
+                count += 1
+        except _REDIS_INFRA_ERRORS as exc:
+            self._raise_redis(exc)
         return count
 
     @override
@@ -205,7 +252,10 @@ class RedisCacheBackend(CacheBackend):
         if not keys:
             return {}
         full_keys = [self._key(k) for k in keys]
-        values = await self.pool.mget(full_keys)
+        try:
+            values = await self.pool.mget(full_keys)
+        except _REDIS_INFRA_ERRORS as exc:
+            self._raise_redis(exc)
         result: dict[str, LibraryAny] = {}  # pyright: ignore[reportExplicitAny]
         for raw_key, value in zip(keys, values, strict=True):
             if value is not None:
@@ -219,18 +269,27 @@ class RedisCacheBackend(CacheBackend):
             return
         ttl = ttl or self.default_ttl
         pipe = self.pipeline()
-        for key, value in mapping.items():
-            data = self.serialize(value)
-            if ttl > 0:
-                pipe.setex(self._key(key), ttl, data)
-            else:
-                pipe.set(self._key(key), data)
-        await pipe.execute()
+        try:
+            for key, value in mapping.items():
+                data = self.serialize(value)
+                if ttl > 0:
+                    pipe.setex(self._key(key), ttl, data)
+                else:
+                    pipe.set(self._key(key), data)
+        except (TypeError, ValueError) as exc:
+            raise CacheSerializationError(str(exc)) from exc
+        try:
+            await pipe.execute()
+        except _REDIS_INFRA_ERRORS as exc:
+            self._raise_redis(exc)
 
     @override
     async def incr(self, key: str, amount: int = 1) -> int:
         """Increment counter in Redis."""
-        return await self.pool.incrby(self._key(key), amount)
+        try:
+            return await self.pool.incrby(self._key(key), amount)
+        except _REDIS_INFRA_ERRORS as exc:
+            self._raise_redis(exc)
 
     @override
     async def flush(self) -> None:

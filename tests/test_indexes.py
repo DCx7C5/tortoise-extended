@@ -6,6 +6,7 @@ and repr. No database connection required.
 
 import pytest
 
+from tortoise_extended.exceptions import IndexDefinitionError
 from tortoise_extended.indexes.hnsw_index import HNSWIndex, IVFFlatIndex
 from tortoise_extended.indexes.ltree_index import GiSTIndex
 
@@ -115,7 +116,7 @@ class TestHNSWIndexValidation:
 
     def test_invalid_metric_raises(self) -> None:
         """Invalid metric should raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid dist_metric"):
+        with pytest.raises(IndexDefinitionError, match="Invalid dist_metric"):
             HNSWIndex(fields=("embedding",), dist_metric="euclidean")
 
     def test_all_valid_metrics(self) -> None:
@@ -174,7 +175,7 @@ class TestIVFFlatIndexValidation:
 
     def test_invalid_metric_raises(self) -> None:
         """Invalid metric should raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid dist_metric"):
+        with pytest.raises(IndexDefinitionError, match="Invalid dist_metric"):
             IVFFlatIndex(fields=("embedding",), dist_metric="vector_cosine_ops")
 
     def test_all_valid_metrics(self) -> None:

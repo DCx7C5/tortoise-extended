@@ -15,6 +15,7 @@ from tortoise_extended.cache.base import (
     NullSerializer,
     PickleSerializer,
 )
+from tortoise_extended.exceptions import CacheKeyError
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +29,7 @@ class TestCacheKeyEdgeCases:
     def test_valueerror_no_prefix_no_parts(self) -> None:
         """CacheKey.build() should raise ValueError when empty."""
         key = CacheKey()
-        with pytest.raises(ValueError, match="CacheKey requires a prefix or at least one part"):
+        with pytest.raises(CacheKeyError, match="CacheKey requires a prefix or at least one part"):
             key.build()
 
     def test_hash_different_inputs(self) -> None:

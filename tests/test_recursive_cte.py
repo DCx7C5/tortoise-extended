@@ -9,6 +9,7 @@ from pypika_tortoise import Field, Table
 from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
 from pypika_tortoise.queries import QueryBuilder
 
+from tortoise_extended.exceptions import RecursiveCTEError
 from tortoise_extended.expressions.recursive_cte import RecursiveCTE
 
 
@@ -35,7 +36,7 @@ class TestRecursiveCTE:
     def test_build_requires_anchor(self) -> None:
         """build() should raise ValueError without anchor."""
         cte = RecursiveCTE("test_cte")
-        with pytest.raises(ValueError, match="Anchor query not set"):
+        with pytest.raises(RecursiveCTEError, match="Anchor query not set"):
             cte.build()
 
     def test_build_requires_union(self) -> None:
@@ -43,7 +44,7 @@ class TestRecursiveCTE:
         t = Table("test")
         cte = RecursiveCTE("test_cte")
         cte.anchor(QueryBuilder().from_(t).select("*"))
-        with pytest.raises(ValueError, match="Union query not set"):
+        with pytest.raises(RecursiveCTEError, match="Union query not set"):
             cte.build()
 
     def test_build_returns_query_builder(self) -> None:

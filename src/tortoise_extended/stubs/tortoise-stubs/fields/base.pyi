@@ -10,7 +10,7 @@ public surface concretely so subclass ``super().__init__`` calls and
 """
 
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar, overload
+from typing import Any, Generic, TypeVar, overload, override
 
 import tortoise.validators
 
@@ -90,4 +90,5 @@ class Field(Generic[VALUE]):
 
     def validate(self, value: Any) -> None: ...
 
+    @override
     def __repr__(self) -> str: ...
