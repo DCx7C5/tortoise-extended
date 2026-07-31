@@ -242,7 +242,7 @@ Each operation supports rollback:
 
 ```python
 # CreateHypertable rollback
-SELECT convert_from_hypertable('query_cache');
+SELECT remove_hypertable('query_cache');
 
 # CreateContinuousAggregate rollback
 DROP VIEW IF EXISTS daily_cache_stats;

@@ -4,10 +4,11 @@ These operations are used in migration files to create hypertables
 and continuous aggregates.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast, override
 
 from tortoise.migrations.operations import Operation
 from tortoise.migrations.writer import MigrationWriter
+from tortoise_extended._types import Deconstructable
 
 if TYPE_CHECKING:
     from tortoise.migrations.schema_editor.base import BaseSchemaEditor
@@ -44,9 +45,13 @@ def _patch_format_operation() -> None:
             pass
 
         if not hasattr(operation, "deconstruct"):
-            raise TypeError(f"Operation {type(operation).__name__} has no deconstruct method")
+            raise TypeError(
+                f"Operation {type(operation).__name__} has no deconstruct method"
+            )
 
-        class_name, args, kwargs = operation.deconstruct()
+        dc_operation = cast(Deconstructable, cast(object, operation))
+
+        class_name, args, kwargs = dc_operation.deconstruct()
         imports.add_from("tortoise_extended.migrations.operations", class_name)
 
         parts: list[str] = [repr(a) for a in args]
@@ -55,8 +60,8 @@ def _patch_format_operation() -> None:
 
         return [f"{indent}{class_name}({joined}),"]
 
-    MigrationWriter._format_operation = _patched  # type: ignore[method-assign]
-    MigrationWriter._tortoise_extended_format_patched = True
+    setattr(MigrationWriter, "_format_operation", _patched)
+    setattr(MigrationWriter, "_tortoise_extended_format_patched", True)
 
 
 _patch_format_operation()
@@ -83,6 +88,7 @@ class CreateHypertable(Operation):
         self.chunk_time_interval = chunk_time_interval
         self.migrate_data = migrate_data
 
+    @override
     def describe(self) -> str:
         return (
             f"CreateHypertable(table_name={self.table_name!r}, "
@@ -102,6 +108,7 @@ class CreateHypertable(Operation):
             },
         )
 
+    @override
     async def run(
         self,
         app_label: str,
@@ -127,9 +134,11 @@ class CreateHypertable(Operation):
             )
             await state_editor._run_sql(interval_sql)
 
+    @override
     def state_forward(self, app_label: str, state: State) -> None:
         pass
 
+    @override
     async def database_forward(
         self,
         app_label: str,
@@ -139,6 +148,7 @@ class CreateHypertable(Operation):
     ) -> None:
         await self.run(app_label, new_state, False, state_editor)
 
+    @override
     async def database_backward(
         self,
         app_label: str,
@@ -149,7 +159,7 @@ class CreateHypertable(Operation):
         if state_editor is None:
             return
         sql = (
-            f"SELECT convert_from_hypertable("
+            f"SELECT remove_hypertable("
             f"{_quote_literal(self.table_name)}, if_exists => TRUE)"
         )
         await state_editor._run_sql(sql)
@@ -176,6 +186,7 @@ class CreateContinuousAggregate(Operation):
         self.time_column = time_column
         self.refresh_interval = refresh_interval
 
+    @override
     def describe(self) -> str:
         return (
             f"CreateContinuousAggregate(view_name={self.view_name!r}, "
@@ -221,9 +232,11 @@ class CreateContinuousAggregate(Operation):
         )
         await state_editor._run_sql(refresh_sql)
 
+    @override
     def state_forward(self, app_label: str, state: State) -> None:
         pass
 
+    @override
     async def database_forward(
         self,
         app_label: str,
@@ -233,6 +246,7 @@ class CreateContinuousAggregate(Operation):
     ) -> None:
         await self.run(app_label, new_state, False, state_editor)
 
+    @override
     async def database_backward(
         self,
         app_label: str,
