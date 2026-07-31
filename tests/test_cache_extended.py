@@ -6,8 +6,9 @@ No Redis connection required.
 
 import pytest
 
+from tests.test_cache import MockRedisBackend
+
 from tortoise_extended.cache.base import (
-    CacheBackend,
     CacheKey,
     CacheNamespace,
     JSONSerializer,
@@ -173,8 +174,6 @@ class TestNullSerializerEdgeCases:
 # ---------------------------------------------------------------------------
 # MockRedisBackend advanced tests
 # ---------------------------------------------------------------------------
-
-from tests.test_cache import MockRedisBackend
 
 
 class TestMockRedisBackendAdvanced:

@@ -5,9 +5,7 @@ description = "Tortoise ORM extensions: pgvector, TimescaleDB, HNSW indexes, rec
 requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
-    "tortoise-orm>=1.1.7,<1.2",
-    "msgspec>=0.21.0",
-    "tortoise-orm[asyncpg]>=1.1.7",
+    "tortoise-orm[asyncpg]>=1.1.7,<1.2",
     "tortoise-orm-stubs>=1.0.2",
     "pypika-tortoise>=0.6.5,<0.7",
 ]
@@ -22,6 +20,9 @@ build-backend = "hatchling.build"
 [tool.uv]
 package = true
 
+[tool.ruff]
+target-version = "py314"
+
 [tool.ruff.lint]
 ignore = ["RUF002"]
 
@@ -30,9 +31,21 @@ packages = ["src/tortoise_extended"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Share one event loop per module so module-scoped Tortoise connections are
+# not recreated per test (avoids TortoiseLoopSwitchWarning).
+asyncio_default_fixture_loop_scope = "module"
+asyncio_default_test_loop_scope = "module"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+# Any warning outside the explicitly ignored upstream categories fails the run.
+filterwarnings = ["error"]
 
 [dependency-groups]
 dev = [
+    "coverage>=7.15.2",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
+    # ruff 0.16 changed the default rule set (RUF059/I001/PERF102…); pinning
+    # <0.16 keeps the established gate until the codebase is migrated.
+    "ruff>=0.15.0,<0.16",
 ]

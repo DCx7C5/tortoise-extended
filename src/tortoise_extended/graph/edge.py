@@ -58,16 +58,16 @@ class GraphEdge(Model):
     )
     source_id = fields.UUIDField(
         description="Source node ID (from)",
-        index=True,
+        db_index=True,
     )
     target_id = fields.UUIDField(
         description="Target node ID (to)",
-        index=True,
+        db_index=True,
     )
     edge_type = fields.CharField(
         max_length=50,
         description="Type of relationship (e.g., parent_of, references)",
-        index=True,
+        db_index=True,
     )
     weight = fields.FloatField(
         default=1.0,
@@ -81,7 +81,7 @@ class GraphEdge(Model):
         max_length=100,
         default="default",
         description="Namespace for multi-tenancy",
-        index=True,
+        db_index=True,
     )
     is_bidirectional = fields.BooleanField(
         default=False,

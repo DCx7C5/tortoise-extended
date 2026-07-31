@@ -6,9 +6,6 @@ and all edge cases. No database connection required.
 
 import struct
 
-import pytest
-from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
-
 from tortoise_extended.fields.ltree_field import LTreeField
 from tortoise_extended.fields.vector_field import VectorField
 

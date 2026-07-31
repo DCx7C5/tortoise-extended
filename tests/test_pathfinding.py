@@ -6,8 +6,6 @@ and module structure.
 
 import inspect
 
-import pytest
-
 from tortoise_extended.expressions.pathfinding import (
     all_paths,
     find_cycles,

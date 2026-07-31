@@ -87,7 +87,7 @@ class HierarchyModel(Model):
         null=True,
         description="Parent node primary key for adjacency-list traversal "
         "(NULL for root nodes)",
-        index=True,
+        db_index=True,
     )
     depth = fields.IntField(
         default=0,
@@ -97,7 +97,7 @@ class HierarchyModel(Model):
         max_length=100,
         default="default",
         description="Multi-tenancy partition key",
-        index=True,
+        db_index=True,
     )
     created_at = fields.DatetimeField(
         auto_now_add=True,

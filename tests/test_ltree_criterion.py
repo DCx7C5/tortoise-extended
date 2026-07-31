@@ -6,7 +6,7 @@ filter operator functions. No database connection required.
 
 from pypika_tortoise import Table
 from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
-from pypika_tortoise.terms import Field, ValueWrapper
+from pypika_tortoise.terms import ValueWrapper
 
 from tortoise_extended.expressions.ltree_filters import (
     LTreeAncestorMatch,
@@ -37,7 +37,6 @@ class TestLTreeAncestorOf:
 
     def test_sql_contains_operator(self) -> None:
         """@> operator should appear in SQL."""
-        t = Table("categories")
         criterion = LTreeAncestorOf("path", ValueWrapper("root.child"))
         sql = criterion.get_sql(DEFAULT_SQL_CONTEXT)
         assert "@>" in sql
@@ -59,7 +58,6 @@ class TestLTreeDescendantOf:
 
     def test_sql_contains_operator(self) -> None:
         """<@ operator should appear in SQL."""
-        t = Table("categories")
         criterion = LTreeDescendantOf("path", ValueWrapper("root"))
         sql = criterion.get_sql(DEFAULT_SQL_CONTEXT)
         assert "<@" in sql
@@ -75,7 +73,6 @@ class TestLTreeMatch:
 
     def test_sql_contains_operator(self) -> None:
         """~ operator should appear in SQL."""
-        t = Table("categories")
         criterion = LTreeMatch("path", ValueWrapper("root.*"))
         sql = criterion.get_sql(DEFAULT_SQL_CONTEXT)
         assert "~" in sql
@@ -91,7 +88,6 @@ class TestLTreeAncestorMatch:
 
     def test_sql_contains_operator(self) -> None:
         """?@> operator should appear in SQL."""
-        t = Table("categories")
         criterion = LTreeAncestorMatch("path", ValueWrapper("*.child"))
         sql = criterion.get_sql(DEFAULT_SQL_CONTEXT)
         assert "?@>" in sql
@@ -107,7 +103,6 @@ class TestLTreeDescendantMatch:
 
     def test_sql_contains_operator(self) -> None:
         """?<@ operator should appear in SQL."""
-        t = Table("categories")
         criterion = LTreeDescendantMatch("path", ValueWrapper("root.*"))
         sql = criterion.get_sql(DEFAULT_SQL_CONTEXT)
         assert "?<@" in sql

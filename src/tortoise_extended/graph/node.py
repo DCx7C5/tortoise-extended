@@ -63,7 +63,7 @@ class GraphNode(Model):
     parent_id = fields.UUIDField(
         null=True,
         description="Parent node ID for adjacency list traversal",
-        index=True,
+        db_index=True,
     )
     depth = fields.IntField(
         default=0,
@@ -81,7 +81,7 @@ class GraphNode(Model):
         max_length=100,
         default="default",
         description="Namespace for multi-tenancy",
-        index=True,
+        db_index=True,
     )
     metadata_json = fields.JSONField(
         default=dict,

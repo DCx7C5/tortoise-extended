@@ -25,3 +25,8 @@ Thumbs.db
 
 # uv
 .python-version
+.aiignore
+
+# Secrets / local env
+.env
+.env.*
