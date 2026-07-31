@@ -25,9 +25,11 @@ Usage::
     macbook = await Category.create(name="MacBook", path="electronics.laptops.macbook")
 """
 
-from typing import Any, override
+from typing import override
 
 from tortoise.fields.base import Field
+
+from tortoise_extended._types import LibraryAny
 
 
 class LTreeField(Field[str]):
@@ -67,9 +69,9 @@ class LTreeField(Field[str]):
         separator: str = ".",
         *,
         null: bool = False,
-        default: Any = None,
+        default: LibraryAny = None,
         description: str | None = None,
-        **kwargs: Any,
+        **kwargs: LibraryAny,
     ) -> None:
         self.max_length = max_length
         self.separator = separator
@@ -81,7 +83,7 @@ class LTreeField(Field[str]):
         )
 
     @override
-    def to_python_value(self, value: Any) -> list[str] | None:
+    def to_python_value(self, value: LibraryAny) -> list[str] | None:
         """Convert ltree string to Python list.
 
         Args:
@@ -97,7 +99,7 @@ class LTreeField(Field[str]):
         return value.split(self.separator)
 
     @override
-    def to_db_value(self, value: list[str] | None, instance: Any) -> str | None:
+    def to_db_value(self, value: list[str] | None, instance: LibraryAny) -> str | None:
         """Convert Python list to ltree string.
 
         Args:

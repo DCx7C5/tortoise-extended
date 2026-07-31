@@ -5,9 +5,11 @@ No monkey-patch conflicts.
 """
 
 import struct
-from typing import Any, override
+from typing import override
 
 from tortoise.fields.base import Field
+
+from tortoise_extended._types import LibraryAny
 
 
 class VectorField(Field[list[float]]):
@@ -49,9 +51,9 @@ class VectorField(Field[list[float]]):
         dimensions: int | None = None,
         *,
         null: bool = False,
-        default: Any = None,
+        default: LibraryAny = None,
         description: str | None = None,
-        **kwargs: Any,
+        **kwargs: LibraryAny,
     ) -> None:
         super().__init__(
             null=null,
@@ -62,13 +64,15 @@ class VectorField(Field[list[float]]):
         self.dimensions = dimensions
 
     @override
-    def to_db_value(self, value: list[float] | None, instance: Any) -> list[float] | None:
+    def to_db_value(
+        self, value: list[float] | None, instance: LibraryAny
+    ) -> list[float] | None:
         if value is None:
             return None
         return list(value)
 
     @override
-    def to_python_value(self, value: Any) -> list[float] | None:
+    def to_python_value(self, value: LibraryAny) -> list[float] | None:
         if value is None:
             return None
         if isinstance(value, list):
