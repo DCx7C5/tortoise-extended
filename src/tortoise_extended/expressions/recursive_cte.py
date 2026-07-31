@@ -38,8 +38,7 @@ Usage::
     # cte is a QueryBuilder: WITH RECURSIVE ancestors AS (...) SELECT * FROM ancestors
 """
 
-from pypika_tortoise import Table
-from pypika_tortoise.queries import QueryBuilder
+from pypika_tortoise.queries import QueryBuilder, Table
 
 
 class RecursiveCTE:
