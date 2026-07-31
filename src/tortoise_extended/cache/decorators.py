@@ -35,7 +35,11 @@ def _build_cache_key(
     prefix = prefix or func_name
 
     key = CacheKey(prefix)
-    _ = key.add(CacheKey.hash(json.dumps({"args": str(args[1:]), "kwargs": str(kwargs)}, default=str)))
+    _ = key.add(
+        CacheKey.hash(
+            json.dumps({"args": str(args[1:]), "kwargs": str(kwargs)}, default=str)
+        )
+    )
     return key.build()
 
 
@@ -103,8 +107,8 @@ def cached(
             """Get cache key for given arguments."""
             return _build_cache_key(func, a, kw, prefix, key_builder)
 
-        wrapper.invalidate = _invalidate  # type: ignore
-        wrapper.cache_key = _cache_key  # type: ignore
+        setattr(wrapper, "invalidate", _invalidate)
+        setattr(wrapper, "cache_key", _cache_key)
 
         return cast("F", wrapper)
 
@@ -139,7 +143,11 @@ def cached_method(
             func_name = f"{type(self).__name__}.{func.__qualname__}"
             p = prefix or func_name
             key = CacheKey(p)
-            _ = key.add(CacheKey.hash(json.dumps({"args": str(args), "kwargs": str(kwargs)}, default=str)))
+            _ = key.add(
+                CacheKey.hash(
+                    json.dumps({"args": str(args), "kwargs": str(kwargs)}, default=str)
+                )
+            )
             cache_key = key.build()
 
             # Try cache
@@ -160,7 +168,7 @@ def cached_method(
 
             return result
 
-        return wrapper
+        return cast("F", wrapper)
 
     return decorator
 
@@ -219,10 +227,12 @@ def invalidate(
                     for pattern in patterns:
                         _ = await backend.delete_pattern(pattern)
             except Exception:
-                logger.debug("Cache invalidation error for patterns %s", patterns, exc_info=True)
+                logger.debug(
+                    "Cache invalidation error for patterns %s", patterns, exc_info=True
+                )
 
             return result
 
-        return wrapper
+        return cast("F", wrapper)
 
     return decorator

@@ -152,7 +152,8 @@ class CachedQuerySet(QuerySet):
     def _deserialize_results(self, data: list[dict]) -> list:
         """Deserialize dicts back to model instances.
 
-        Uses pydantic's ``construct()`` to create instances without validation.
+        Uses Tortoise ORM's ``construct()`` to create instances without
+        hitting the database.
         """
         results: list = []
         for record in data:

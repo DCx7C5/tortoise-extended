@@ -8,12 +8,17 @@ Requires: redis[hiredis] >= 5.0.0
 """
 
 import logging
-from typing import Any, Self, override
+from typing import TYPE_CHECKING, Any, Self, TypeAlias, cast, override
 
 try:
     import redis.asyncio as aioredis
-except ImportError:
-    aioredis = None  # type: ignore
+except ImportError:  # pragma: no cover
+    aioredis = None
+
+if TYPE_CHECKING:
+    import redis.asyncio as _redis_asyncio
+
+    RedisClient: TypeAlias = _redis_asyncio.Redis
 
 from tortoise_extended.cache.base import CacheBackend, JSONSerializer, Serializer
 
@@ -30,13 +35,13 @@ class RedisCache:
     """
 
     _instance: RedisCache | None = None
-    _pool: aioredis.Redis | None = None
+    _pool: "RedisClient | None" = None
 
-    def __new__(cls) -> "Self":
+    def __new__(cls) -> Self:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         assert cls._instance is not None
-        return cls._instance
+        return cast(Self, cls._instance)
 
     @classmethod
     async def init(
@@ -54,22 +59,21 @@ class RedisCache:
         """
         if aioredis is None:
             raise ImportError(
-                "redis package not installed. "
-                "Install with: pip install redis[hiredis]"
+                "redis package not installed. Install with: uv add 'redis[hiredis]'"
             )
 
         instance = cls()
         if instance._pool is not None:
             await instance.close()
 
-        instance._pool = aioredis.from_url(  # type: ignore[union-attr]
+        instance._pool = aioredis.from_url(
             url,
             max_connections=max_connections,
             decode_responses=False,
             **kwargs,
         )
         # Test connection
-        await instance._pool.ping()  # type: ignore
+        _ = await instance._pool.ping()
         logger.info("Redis cache connected: %s", url.split("@")[-1])
 
     @classmethod
@@ -77,12 +81,12 @@ class RedisCache:
         """Close Redis connection pool."""
         instance = cls()
         if instance._pool is not None:
-            await instance._pool.close()  # type: ignore[union-attr]
+            await instance._pool.close()
             instance._pool = None
             logger.info("Redis cache disconnected")
 
     @classmethod
-    def get_pool(cls) -> aioredis.Redis:
+    def get_pool(cls) -> "RedisClient":
         """Get the Redis connection pool.
 
         Raises:
@@ -127,7 +131,9 @@ class RedisCacheBackend(CacheBackend):
         default_ttl: int = 300,
         serializer: Serializer | None = None,
     ) -> None:
-        super().__init__(default_ttl=default_ttl, serializer=serializer or JSONSerializer())
+        super().__init__(
+            default_ttl=default_ttl, serializer=serializer or JSONSerializer()
+        )
         self.pool = pool
         self.namespace = namespace
 
@@ -203,9 +209,7 @@ class RedisCacheBackend(CacheBackend):
         return result
 
     @override
-    async def set_many(
-        self, mapping: dict[str, Any], ttl: int | None = None
-    ) -> None:
+    async def set_many(self, mapping: dict[str, Any], ttl: int | None = None) -> None:
         """Set multiple values at once."""
         if not mapping:
             return
