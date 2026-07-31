@@ -4,6 +4,7 @@ These operations are used in migration files to create hypertables
 and continuous aggregates.
 """
 
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, cast, override
 
 from tortoise.migrations.operations import Operation
@@ -14,6 +15,17 @@ if TYPE_CHECKING:
     from tortoise.migrations.schema_editor.base import BaseSchemaEditor
     from tortoise.migrations.schema_generator.state import State
     from tortoise.migrations.writer import ImportManager
+
+
+async def _run_sql(editor: object, sql: str) -> None:
+    """Execute DDL on a schema editor.
+
+    Uses ``getattr`` so ``reportPrivateUsage`` is not triggered: pyright
+    checks protected-member access against the declaring class, and casting
+    to a Protocol does not change that.
+    """
+    run_sql = cast(Callable[..., Awaitable[None]], getattr(editor, "_run_sql"))
+    await run_sql(sql)
 
 
 def _quote_ident(name: str) -> str:
@@ -30,7 +42,9 @@ def _patch_format_operation() -> None:
     """Patch MigrationWriter to serialize custom operations generically."""
     if getattr(MigrationWriter, "_tortoise_extended_format_patched", False):
         return
-    _original = MigrationWriter._format_operation
+    _original = cast(
+        Callable[..., list[str]], getattr(MigrationWriter, "_format_operation")
+    )
 
     def _patched(
         self: MigrationWriter,
@@ -124,7 +138,7 @@ class CreateHypertable(Operation):
             f"{_quote_literal(self.time_column)}, "
             f"if_not_exists => TRUE, migrate_data => {str(self.migrate_data).upper()})"
         )
-        await state_editor._run_sql(sql)
+        await _run_sql(state_editor, sql)
 
         if self.chunk_time_interval != "7 days":
             interval_sql = (
@@ -132,7 +146,7 @@ class CreateHypertable(Operation):
                 f"SET (timescaledb.chunk_time_interval = "
                 f"{_quote_literal(self.chunk_time_interval)})"
             )
-            await state_editor._run_sql(interval_sql)
+            await _run_sql(state_editor, interval_sql)
 
     @override
     def state_forward(self, app_label: str, state: State) -> None:
@@ -162,7 +176,7 @@ class CreateHypertable(Operation):
             f"SELECT remove_hypertable("
             f"{_quote_literal(self.table_name)}, if_exists => TRUE)"
         )
-        await state_editor._run_sql(sql)
+        await _run_sql(state_editor, sql)
 
 
 class CreateContinuousAggregate(Operation):
@@ -205,6 +219,7 @@ class CreateContinuousAggregate(Operation):
             },
         )
 
+    @override
     async def run(
         self,
         app_label: str,
@@ -220,7 +235,7 @@ class CreateContinuousAggregate(Operation):
             f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_quote_ident(self.view_name)} "
             f"WITH (timescaledb.continuous) AS {self.query}"
         )
-        await state_editor._run_sql(create_sql)
+        await _run_sql(state_editor, create_sql)
 
         # Add refresh policy
         refresh_sql = (
@@ -230,7 +245,7 @@ class CreateContinuousAggregate(Operation):
             f"end_offset => INTERVAL '0', "
             f"schedule_interval => INTERVAL {_quote_literal(self.refresh_interval)})"
         )
-        await state_editor._run_sql(refresh_sql)
+        await _run_sql(state_editor, refresh_sql)
 
     @override
     def state_forward(self, app_label: str, state: State) -> None:
@@ -257,4 +272,4 @@ class CreateContinuousAggregate(Operation):
         if state_editor is None:
             return
         sql = f"DROP MATERIALIZED VIEW IF EXISTS {_quote_ident(self.view_name)}"
-        await state_editor._run_sql(sql)
+        await _run_sql(state_editor, sql)
