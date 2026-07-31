@@ -18,6 +18,7 @@ Usage::
 """
 
 from typing import TYPE_CHECKING, Self, override
+from uuid import UUID
 
 from tortoise import fields
 from tortoise.models import Model
@@ -126,30 +127,39 @@ class GraphNode(Model):
         ).order_by("name")
 
     def descendants(self, max_depth: int | None = None) -> QuerySet[Self]:
-        """Get all descendants of this node.
+        """Get descendants of this node by depth range in the same namespace.
+
+        This is a depth-range approximation: it returns nodes strictly deeper
+        than this node within the same namespace, excluding the node itself.
+        For link-exact traversal use :meth:`subtree`.
 
         Args:
             max_depth: Maximum depth to traverse (None = unlimited)
 
         Returns:
-            QuerySet of descendant nodes
+            QuerySet of descendant nodes ordered by depth then name
         """
         if max_depth is None:
             max_depth = 1000  # Safety limit
         return self.__class__.filter(
-            depth__gte=self.depth,
+            namespace=self.namespace,
+            depth__gt=self.depth,
             depth__lte=self.depth + max_depth,
         ).order_by("depth", "name")
 
     def ancestors(self) -> QuerySet[Self]:
-        """Get all ancestors of this node (root to parent).
+        """Get ancestors of this node by depth range in the same namespace.
+
+        This is a depth-range approximation: it returns nodes strictly
+        shallower than this node within the same namespace, excluding the
+        node itself. For the exact root path use :meth:`path_to_root`.
 
         Returns:
             QuerySet of ancestor nodes ordered by depth ascending
         """
         return self.__class__.filter(
-            depth__lte=self.depth,
             namespace=self.namespace,
+            depth__lt=self.depth,
         ).order_by("depth")
 
     def siblings(self) -> QuerySet[Self]:
@@ -163,15 +173,22 @@ class GraphNode(Model):
         ).exclude(id=self.id).order_by("name")
 
     async def path_to_root(self) -> list[Self]:
-        """Get path from this node to root.
+        """Get path from this node to root by walking ``parent_id`` links.
 
         Returns:
             List of nodes from root to this node
         """
-        ancestors = await self.ancestors().all()
-        path = list(ancestors)
-        if self not in path:
-            path.append(self)
+        path: list[Self] = []
+        current: Self | None = self
+        visited: set[UUID] = set()
+        while current is not None:
+            if current.pk in visited:
+                break  # defensive cycle guard
+            visited.add(current.pk)
+            path.append(current)
+            if current.parent_id is None:
+                break
+            current = await self.__class__.get(pk=current.parent_id)
         return sorted(path, key=lambda n: n.depth)
 
     async def subtree(self, max_depth: int | None = None) -> list[Self]:
@@ -190,7 +207,7 @@ class GraphNode(Model):
         while queue:
             current = queue.pop(0)
             children = await current.children().all()
-            async for child in children:
+            for child in children:
                 if child.id not in visited:
                     visited.add(child.id)
                     result.append(child)
