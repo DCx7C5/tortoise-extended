@@ -12,10 +12,10 @@ types, unions, ``object`` + ``cast``, or ``TypeVar``.
 
 from typing import Any, Protocol, TypeAlias
 
-LibraryAny: TypeAlias = Any
+LibraryAny: TypeAlias = Any  # pyright: ignore[reportExplicitAny]
 
 
 class Deconstructable(Protocol):
     """Protocol for Tortoise migration operations that implement ``deconstruct()``."""
 
-    def deconstruct(self) -> tuple[str, tuple[()], dict[str, Any]]: ...
+    def deconstruct(self) -> tuple[str, tuple[()], dict[str, Any]]: ...  # pyright: ignore[reportExplicitAny]
