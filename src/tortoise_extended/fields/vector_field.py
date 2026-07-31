@@ -5,7 +5,7 @@ No monkey-patch conflicts.
 """
 
 import struct
-from typing import override
+from typing import cast, override
 
 from tortoise.fields.base import Field
 
@@ -51,9 +51,9 @@ class VectorField(Field[list[float]]):
         dimensions: int | None = None,
         *,
         null: bool = False,
-        default: LibraryAny = None,
+        default: LibraryAny = None,  # pyright: ignore[reportExplicitAny]
         description: str | None = None,
-        **kwargs: LibraryAny,
+        **kwargs: LibraryAny,  # pyright: ignore[reportExplicitAny]
     ) -> None:
         super().__init__(
             null=null,
@@ -65,23 +65,23 @@ class VectorField(Field[list[float]]):
 
     @override
     def to_db_value(
-        self, value: list[float] | None, instance: LibraryAny
+        self, value: list[float] | None, instance: LibraryAny  # pyright: ignore[reportExplicitAny]
     ) -> list[float] | None:
         if value is None:
             return None
         return list(value)
 
     @override
-    def to_python_value(self, value: LibraryAny) -> list[float] | None:
+    def to_python_value(self, value: LibraryAny) -> list[float] | None:  # pyright: ignore[reportExplicitAny]
         if value is None:
             return None
         if isinstance(value, list):
-            return value
+            return cast(list[float], value)
         # asyncpg returns a string like "[0.1,0.2,0.3]"
         if isinstance(value, str):
             return [float(x) for x in value.strip("[]").split(",") if x]
         if isinstance(value, memoryview):
-            return self._decode_binary(bytes(value))
+            return self._decode_binary(value.tobytes())
         return list(value)
 
     @staticmethod
