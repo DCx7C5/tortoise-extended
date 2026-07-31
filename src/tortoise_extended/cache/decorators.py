@@ -10,28 +10,29 @@ import contextlib
 import functools
 import json
 import logging
-from collections.abc import Callable
-from typing import Any, TypeVar, cast
+from collections.abc import Awaitable, Callable
+from typing import Concatenate, cast
 
+from tortoise_extended._types import P, R
 from tortoise_extended.cache.base import CacheBackend, CacheKey
 
 logger = logging.getLogger(__name__)
 
-F = TypeVar("F", bound=Callable[..., Any])
-
 
 def _build_cache_key(
-    func: Callable,
-    args: tuple,
-    kwargs: dict,
+    func: Callable[..., object],
+    args: tuple[object, ...],
+    kwargs: dict[str, object],
     prefix: str | None = None,
-    key_builder: Callable | None = None,
+    key_builder: Callable[..., str] | None = None,
 ) -> str:
     """Build cache key from function signature."""
     if key_builder:
         return key_builder(*args, **kwargs)
 
-    func_name = f"{getattr(func, '__module__', '<unknown>')}.{func.__qualname__}"
+    func_module = cast(str, getattr(func, "__module__", "<unknown>"))
+    func_qualname = cast(str, getattr(func, "__qualname__", "<unknown>"))
+    func_name = f"{func_module}.{func_qualname}"
     prefix = prefix or func_name
 
     key = CacheKey(prefix)
@@ -46,10 +47,10 @@ def _build_cache_key(
 def cached(
     ttl: int = 300,
     prefix: str | None = None,
-    key_builder: Callable | None = None,
+    key_builder: Callable[..., str] | None = None,
     backend: CacheBackend | None = None,
     namespace: str = "decorators",
-) -> Callable[[F], F]:
+) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """Cache function results in Redis.
 
     Args:
@@ -69,9 +70,11 @@ def cached(
         entity = await get_entity("uuid-here")
     """
 
-    def decorator(func: F) -> F:
+    def decorator(
+        func: Callable[P, Awaitable[R]],
+    ) -> Callable[P, Awaitable[R]]:
         @functools.wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             nonlocal backend
             if backend is None:
                 from tortoise_extended.cache.redis import RedisCache
@@ -84,7 +87,7 @@ def cached(
             try:
                 cached_value = await backend.get(cache_key)
                 if cached_value is not None:
-                    return cached_value
+                    return cast(R, cached_value)
             except Exception:
                 logger.debug("Cache read error for key %s", cache_key, exc_info=True)
 
@@ -99,18 +102,18 @@ def cached(
             return result
 
         # Expose cache control methods
-        def _invalidate(*_a: Any, **_kw: Any) -> Any:
+        def _invalidate(*_a: object, **_kw: object) -> Awaitable[None]:
             """Invalidate cache for this decorated function."""
             return _invalidate_cached(func, _a, _kw, prefix, key_builder, namespace)
 
-        def _cache_key(*a: Any, **kw: Any) -> str:
+        def _cache_key(*a: object, **kw: object) -> str:
             """Get cache key for given arguments."""
             return _build_cache_key(func, a, kw, prefix, key_builder)
 
         setattr(wrapper, "invalidate", _invalidate)
         setattr(wrapper, "cache_key", _cache_key)
 
-        return cast("F", wrapper)
+        return wrapper
 
     return decorator
 
@@ -119,7 +122,10 @@ def cached_method(
     ttl: int = 300,
     prefix: str | None = None,
     namespace: str = "methods",
-) -> Callable[[F], F]:
+) -> Callable[
+    [Callable[Concatenate[object, P], Awaitable[R]]],
+    Callable[Concatenate[object, P], Awaitable[R]],
+]:
     """Cache method results in Redis.
 
     The first argument (self/cls) is excluded from the cache key.
@@ -132,15 +138,18 @@ def cached_method(
                 return await Entity.get(id=entity_id)
     """
 
-    def decorator(func: F) -> F:
+    def decorator(
+        func: Callable[Concatenate[object, P], Awaitable[R]],
+    ) -> Callable[Concatenate[object, P], Awaitable[R]]:
         @functools.wraps(func)
-        async def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+        async def wrapper(self: object, *args: P.args, **kwargs: P.kwargs) -> R:
             from tortoise_extended.cache.redis import RedisCache
 
             backend = RedisCache.get_backend(namespace=namespace, default_ttl=ttl)
 
             # Build key without self
-            func_name = f"{type(self).__name__}.{func.__qualname__}"
+            func_qualname = cast(str, getattr(func, "__qualname__", "<unknown>"))
+            func_name = f"{type(self).__name__}.{func_qualname}"
             p = prefix or func_name
             key = CacheKey(p)
             _ = key.add(
@@ -154,7 +163,7 @@ def cached_method(
             try:
                 cached_value = await backend.get(cache_key)
                 if cached_value is not None:
-                    return cached_value
+                    return cast(R, cached_value)
             except Exception:
                 logger.debug("Cache read error for method %s", cache_key, exc_info=True)
 
@@ -168,17 +177,17 @@ def cached_method(
 
             return result
 
-        return cast("F", wrapper)
+        return wrapper
 
     return decorator
 
 
 async def _invalidate_cached(
-    func: Callable,
-    args: tuple,
-    kwargs: dict,
+    func: Callable[..., object],
+    args: tuple[object, ...],
+    kwargs: dict[str, object],
     prefix: str | None,
-    key_builder: Callable | None,
+    key_builder: Callable[..., str] | None,
     namespace: str,
 ) -> None:
     """Invalidate a cached function call."""
@@ -193,7 +202,7 @@ def invalidate(
     *patterns: str,
     namespace: str = "decorators",
     key_func: Callable[..., str] | None = None,
-) -> Callable[[F], F]:
+) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """Invalidate cache entries when decorated function is called.
 
     Args:
@@ -208,9 +217,11 @@ def invalidate(
             await Entity.filter(id=entity_id).update(**data)
     """
 
-    def decorator(func: F) -> F:
+    def decorator(
+        func: Callable[P, Awaitable[R]],
+    ) -> Callable[P, Awaitable[R]]:
         @functools.wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             from tortoise_extended.cache.redis import RedisCache
 
             backend = RedisCache.get_backend(namespace=namespace)
@@ -233,6 +244,6 @@ def invalidate(
 
             return result
 
-        return cast("F", wrapper)
+        return wrapper
 
     return decorator

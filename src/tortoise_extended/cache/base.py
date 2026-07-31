@@ -11,9 +11,9 @@ import hashlib
 import json
 import pickle
 from abc import ABC, abstractmethod
-from typing import Any, TypeVar, override
+from typing import override
 
-T = TypeVar("T")
+from tortoise_extended._types import LibraryAny
 
 
 class CacheKey:
@@ -42,11 +42,11 @@ class CacheKey:
         return self.separator.join(components)
 
     @staticmethod
-    def from_dict(prefix: str, data: dict) -> CacheKey:
+    def from_dict(prefix: str, data: dict[str, object]) -> CacheKey:
         """Build a key from a dictionary (sorted, deterministic)."""
         key = CacheKey(prefix)
         for k, v in sorted(data.items()):
-            _ = key.add(k, v)
+            _ = key.add(k, str(v))
         return key
 
     @staticmethod
@@ -77,12 +77,12 @@ class Serializer(ABC):
     """Abstract serializer interface."""
 
     @abstractmethod
-    def dumps(self, value: Any) -> bytes:
+    def dumps(self, value: LibraryAny) -> bytes:  # pyright: ignore[reportExplicitAny]
         """Serialize value to bytes."""
         raise NotImplementedError
 
     @abstractmethod
-    def loads(self, data: bytes) -> Any:
+    def loads(self, data: bytes) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
         """Deserialize bytes to value."""
         raise NotImplementedError
 
@@ -90,15 +90,15 @@ class Serializer(ABC):
 class JSONSerializer(Serializer):
     """JSON serializer (safe, human-readable)."""
 
-    def __init__(self, default: Any = None):
+    def __init__(self, default: LibraryAny = None):  # pyright: ignore[reportExplicitAny]
         self.default = default
 
     @override
-    def dumps(self, value: Any) -> bytes:
+    def dumps(self, value: LibraryAny) -> bytes:  # pyright: ignore[reportExplicitAny]
         return json.dumps(value, default=self.default or str, ensure_ascii=False).encode()
 
     @override
-    def loads(self, data: bytes) -> Any:
+    def loads(self, data: bytes) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
         return json.loads(data.decode())
 
 
@@ -113,11 +113,11 @@ class PickleSerializer(Serializer):
     """
 
     @override
-    def dumps(self, value: Any) -> bytes:
+    def dumps(self, value: LibraryAny) -> bytes:  # pyright: ignore[reportExplicitAny]
         return pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
 
     @override
-    def loads(self, data: bytes) -> Any:
+    def loads(self, data: bytes) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
         return pickle.loads(data)
 
 
@@ -125,13 +125,13 @@ class NullSerializer(Serializer):
     """No-op serializer (for bytes values)."""
 
     @override
-    def dumps(self, value: Any) -> bytes:
+    def dumps(self, value: LibraryAny) -> bytes:  # pyright: ignore[reportExplicitAny]
         if isinstance(value, bytes):
             return value
         return str(value).encode()
 
     @override
-    def loads(self, data: bytes) -> Any:
+    def loads(self, data: bytes) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
         return data
 
 
@@ -150,12 +150,12 @@ class CacheBackend(ABC):
         self.serializer = serializer or JSONSerializer()
 
     @abstractmethod
-    async def get(self, key: str) -> Any | None:
+    async def get(self, key: str) -> LibraryAny | None:  # pyright: ignore[reportExplicitAny]
         """Get value by key."""
         raise NotImplementedError
 
     @abstractmethod
-    async def set(self, key: str, value: Any, ttl: int | None = None) -> None:
+    async def set(self, key: str, value: LibraryAny, ttl: int | None = None) -> None:  # pyright: ignore[reportExplicitAny]
         """Set value with optional TTL (seconds)."""
         raise NotImplementedError
 
@@ -184,9 +184,9 @@ class CacheBackend(ABC):
         """Delete all keys matching pattern. Returns count deleted."""
         raise NotImplementedError
 
-    async def get_many(self, keys: list[str]) -> dict[str, Any]:
+    async def get_many(self, keys: list[str]) -> dict[str, LibraryAny]:  # pyright: ignore[reportExplicitAny]
         """Get multiple values at once."""
-        result = {}
+        result: dict[str, LibraryAny] = {}  # pyright: ignore[reportExplicitAny]
         for key in keys:
             value = await self.get(key)
             if value is not None:
@@ -194,7 +194,7 @@ class CacheBackend(ABC):
         return result
 
     async def set_many(
-        self, mapping: dict[str, Any], ttl: int | None = None
+        self, mapping: dict[str, LibraryAny], ttl: int | None = None,  # pyright: ignore[reportExplicitAny]
     ) -> None:
         """Set multiple values at once."""
         for key, value in mapping.items():
@@ -220,10 +220,10 @@ class CacheBackend(ABC):
         """
         raise NotImplementedError
 
-    def serialize(self, value: Any) -> bytes:
+    def serialize(self, value: LibraryAny) -> bytes:  # pyright: ignore[reportExplicitAny]
         """Serialize value."""
         return self.serializer.dumps(value)
 
-    def deserialize(self, data: bytes) -> Any:
+    def deserialize(self, data: bytes) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
         """Deserialize value."""
         return self.serializer.loads(data)

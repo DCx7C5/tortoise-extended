@@ -21,12 +21,11 @@ before Tortoise.init():
         modules={"models": ["..."]},
 """
 
-from typing import Any
-
 from asyncpg import Pool
 from tortoise.fields import Field
 from tortoise.filters import FilterInfoDict
 
+from tortoise_extended._types import LibraryAny
 from tortoise_extended.cache import (
     CacheableModel,
     CachedQuerySet,
@@ -106,7 +105,7 @@ def _apply_patches() -> None:
             return _original_get_filters(field_name, field, source_field)
 
         _filters_mod.get_filters_for_field = _patched_get_filters_for_field
-        _filters_mod._tortoise_extended_patched = True
+        setattr(_filters_mod, "_tortoise_extended_patched", True)
 
         # Also patch the local reference in tortoise.models — it imports
         # get_filters_for_field via ``from tortoise.filters import ...`` which
@@ -160,7 +159,8 @@ def _apply_patches() -> None:
             pass
 
     async def _patched_create_pool(
-        self: _asyncpg_client_mod.AsyncpgDBClient, **kwargs: Any
+        self: _asyncpg_client_mod.AsyncpgDBClient,
+        **kwargs: LibraryAny,  # pyright: ignore[reportExplicitAny]
     ) -> Pool:
         # Inject init callback so EVERY new connection gets the codec
         original_init = kwargs.pop("init", None)
