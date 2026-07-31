@@ -1,3 +1,4 @@
+# pyright: reportExplicitAny=false
 """Local stub overlay for ``tortoise.fields``.
 
 Overrides the upstream ``tortoise-orm-stubs`` to replace bare ``Callable``
@@ -37,6 +38,7 @@ from tortoise.fields.relational import (
     ReverseRelation,
 )
 from tortoise.models import Model
+from tortoise_extended.fields.vector_field import VectorField
 
 __all__ = [
     "CASCADE",
@@ -76,6 +78,7 @@ __all__ = [
     "TimeDeltaField",
     "TimeField",
     "UUIDField",
+    "VectorField",
 ]
 
 type _ValidatorType = list[tortoise.validators.Validator | Callable[..., Any]]

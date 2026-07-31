@@ -3,6 +3,7 @@
   "pythonVersion": "3.14",
   "venvPath": ".",
   "venv": ".venv",
+  "stubPath": "src/tortoise_extended/stubs",
   "include": [
     "src"
   ],
@@ -17,7 +18,6 @@
     "**/build",
     "**/dist",
     "**/.git",
-    "**/migrations",
     "**/tests/**"
   ],
   "reportAttributeAccessIssue": "error",

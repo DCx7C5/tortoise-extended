@@ -1,3 +1,4 @@
+# pyright: reportExplicitAny=false
 """Type stubs for tortoise.fields.relational.
 
 Completes the stubs that tortoise-orm-stubs omits.  The upstream
