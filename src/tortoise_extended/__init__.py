@@ -21,6 +21,12 @@ before Tortoise.init():
         modules={"models": ["..."]},
 """
 
+from typing import Any
+
+from asyncpg import Pool
+from tortoise.fields import Field
+from tortoise.filters import FilterInfoDict
+
 from tortoise_extended.cache import (
     CacheableModel,
     CachedQuerySet,
@@ -90,9 +96,9 @@ def _apply_patches() -> None:
 
         def _patched_get_filters_for_field(
             field_name: str,
-            field: object,
+            field: Field[object] | None,
             source_field: str,
-        ) -> dict:
+        ) -> dict[str, FilterInfoDict]:
             if field is not None and isinstance(field, VectorField):
                 return get_vector_filters(field_name, source_field)
             if field is not None and isinstance(field, LTreeField):
@@ -122,22 +128,30 @@ def _apply_patches() -> None:
         Gracefully skips if the ``vector`` extension is not yet created
         in the database (e.g. before ``CREATE EXTENSION vector``).
         """
+
+        def _encode_vector(value: list[float] | str | None) -> str:
+            """Encode a vector value into the pgvector text format."""
+            if isinstance(value, str):
+                return value
+            if value:
+                return "[" + ",".join(str(x) for x in value) + "]"
+            return "[]"
+
+        def _decode_vector(value: str) -> list[float]:
+            """Decode the pgvector text format into a list of floats."""
+            stripped = value.strip("[]")
+            if not stripped:
+                return []
+            return [float(x) for x in stripped.split(",") if x]
+
         try:
             set_codec = getattr(conn, "set_type_codec", None)
             if set_codec is None:
                 return
             await set_codec(
                 "vector",
-                encoder=lambda v: (
-                    v if isinstance(v, str)
-                    else "[" + ",".join(str(x) for x in v) + "]" if v
-                    else "[]"
-                ),
-                decoder=lambda v: (
-                    [float(x) for x in v.strip("[]").split(",") if x]
-                    if isinstance(v, str) and v.strip("[]")
-                    else []
-                ),
+                encoder=_encode_vector,
+                decoder=_decode_vector,
                 schema="public",
             )
         except (ValueError, AttributeError):
@@ -145,7 +159,9 @@ def _apply_patches() -> None:
             # AttributeError: conn doesn't support set_type_codec
             pass
 
-    async def _patched_create_pool(self, **kwargs):
+    async def _patched_create_pool(
+        self: _asyncpg_client_mod.AsyncpgDBClient, **kwargs: Any
+    ) -> Pool:
         # Inject init callback so EVERY new connection gets the codec
         original_init = kwargs.pop("init", None)
 
