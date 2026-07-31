@@ -8,7 +8,10 @@ Requires: redis[hiredis] >= 5.0.0
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Self, TypeAlias, cast, override
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Self, TypeAlias, cast, override
+
+from tortoise_extended._types import LibraryAny
 
 try:
     import redis.asyncio as aioredis
@@ -48,7 +51,7 @@ class RedisCache:
         cls,
         url: str = "redis://localhost:6379/0",
         max_connections: int = 20,
-        **kwargs: Any,
+        **kwargs: LibraryAny,  # pyright: ignore[reportExplicitAny]
     ) -> None:
         """Initialize Redis connection pool.
 
@@ -73,7 +76,8 @@ class RedisCache:
             **kwargs,
         )
         # Test connection
-        _ = await instance._pool.ping()
+        ping = cast(Callable[[], Awaitable[bool]], instance._pool.ping)
+        _ = await ping()
         logger.info("Redis cache connected: %s", url.split("@")[-1])
 
     @classmethod
@@ -126,7 +130,7 @@ class RedisCacheBackend(CacheBackend):
 
     def __init__(
         self,
-        pool: Any,
+        pool: LibraryAny,  # pyright: ignore[reportExplicitAny]
         namespace: str = "default",
         default_ttl: int = 300,
         serializer: Serializer | None = None,
@@ -142,7 +146,7 @@ class RedisCacheBackend(CacheBackend):
         return f"{self.namespace}:{key}"
 
     @override
-    async def get(self, key: str) -> Any | None:
+    async def get(self, key: str) -> LibraryAny | None:  # pyright: ignore[reportExplicitAny]
         """Get value from Redis."""
         data = await self.pool.get(self._key(key))
         if data is None:
@@ -150,7 +154,7 @@ class RedisCacheBackend(CacheBackend):
         return self.deserialize(data)
 
     @override
-    async def set(self, key: str, value: Any, ttl: int | None = None) -> None:
+    async def set(self, key: str, value: LibraryAny, ttl: int | None = None) -> None:  # pyright: ignore[reportExplicitAny]
         """Set value in Redis with TTL."""
         ttl = ttl or self.default_ttl
         data = self.serialize(value)
@@ -180,9 +184,9 @@ class RedisCacheBackend(CacheBackend):
         """Get keys matching pattern (within namespace) using SCAN."""
         full_pattern = self._key(pattern)
         prefix = f"{self.namespace}:"
-        result = []
+        result: list[str] = []
         async for key in self.pool.scan_iter(match=full_pattern, count=100):
-            result.append(key.decode().removeprefix(prefix))
+            result.append(cast(bytes, key).decode().removeprefix(prefix))
         return result
 
     @override
@@ -196,20 +200,20 @@ class RedisCacheBackend(CacheBackend):
         return count
 
     @override
-    async def get_many(self, keys: list[str]) -> dict[str, Any]:
+    async def get_many(self, keys: list[str]) -> dict[str, LibraryAny]:  # pyright: ignore[reportExplicitAny]
         """Get multiple values at once."""
         if not keys:
             return {}
         full_keys = [self._key(k) for k in keys]
         values = await self.pool.mget(full_keys)
-        result = {}
+        result: dict[str, LibraryAny] = {}  # pyright: ignore[reportExplicitAny]
         for raw_key, value in zip(keys, values, strict=True):
             if value is not None:
-                result[raw_key] = self.deserialize(value)
+                result[raw_key] = self.deserialize(cast(bytes, value))
         return result
 
     @override
-    async def set_many(self, mapping: dict[str, Any], ttl: int | None = None) -> None:
+    async def set_many(self, mapping: dict[str, LibraryAny], ttl: int | None = None) -> None:  # pyright: ignore[reportExplicitAny]
         """Set multiple values at once."""
         if not mapping:
             return
