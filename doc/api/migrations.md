@@ -1,14 +1,17 @@
 # Migrations
 
-Custom migration operations for TimescaleDB and graph retrieval functions.
+Custom migration operations for TimescaleDB.
 
 ## Overview
 
-The migrations module provides three custom operations for Tortoise ORM's migration system:
+The migrations module provides two custom operations for Tortoise ORM's migration system:
 
 1. **CreateHypertable** — Convert tables to TimescaleDB hypertables
 2. **CreateContinuousAggregate** — Create continuous aggregate views
-3. **AddRetrievalFunction** — Add SQL functions from functions.sql
+
+Both serialize through Tortoise's normal migration writer (a monkey-patch
+handles their `deconstruct()` output generically), so `aerich` can generate
+and apply them like any built-in operation.
 
 ## Operations
 
@@ -21,7 +24,7 @@ from tortoise_extended import CreateHypertable
 
 operations = [
     CreateHypertable(
-        table_name="query_cache",
+        table_name="events",
         time_column="created_at",
         chunk_time_interval="7 days",
     ),
@@ -33,58 +36,37 @@ operations = [
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `table_name` | `str` | Required | Table to convert |
-| `time_column` | `str` | Required | Time column for partitioning |
-| `chunk_time_interval` | `str` | `"7 days"` | Chunk size |
+| `time_column` | `str` | `"created_at"` | Time column for partitioning |
+| `chunk_time_interval` | `str` | `"7 days"` | Chunk size interval |
+| `migrate_data` | `bool` | `True` | Migrate existing rows |
 
 **Generated SQL:**
 ```sql
-SELECT create_hypertable('query_cache', 'created_at', 
-    chunk_time_interval => INTERVAL '7 days');
+SELECT create_hypertable('events', 'created_at',
+                         if_not_exists => TRUE, migrate_data => TRUE);
+-- only when chunk_time_interval != '7 days':
+ALTER TABLE "events" SET (timescaledb.chunk_time_interval = '7 days');
 ```
 
-**Requirements:**
-- Table must exist
-- Time column must exist
-- Table must have no data (or use `migrate_data => true`)
-
-**Example:**
-```python
-# In migration file
-from tortoise.migrations.operations import RunSQL
-from tortoise_extended import CreateHypertable
-
-operations = [
-    RunSQL(
-        sql="CREATE TABLE query_cache (...)",
-        reverse_sql="DROP TABLE query_cache;",
-    ),
-    CreateHypertable(
-        table_name="query_cache",
-        time_column="created_at",
-        chunk_time_interval="7 days",
-    ),
-]
-```
+**Rollback:** `SELECT remove_hypertable('events', if_exists => TRUE)`
 
 ---
 
 ### CreateContinuousAggregate
 
-Create a continuous aggregate view for real-time analytics.
+Create a TimescaleDB continuous aggregate view and attach its refresh policy.
 
 ```python
 from tortoise_extended import CreateContinuousAggregate
 
 operations = [
     CreateContinuousAggregate(
-        view_name="daily_entity_stats",
+        view_name="daily_event_stats",
         query="""
-            SELECT 
-                time_bucket('1 day', created_at) AS bucket,
-                type,
-                COUNT(*) AS entity_count
-            FROM entities
-            GROUP BY 1, 2
+            SELECT time_bucket('1 day', created_at) AS bucket,
+                   COUNT(*) AS event_count
+            FROM events
+            GROUP BY 1
         """,
         refresh_interval="1 hour",
     ),
@@ -95,90 +77,23 @@ operations = [
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `view_name` | `str` | Required | View name |
-| `query` | `str` | Required | Aggregate query |
-| `refresh_interval` | `str` | `"1 hour"` | Auto-refresh interval |
+| `view_name` | `str` | Required | Materialized view name |
+| `query` | `str` | Required | Aggregate SELECT (must group by a `time_bucket(...)` column) |
+| `time_column` | `str` | `"time_bucket"` | Bucket column name |
+| `refresh_interval` | `str` | `"1 hour"` | Refresh policy interval |
 
 **Generated SQL:**
 ```sql
-CREATE VIEW daily_entity_stats WITH (timescaledb.continuous) AS
-    SELECT 
-        time_bucket('1 day', created_at) AS bucket,
-        type,
-        COUNT(*) AS entity_count
-    FROM entities
-    GROUP BY 1, 2;
-
-SELECT add_continuous_aggregate_policy('daily_entity_stats',
-    start_offset => INTERVAL '3 hours',
-    end_offset => INTERVAL '1 hour',
+CREATE MATERIALIZED VIEW IF NOT EXISTS "daily_event_stats"
+WITH (timescaledb.continuous) AS <query>;
+SELECT add_continuous_aggregate_policy(
+    'daily_event_stats',
+    start_offset => INTERVAL '1 hour',
+    end_offset => INTERVAL '0',
     schedule_interval => INTERVAL '1 hour');
 ```
 
-**Requirements:**
-- TimescaleDB extension installed
-- Query must use `time_bucket()` function
-- Query must GROUP BY time bucket
-
-**Example:**
-```python
-# In migration file
-from tortoise_extended import CreateContinuousAggregate
-
-operations = [
-    CreateContinuousAggregate(
-        view_name="hourly_query_stats",
-        query="""
-            SELECT 
-                time_bucket('1 hour', created_at) AS bucket,
-                COUNT(*) AS query_count,
-                AVG(hit_count) AS avg_hits
-            FROM query_cache
-            GROUP BY 1
-        """,
-        refresh_interval="30 minutes",
-    ),
-]
-```
-
----
-
-### AddRetrievalFunction
-
-Add a SQL function from the `functions.sql` file.
-
-```python
-from tortoise_extended import AddRetrievalFunction
-
-operations = [
-    AddRetrievalFunction(
-        function_name="local_search",
-        sql_file="functions.sql",
-    ),
-]
-```
-
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `function_name` | `str` | Required | Function name |
-| `sql_file` | `str` | `"functions.sql"` | SQL file path |
-
-**Generated SQL:**
-```sql
--- From functions.sql
-CREATE OR REPLACE FUNCTION local_search(...)
-RETURNS TABLE (...) AS $$
-BEGIN
-    ...
-END;
-$$ LANGUAGE plpgsql;
-```
-
-**Requirements:**
-- `functions.sql` must exist in the package
-- Function name must match SQL definition
+**Rollback:** `DROP MATERIALIZED VIEW IF EXISTS "daily_event_stats"`
 
 ## Migration File Format
 
@@ -191,34 +106,30 @@ operations = [
     # Create table
     RunSQL(
         sql="""
-            CREATE TABLE query_cache (
+            CREATE TABLE events (
                 id UUID PRIMARY KEY,
-                query_hash TEXT NOT NULL UNIQUE,
-                query_text TEXT NOT NULL,
-                response JSONB NOT NULL,
-                hit_count INTEGER NOT NULL DEFAULT 0,
+                payload JSONB NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         """,
-        reverse_sql="DROP TABLE query_cache;",
+        reverse_sql="DROP TABLE events;",
     ),
-    
+
     # Convert to hypertable
     CreateHypertable(
-        table_name="query_cache",
+        table_name="events",
         time_column="created_at",
         chunk_time_interval="7 days",
     ),
-    
+
     # Create continuous aggregate
     CreateContinuousAggregate(
-        view_name="daily_cache_stats",
+        view_name="daily_event_stats",
         query="""
-            SELECT 
+            SELECT
                 time_bucket('1 day', created_at) AS bucket,
-                COUNT(*) AS query_count,
-                AVG(hit_count) AS avg_hits
-            FROM query_cache
+                COUNT(*) AS event_count
+            FROM events
             GROUP BY 1
         """,
         refresh_interval="1 hour",
@@ -230,31 +141,15 @@ operations = [
 
 ```bash
 # Generate migration
-aerich migrate --name add_query_cache
+aerich migrate --name add_events
 
 # Apply migration
 aerich upgrade
 ```
 
-## Rollback
-
-Each operation supports rollback:
-
-```python
-# CreateHypertable rollback
-SELECT remove_hypertable('query_cache');
-
-# CreateContinuousAggregate rollback
-DROP VIEW IF EXISTS daily_cache_stats;
-
-# AddRetrievalFunction rollback
-DROP FUNCTION IF EXISTS local_search(...);
-```
-
 ## Notes
 
-- TimescaleDB operations require the extension to be installed
-- Continuous aggregates require `time_bucket()` function
-- AddRetrievalFunction loads SQL from the package's `functions.sql`
-- All operations are idempotent (safe to run multiple times)
+- TimescaleDB operations require the TimescaleDB extension to be installed
+- Continuous aggregates require `time_bucket()` in the aggregate query
+- Both operations are idempotent (`IF NOT EXISTS` / `if_exists => TRUE`)
 - Test migrations on a copy of production data first
