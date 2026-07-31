@@ -8,10 +8,12 @@ import hashlib
 import json
 import logging
 from datetime import datetime
-from typing import Any, cast, override
+from typing import cast, override
 
+from tortoise.models import Model
 from tortoise.queryset import QuerySet
 
+from tortoise_extended._types import LibraryAny
 from tortoise_extended.cache.base import CacheBackend, CacheKey
 from tortoise_extended.exceptions import CacheDataError, CacheError
 from tortoise_extended.cache.redis import RedisCache
@@ -19,7 +21,7 @@ from tortoise_extended.cache.redis import RedisCache
 logger = logging.getLogger(__name__)
 
 
-class CachedQuerySet(QuerySet):
+class CachedQuerySet(QuerySet[Model]):
     """QuerySet that automatically caches results in Redis.
 
     Usage:
@@ -71,7 +73,7 @@ class CachedQuerySet(QuerySet):
 
         # Build deterministic key from query
         model_name = self.model.__name__
-        filters = {}
+        filters: dict[str, LibraryAny] = {}  # pyright: ignore[reportExplicitAny]
         if hasattr(self, "_q_objects") and self._q_objects:
             filters["q"] = [str(f) for f in self._q_objects]
         if self._annotations:
@@ -93,7 +95,7 @@ class CachedQuerySet(QuerySet):
         return CacheKey.from_dict(model_name, {"hash": key_hash}).build()
 
     @override
-    async def _execute(self) -> list[Any]:
+    async def _execute(self) -> list[LibraryAny]:  # pyright: ignore[reportExplicitAny]
         """Execute query with caching."""
         if self._cache_ttl <= 0 or self._single:
             return await super()._execute()
@@ -113,12 +115,12 @@ class CachedQuerySet(QuerySet):
             if cached_result is not None:
                 if not isinstance(cached_result, list):
                     raise CacheDataError(f"Expected list from cache, got {type(cached_result).__name__}")
-                return self._deserialize_results(cached_result)
+                return self._deserialize_results(cached_result)  # pyright: ignore[reportUnknownArgumentType]
         except CacheError:
             logger.debug("Cache read error for key %s", cache_key, exc_info=True)
 
         # Execute query
-        results = await super()._execute()
+        results: list[LibraryAny] = await super()._execute()  # pyright: ignore[reportExplicitAny]
 
         # Cache results
         try:
@@ -129,16 +131,16 @@ class CachedQuerySet(QuerySet):
 
         return results
 
-    def _serialize_results(self, results: list) -> list[dict]:
+    def _serialize_results(self, results: list[LibraryAny]) -> list[dict[str, LibraryAny]]:  # pyright: ignore[reportExplicitAny]
         """Serialize model instances to dicts."""
-        serialized = []
+        serialized: list[dict[str, LibraryAny]] = []  # pyright: ignore[reportExplicitAny]
         for instance in results:
             if hasattr(instance, "_meta"):
-                data: dict[str, Any] = {
+                data: dict[str, LibraryAny] = {  # pyright: ignore[reportExplicitAny]
                     "_model": instance.__class__.__name__,
                 }
                 for field_name in instance._meta.fields:
-                    value = getattr(instance, field_name, None)
+                    value: LibraryAny = getattr(instance, field_name, None)  # pyright: ignore[reportExplicitAny]
                     if isinstance(value, datetime):
                         value = value.isoformat()
                     elif hasattr(value, "pk"):
@@ -150,13 +152,13 @@ class CachedQuerySet(QuerySet):
                 serialized.append(instance)
         return serialized
 
-    def _deserialize_results(self, data: list[dict]) -> list:
+    def _deserialize_results(self, data: list[dict[str, LibraryAny]]) -> list[LibraryAny]:  # pyright: ignore[reportExplicitAny]
         """Deserialize dicts back to model instances.
 
         Uses Tortoise ORM's ``construct()`` to create instances without
         hitting the database.
         """
-        results: list = []
+        results: list[LibraryAny] = []  # pyright: ignore[reportExplicitAny]
         for record in data:
             model_name = record.get("_model")
             if model_name is None:
@@ -168,7 +170,7 @@ class CachedQuerySet(QuerySet):
                 results.append(record)
                 continue
 
-            field_values: dict[str, Any] = {}
+            field_values: dict[str, LibraryAny] = {}  # pyright: ignore[reportExplicitAny]
             for field_name in model_cls._meta.fields:
                 raw = record.get(field_name)
                 if raw is None:
@@ -182,7 +184,7 @@ class CachedQuerySet(QuerySet):
         return results
 
     @staticmethod
-    def _resolve_model(model_name: str) -> type | None:
+    def _resolve_model(model_name: str) -> type[Model] | None:
         """Look up a Tortoise model class by name."""
         from tortoise import Tortoise
 
@@ -196,7 +198,7 @@ class CachedQuerySet(QuerySet):
         return None
 
     @staticmethod
-    def _coerce_value(raw: Any, field_obj: Any) -> Any:
+    def _coerce_value(raw: LibraryAny, field_obj: LibraryAny) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
         """Coerce a JSON-deserialized value back to the field's Python type."""
         if isinstance(raw, str) and hasattr(field_obj, "field_type"):
             ft = field_obj.field_type

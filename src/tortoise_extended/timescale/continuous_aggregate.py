@@ -27,9 +27,9 @@ Usage::
     )
 """
 
-from typing import Any
-
 from tortoise import connections
+
+from tortoise_extended._types import LibraryAny
 
 
 class ContinuousAggregateManager:
@@ -43,7 +43,7 @@ class ContinuousAggregateManager:
     @staticmethod
     async def create(
         view_name: str,
-        source_table: str,
+        _source_table: str,
         query: str,
         with_data: bool = True,
     ) -> None:
@@ -224,7 +224,7 @@ class ContinuousAggregateManager:
         await conn.execute_query(sql)
 
     @staticmethod
-    async def list() -> list[dict[str, Any]]:
+    async def list() -> list[dict[str, LibraryAny]]:  # pyright: ignore[reportExplicitAny]
         """List all continuous aggregates.
 
         Returns:
@@ -247,6 +247,6 @@ class ContinuousAggregateManager:
         """
 
         result = await conn.execute_query(sql)
-        rows = result[1] if isinstance(result, tuple) else result
+        rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
 
-        return [dict(row) for row in rows]
+        return [dict(row) for row in rows]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]

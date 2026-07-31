@@ -18,9 +18,9 @@ Usage::
     is_hypertable = await HypertableManager.is_hypertable("events")
 """
 
-from typing import Any
-
 from tortoise import connections
+
+from tortoise_extended._types import LibraryAny
 
 
 class HypertableManager:
@@ -125,18 +125,18 @@ class HypertableManager:
         """
 
         result = await conn.execute_query(sql)
-        rows = result[1] if isinstance(result, tuple) else result
+        rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
 
         if rows:
-            row = rows[0]
+            row: LibraryAny = rows[0]  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
             if isinstance(row, dict):
-                return row.get("is_hypertable", False)
+                return row.get("is_hypertable", False)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             # Tuple result
-            return bool(row[0]) if row else False
+            return bool(row[0]) if row else False  # pyright: ignore[reportUnknownArgumentType]
         return False
 
     @staticmethod
-    async def list_hypertables() -> list[dict[str, Any]]:
+    async def list_hypertables() -> list[dict[str, LibraryAny]]:  # pyright: ignore[reportExplicitAny]
         """List all hypertables in the database.
 
         Returns:
@@ -161,9 +161,9 @@ class HypertableManager:
         """
 
         result = await conn.execute_query(sql)
-        rows = result[1] if isinstance(result, tuple) else result
+        rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
 
-        return [dict(row) for row in rows]
+        return [dict(row) for row in rows]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
 
     @staticmethod
     async def add_dimension(
@@ -254,6 +254,6 @@ class HypertableManager:
             """
 
         result = await conn.execute_query(sql)
-        rows = result[1] if isinstance(result, tuple) else result
+        rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
 
-        return [row[0] for row in rows]
+        return [row[0] for row in rows]  # pyright: ignore[reportUnknownVariableType]

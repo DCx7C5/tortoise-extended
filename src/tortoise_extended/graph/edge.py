@@ -71,7 +71,7 @@ class GraphEdge(Model):
         description="Type of relationship (e.g., parent_of, references)",
         db_index=True,
     )
-    weight = fields.FloatField(
+    weight = fields.FloatField(  # pyright: ignore[reportUnknownMemberType]
         default=1.0,
         description="Edge weight for weighted algorithms",
     )
@@ -85,7 +85,7 @@ class GraphEdge(Model):
         description="Namespace for multi-tenancy",
         db_index=True,
     )
-    is_bidirectional = fields.BooleanField(
+    is_bidirectional = fields.BooleanField(  # pyright: ignore[reportUnknownMemberType]
         default=False,
         description="True if this edge is undirected (bidirectional)",
     )

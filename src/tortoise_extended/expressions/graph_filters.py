@@ -4,12 +4,13 @@ Custom Criterion subclasses for pgvector distance operators:
 <-> L2 distance, <#> inner product, <=> cosine distance
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pypika_tortoise.enums import Comparator
 from pypika_tortoise.terms import BasicCriterion, Field, Term, ValueWrapper
 from tortoise.filters import is_null as _is_null
 from tortoise.filters import not_null as _not_null
+from tortoise_extended._types import LibraryAny
 
 if TYPE_CHECKING:
     from tortoise.models import Model
@@ -87,7 +88,11 @@ class JaccardDistance(BasicCriterion):
 # Vector-specific encoders
 
 
-def vector_encoder(value: Any, _instance: Model | None = None, _field: Any = None) -> str | None:
+def vector_encoder(
+    value: LibraryAny,  # pyright: ignore[reportExplicitAny]
+    _instance: Model | None = None,
+    _field: LibraryAny = None,  # pyright: ignore[reportExplicitAny]
+) -> str | None:
     """Encode a list/tuple of floats into pgvector ``'[1.0,0.0,...]'`` string.
 
     Called directly in annotation expressions::
@@ -102,11 +107,15 @@ def vector_encoder(value: Any, _instance: Model | None = None, _field: Any = Non
     if isinstance(value, str):
         return value
     if isinstance(value, (list, tuple)):
-        return "[" + ",".join(str(float(x)) for x in value) + "]"
+        return "[" + ",".join(str(float(x)) for x in value) + "]"  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
     return str(value)
 
 
-def _vector_value_passthrough(value: Any, _instance: Any = None, _field: Any = None) -> Any:
+def _vector_value_passthrough(
+    value: LibraryAny,  # pyright: ignore[reportExplicitAny]
+    _instance: LibraryAny = None,  # pyright: ignore[reportExplicitAny]
+    _field: LibraryAny = None,  # pyright: ignore[reportExplicitAny]
+) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
     """Identity encoder for Tortoise filter value_encoder slot.
 
     The distance operators (``_l2_distance_lte`` etc.) receive the raw
@@ -119,7 +128,7 @@ def _vector_value_passthrough(value: Any, _instance: Any = None, _field: Any = N
 
 # Filter definitions for VectorField
 
-def get_vector_filters(field_name: str, source_field: str) -> dict[str, Any]:
+def get_vector_filters(field_name: str, source_field: str) -> dict[str, LibraryAny]:  # pyright: ignore[reportExplicitAny]
     """Return filter definitions for a VectorField.
 
     pgvector does not support ``=`` on vector columns, so the base filter
@@ -168,38 +177,38 @@ def get_vector_filters(field_name: str, source_field: str) -> dict[str, Any]:
     }
 
 
-def _l2_distance_lte(field: Term, value: Any) -> Any:
+def _l2_distance_lte(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
     """Filter: L2 distance <= threshold."""
     if isinstance(value, (list, tuple)):
-        if len(value) == 2 and isinstance(value[0], list):
-            query_vector, threshold = value
+        if len(value) == 2 and isinstance(value[0], list):  # pyright: ignore[reportUnknownArgumentType]
+            query_vector, threshold = value  # pyright: ignore[reportUnknownVariableType]
         else:
-            query_vector, threshold = value, 1.0
+            query_vector, threshold = value, 1.0  # pyright: ignore[reportUnknownVariableType]
         return L2Distance(field, ValueWrapper(query_vector)).lte(threshold)
     return L2Distance(field, ValueWrapper(value)).lte(1.0)
 
 
-def _cosine_distance_lte(field: Term, value: Any) -> Any:
+def _cosine_distance_lte(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
     """Filter: cosine distance <= threshold."""
     if isinstance(value, (list, tuple)):
-        if len(value) == 2 and isinstance(value[0], list):
-            query_vector, threshold = value
+        if len(value) == 2 and isinstance(value[0], list):  # pyright: ignore[reportUnknownArgumentType]
+            query_vector, threshold = value  # pyright: ignore[reportUnknownVariableType]
         else:
-            query_vector, threshold = value, 1.0
+            query_vector, threshold = value, 1.0  # pyright: ignore[reportUnknownVariableType]
         return CosineDistance(field, ValueWrapper(query_vector)).lte(threshold)
     return CosineDistance(field, ValueWrapper(value)).lte(1.0)
 
 
-def _inner_product_gte(field: Term, value: Any) -> Any:
+def _inner_product_gte(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
     """Filter: inner product >= threshold (higher = more similar).
 
     pgvector's ``<#>`` operator returns the **negative** inner product, so
     ``inner_product >= threshold`` translates to ``<#> <= -threshold``.
     """
     if isinstance(value, (list, tuple)):
-        if len(value) == 2 and isinstance(value[0], list):
-            query_vector, threshold = value
+        if len(value) == 2 and isinstance(value[0], list):  # pyright: ignore[reportUnknownArgumentType]
+            query_vector, threshold = value  # pyright: ignore[reportUnknownVariableType]
         else:
-            query_vector, threshold = value, 0.0
+            query_vector, threshold = value, 0.0  # pyright: ignore[reportUnknownVariableType]
         return InnerProduct(field, ValueWrapper(query_vector)).lte(-threshold)
     return InnerProduct(field, ValueWrapper(value)).lte(0.0)

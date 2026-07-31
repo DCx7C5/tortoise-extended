@@ -23,9 +23,9 @@ Usage::
     print(f"Compression ratio: {stats['compression_ratio']}")
 """
 
-from typing import Any
-
 from tortoise import connections
+
+from tortoise_extended._types import LibraryAny
 
 
 class CompressionManager:
@@ -39,7 +39,7 @@ class CompressionManager:
     async def enable_compression(
         table_name: str,
         compress_after: str = "7 days",
-        if_not_exists: bool = True,
+        _if_not_exists: bool = True,
     ) -> None:
         """Enable compression on a hypertable.
 
@@ -181,7 +181,7 @@ class CompressionManager:
         await conn.execute_query(sql)
 
     @staticmethod
-    async def get_stats(table_name: str) -> dict[str, Any]:
+    async def get_stats(table_name: str) -> dict[str, LibraryAny]:  # pyright: ignore[reportExplicitAny]
         """Get compression statistics for a hypertable.
 
         Args:
@@ -227,12 +227,12 @@ class CompressionManager:
         """
 
         result = await conn.execute_query(sql)
-        rows = result[1] if isinstance(result, tuple) else result
+        rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
 
         if rows:
-            row = rows[0]
+            row: LibraryAny = rows[0]  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
             if isinstance(row, dict):
-                return row
+                return row  # pyright: ignore[reportUnknownVariableType]
             return {
                 "uncompressed_size": row[0],
                 "compressed_size": row[1],
