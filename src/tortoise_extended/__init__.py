@@ -76,11 +76,13 @@ def _apply_patches() -> None:
         _fields_mod.VectorField = VectorField
         _fields_mod.__all__.append("VectorField")
 
-    # 2. Register HNSWIndex and IVFFlatIndex in the indexes module
+    # 2. Register HNSWIndex, IVFFlatIndex and GiSTIndex in the indexes module
     if not hasattr(_indexes_mod, "HNSWIndex"):
         _indexes_mod.HNSWIndex = HNSWIndex
     if not hasattr(_indexes_mod, "IVFFlatIndex"):
         _indexes_mod.IVFFlatIndex = IVFFlatIndex
+    if not hasattr(_indexes_mod, "GiSTIndex"):
+        _indexes_mod.GiSTIndex = GiSTIndex
 
     # 3. Patch get_filters_for_field to handle VectorField (idempotent)
     if not getattr(_filters_mod, "_tortoise_extended_patched", False):
@@ -108,6 +110,10 @@ def _apply_patches() -> None:
         _models_mod.get_filters_for_field = _patched_get_filters_for_field
 
     # 4. Register pgvector codec on EVERY asyncpg connection via init callback
+    if getattr(
+        _asyncpg_client_mod.AsyncpgDBClient, "_tortoise_extended_codec_patched", False
+    ):
+        return
     _original_create_pool = _asyncpg_client_mod.AsyncpgDBClient.create_pool
 
     async def _pgvector_codec_init(conn: object) -> None:
@@ -152,6 +158,7 @@ def _apply_patches() -> None:
         return await _original_create_pool(self, **kwargs)
 
     _asyncpg_client_mod.AsyncpgDBClient.create_pool = _patched_create_pool
+    _asyncpg_client_mod.AsyncpgDBClient._tortoise_extended_codec_patched = True
 
 
 __all__ = [

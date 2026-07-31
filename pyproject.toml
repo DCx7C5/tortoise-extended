@@ -48,4 +48,5 @@ dev = [
     # ruff 0.16 changed the default rule set (RUF059/I001/PERF102…); pinning
     # <0.16 keeps the established gate until the codebase is migrated.
     "ruff>=0.15.0,<0.16",
+    "basedpyright>=1.39.9",
 ]

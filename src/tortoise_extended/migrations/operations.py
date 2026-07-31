@@ -27,6 +27,8 @@ def _quote_literal(value: str) -> str:
 
 def _patch_format_operation() -> None:
     """Patch MigrationWriter to serialize custom operations generically."""
+    if getattr(MigrationWriter, "_tortoise_extended_format_patched", False):
+        return
     _original = MigrationWriter._format_operation
 
     def _patched(
@@ -54,6 +56,7 @@ def _patch_format_operation() -> None:
         return [f"{indent}{class_name}({joined}),"]
 
     MigrationWriter._format_operation = _patched  # type: ignore[method-assign]
+    MigrationWriter._tortoise_extended_format_patched = True
 
 
 _patch_format_operation()
