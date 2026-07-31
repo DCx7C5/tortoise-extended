@@ -127,21 +127,45 @@ def _lquery_encoder(value: Any, _instance: Model | None = None, _field: Any = No
 def get_ltree_filters(field_name: str, source_field: str) -> dict[str, Any]:
     """Return filter definitions for an LTreeField.
 
-    Provides:
-    - __ancestor_of: left @> right (is ancestor of)
-    - __descendant_of: left <@ right (is descendant of)
-    - __match: left ~ right (ltree match)
-    - __ancestor_match: left ?@> right (has ancestor match)
-    - __descendant_match: left ?<@ right (has descendant match)
+    Provides the standard filters that make sense for ltree paths
+    (exact, not, in, not_in, isnull, not_isnull) plus the ltree
+    operators:
+
+    - ``__ancestor_of``: left @> right (is ancestor of)
+    - ``__descendant_of``: left <@ right (is descendant of)
+    - ``__match``: left ~ right (ltree match)
+    - ``__ancestor_match``: left ?@> right (has ancestor match)
+    - ``__descendant_match``: left ?<@ right (has descendant match)
     """
     from tortoise.filters import bool_encoder
+    from tortoise.filters import list_encoder
+    from tortoise.filters import not_equal, not_in, is_in
+    from tortoise.filters import operator
 
     return {
         field_name: {
             "field": field_name,
             "source_field": source_field,
-            "operator": _is_null,
-            "value_encoder": bool_encoder,
+            "operator": operator.eq,
+            "value_encoder": ltree_encoder,
+        },
+        f"{field_name}__not": {
+            "field": field_name,
+            "source_field": source_field,
+            "operator": not_equal,
+            "value_encoder": ltree_encoder,
+        },
+        f"{field_name}__in": {
+            "field": field_name,
+            "source_field": source_field,
+            "operator": is_in,
+            "value_encoder": list_encoder,
+        },
+        f"{field_name}__not_in": {
+            "field": field_name,
+            "source_field": source_field,
+            "operator": not_in,
+            "value_encoder": list_encoder,
         },
         f"{field_name}__isnull": {
             "field": field_name,

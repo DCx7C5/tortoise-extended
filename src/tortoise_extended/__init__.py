@@ -39,6 +39,7 @@ from tortoise_extended.expressions.graph_filters import (
 )
 from tortoise_extended.expressions.graph_traversal import GraphTraversal
 from tortoise_extended.expressions.hybrid_search import HybridSearch
+from tortoise_extended.expressions.ltree_filters import get_ltree_filters
 from tortoise_extended.expressions.pathfinding import (
     all_paths,
     find_cycles,
@@ -92,6 +93,8 @@ def _apply_patches() -> None:
         ) -> dict:
             if field is not None and isinstance(field, VectorField):
                 return get_vector_filters(field_name, source_field)
+            if field is not None and isinstance(field, LTreeField):
+                return get_ltree_filters(field_name, source_field)
             return _original_get_filters(field_name, field, source_field)
 
         _filters_mod.get_filters_for_field = _patched_get_filters_for_field
@@ -176,6 +179,7 @@ __all__ = [
     "cached",
     "cached_method",
     "find_cycles",
+    "get_ltree_filters",
     "get_vector_filters",
     "invalidate",
     "shortest_path",
