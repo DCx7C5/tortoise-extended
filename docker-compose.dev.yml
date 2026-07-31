@@ -1,10 +1,10 @@
 services:
 
-  postgres:
+  postgres-ext:
     build:
-      context: docker/postgres-css
+      context: docker/postgres-ext
       dockerfile: Dockerfile
-    container_name: css-postgres
+    container_name: postgres-ext
     ports:
       - "127.0.0.1:5433:5432"
     env_file:
@@ -12,7 +12,7 @@ services:
     tty: true
     volumes:
       - pg-data:/var/lib/postgresql
-      - ./docker/postgres-css/scripts:/docker-entrypoint-initdb.d:ro
+      - ./docker/postgres-ext/scripts:/docker-entrypoint-initdb.d:ro
       - /var/run/postgresql:/var/run/postgresql
     command: >
       postgres
@@ -21,15 +21,15 @@ services:
       -c max_connections=100
       -c shared_buffers=256MB
 
-  redis:
+  redis-ext:
     image: redis:7-alpine
-    container_name: css-redis
+    container_name: redis-ext
     restart: unless-stopped
     ports:
       - "127.0.0.1:6380:6379"
     volumes:
       - redis-data:/var/lib/redis/
-      - ./docker/redis-css/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./docker/redis-ext/redis.conf:/usr/local/etc/redis/redis.conf:ro
       - /var/run/redis:/var/run/redis
     command: redis-server /usr/local/etc/redis/redis.conf
     healthcheck:
