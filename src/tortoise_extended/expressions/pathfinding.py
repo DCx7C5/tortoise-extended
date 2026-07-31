@@ -11,12 +11,18 @@ Usage::
     paths = await all_paths(NodeModel, EdgeModel, from_id=1, to_id=42, max_hops=5)
 """
 
-from typing import Any
+from typing import TYPE_CHECKING
+from uuid import UUID
 
 from tortoise import connections
 
+from tortoise_extended._types import RowMapping
 
-def _et_clause(edge_type: str | None, param_index: int) -> tuple[str, list[Any]]:
+if TYPE_CHECKING:
+    from tortoise.models import Model
+
+
+def _et_clause(edge_type: str | None, param_index: int) -> tuple[str, list[str]]:
     """Build a parameterized edge_type filter clause.
 
     Args:
@@ -33,13 +39,13 @@ def _et_clause(edge_type: str | None, param_index: int) -> tuple[str, list[Any]]
 
 
 async def shortest_path(
-    node_model: type,
-    edge_model: type,
-    from_id: Any,
-    to_id: Any,
+    node_model: type[Model],
+    edge_model: type[Model],
+    from_id: int | str | UUID,
+    to_id: int | str | UUID,
     max_hops: int = 6,
     edge_type: str | None = None,
-) -> list[dict[str, Any]] | None:
+) -> list[RowMapping] | None:
     """Find shortest path between two nodes using BFS in SQL.
 
     Uses a recursive CTE with level-order traversal and path tracking
@@ -107,7 +113,7 @@ async def shortest_path(
     """
 
     conn = connections.get("default")
-    params: list[Any] = [from_id, max_hops, to_id, *et_params]
+    params: list[int | str | UUID] = [from_id, max_hops, to_id, *et_params]
     _, results = await conn.execute_query(sql, params)
     if not results:
         return None
@@ -119,14 +125,14 @@ async def shortest_path(
 
 
 async def all_paths(
-    node_model: type,
-    edge_model: type,
-    from_id: Any,
-    to_id: Any,
+    node_model: type[Model],
+    edge_model: type[Model],
+    from_id: int | str | UUID,
+    to_id: int | str | UUID,
     max_hops: int = 6,
     max_paths: int = 10,
     edge_type: str | None = None,
-) -> list[list[dict[str, Any]]]:
+) -> list[list[RowMapping]]:
     """Find all paths between two nodes.
 
     Returns up to ``max_paths`` distinct paths, each as a list of
@@ -195,10 +201,10 @@ async def all_paths(
     """
 
     conn = connections.get("default")
-    params: list[Any] = [from_id, max_hops, to_id, max_paths, *et_params]
+    params: list[int | str | UUID] = [from_id, max_hops, to_id, max_paths, *et_params]
     _, results = await conn.execute_query(sql, params)
 
-    paths = []
+    paths: list[list[RowMapping]] = []
     for row in results:
         path = [
             {"id": pid, "name": pname}
@@ -209,11 +215,11 @@ async def all_paths(
 
 
 async def find_cycles(
-    node_model: type,
-    edge_model: type,
+    node_model: type[Model],
+    edge_model: type[Model],
     max_depth: int = 10,
     edge_type: str | None = None,
-) -> list[list[dict[str, Any]]]:
+) -> list[list[RowMapping]]:
     """Detect cycles in the graph.
 
     Walks every edge (plus both directions of bidirectional edges) and
@@ -283,10 +289,10 @@ async def find_cycles(
     """
 
     conn = connections.get("default")
-    params: list[Any] = [max_depth, *et_params]
+    params: list[int | str] = [max_depth, *et_params]
     _, results = await conn.execute_query(sql, params)
 
-    cycles = []
+    cycles: list[list[RowMapping]] = []
     for row in results:
         # The closing start node is repeated at the end of the walk —
         # strip it so the printed cycle reads "a → b → a".

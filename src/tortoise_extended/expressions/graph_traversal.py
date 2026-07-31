@@ -20,12 +20,18 @@ Usage::
     neighbors = await traversal.neighbors(node_id, direction="both")
 """
 
-from typing import Any
+from typing import TYPE_CHECKING
+from uuid import UUID
 
 from tortoise import connections
 
+from tortoise_extended._types import RowMapping
 
-def _et_clause(edge_type: str | None, param_index: int) -> tuple[str, list[Any]]:
+if TYPE_CHECKING:
+    from tortoise.models import Model
+
+
+def _et_clause(edge_type: str | None, param_index: int) -> tuple[str, list[str]]:
     """Build a parameterized edge_type filter clause.
 
     Args:
@@ -76,8 +82,8 @@ class GraphTraversal:
 
     def __init__(
         self,
-        node_model: type,
-        edge_model: type,
+        node_model: type[Model],
+        edge_model: type[Model],
         source_field: str = "source_id",
         target_field: str = "target_id",
     ) -> None:
@@ -90,10 +96,10 @@ class GraphTraversal:
 
     async def ancestors(
         self,
-        node_id: Any,
+        node_id: int | str | UUID,
         max_depth: int = 10,
         edge_type: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[RowMapping]:
         """Find all ancestors of a node using recursive CTE.
 
         Traverses edges in reverse (target → source) to find all nodes
@@ -135,16 +141,16 @@ class GraphTraversal:
         """
 
         conn = connections.get("default")
-        params: list[Any] = [node_id, max_depth, *et_params]
+        params: list[int | str | UUID] = [node_id, max_depth, *et_params]
         _, results = await conn.execute_query(sql, params)
         return [dict(r) for r in results]
 
     async def descendants(
         self,
-        node_id: Any,
+        node_id: int | str | UUID,
         max_depth: int = 10,
         edge_type: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[RowMapping]:
         """Find all descendants of a node using recursive CTE.
 
         Traverses edges forward (source → target) to find all nodes
@@ -186,17 +192,17 @@ class GraphTraversal:
         """
 
         conn = connections.get("default")
-        params: list[Any] = [node_id, max_depth, *et_params]
+        params: list[int | str | UUID] = [node_id, max_depth, *et_params]
         _, results = await conn.execute_query(sql, params)
         return [dict(r) for r in results]
 
     async def neighbors(
         self,
-        node_id: Any,
+        node_id: int | str | UUID,
         direction: str = "both",
         edge_type: str | None = None,
         max_depth: int = 1,
-    ) -> list[dict[str, Any]]:
+    ) -> list[RowMapping]:
         """Get neighbors within max_depth hops.
 
         :param node_id: Starting node ID.
@@ -255,7 +261,7 @@ class GraphTraversal:
         """
 
         conn = connections.get("default")
-        params: list[Any] = [node_id, max_depth, *et_params]
+        params: list[int | str | UUID] = [node_id, max_depth, *et_params]
         _, results = await conn.execute_query(sql, params)
         return [dict(r) for r in results]
 
@@ -307,6 +313,6 @@ class GraphTraversal:
         """
 
         conn = connections.get("default")
-        params: list[Any] = [max_depth, *et_params]
+        params: list[int | str] = [max_depth, *et_params]
         _, results = await conn.execute_query(sql, params)
         return bool(results[0]["has_cycle"])
