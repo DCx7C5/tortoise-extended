@@ -50,6 +50,13 @@ COPY --from=builder /usr/share/postgresql/18/extension/timescaledb*  /usr/share/
 
 COPY scripts/00-extensions.sql /docker-entrypoint-initdb.d/
 
+# Custom entrypoint: generates role/database init SQL from the
+# DB_USER_*/DB_PASS_*/DB_NAME_* env groups, then delegates to the official
+# postgres entrypoint (which runs all /docker-entrypoint-initdb.d/*.sql).
+COPY entrypoint.sh /usr/local/bin/tortoise-entrypoint.sh
+RUN chmod +x /usr/local/bin/tortoise-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/tortoise-entrypoint.sh"]
+
 # Pre-load extensions into shared_preload_libraries
 # (must be set before first startup — sed on the sample config)
 RUN sed -i \
@@ -62,4 +69,3 @@ RUN sed -i \
 # Healthcheck — wait for accepting connections
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
     CMD pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}
-

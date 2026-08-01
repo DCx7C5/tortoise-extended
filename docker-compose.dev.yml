@@ -10,9 +10,12 @@ services:
     env_file:
       - .env
     tty: true
+    depends_on:
+      - redis-ext
     volumes:
+      # scripts are baked into the image at build time (see Dockerfile) so the
+      # custom entrypoint can write generated 01/02-*.sql into the init dir
       - pg-data:/var/lib/postgresql
-      - ./docker/postgres-ext/scripts:/docker-entrypoint-initdb.d:ro
       - /var/run/postgresql:/var/run/postgresql
     command: >
       postgres
