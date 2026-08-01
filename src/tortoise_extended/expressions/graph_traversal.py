@@ -20,7 +20,7 @@ Usage::
     neighbors = await traversal.neighbors(node_id, direction="both")
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from tortoise import connections
@@ -143,7 +143,7 @@ class GraphTraversal:
         conn = connections.get("default")
         params: list[int | str | UUID] = [node_id, max_depth, *et_params]
         _, results = await conn.execute_query(sql, params)
-        return [dict(r) for r in results]
+        return [cast(RowMapping, dict(r)) for r in results]
 
     async def descendants(
         self,
@@ -194,7 +194,7 @@ class GraphTraversal:
         conn = connections.get("default")
         params: list[int | str | UUID] = [node_id, max_depth, *et_params]
         _, results = await conn.execute_query(sql, params)
-        return [dict(r) for r in results]
+        return [cast(RowMapping, dict(r)) for r in results]
 
     async def neighbors(
         self,
@@ -263,7 +263,7 @@ class GraphTraversal:
         conn = connections.get("default")
         params: list[int | str | UUID] = [node_id, max_depth, *et_params]
         _, results = await conn.execute_query(sql, params)
-        return [dict(r) for r in results]
+        return [cast(RowMapping, dict(r)) for r in results]
 
     async def has_cycle(
         self,

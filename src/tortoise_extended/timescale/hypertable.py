@@ -18,9 +18,11 @@ Usage::
     is_hypertable = await HypertableManager.is_hypertable("events")
 """
 
+from typing import cast
+
 from tortoise import connections
 
-from tortoise_extended._types import LibraryAny
+from tortoise_extended._types import LibraryAny, RowMapping
 
 
 class HypertableManager:
@@ -152,18 +154,20 @@ class HypertableManager:
 
         sql = """
             SELECT
-                table_name,
-                num_chunks,
-                compression_enabled,
-                table_size
-            FROM hypertable_stats()
-            ORDER BY table_name
+                (h.hypertable_schema || '.' || h.hypertable_name) AS table_name,
+                h.num_chunks,
+                h.compression_enabled,
+                public.hypertable_size(
+                    (h.hypertable_schema || '.' || h.hypertable_name)::regclass
+                ) AS table_size
+            FROM timescaledb_information.hypertables h
+            ORDER BY h.hypertable_name
         """
 
         result = await conn.execute_query(sql)
         rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
 
-        return [dict(row) for row in rows]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+        return [cast(RowMapping, dict(row)) for row in rows]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
 
     @staticmethod
     async def add_dimension(

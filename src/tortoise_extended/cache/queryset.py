@@ -131,7 +131,8 @@ class CachedQuerySet(QuerySet[Model]):
 
         return results
 
-    def _serialize_results(self, results: list[LibraryAny]) -> list[dict[str, LibraryAny]]:  # pyright: ignore[reportExplicitAny]
+    @staticmethod
+    def _serialize_results(results: list[LibraryAny]) -> list[dict[str, LibraryAny]]:  # pyright: ignore[reportExplicitAny]
         """Serialize model instances to dicts."""
         serialized: list[dict[str, LibraryAny]] = []  # pyright: ignore[reportExplicitAny]
         for instance in results:
@@ -160,7 +161,7 @@ class CachedQuerySet(QuerySet[Model]):
         """
         results: list[LibraryAny] = []  # pyright: ignore[reportExplicitAny]
         for record in data:
-            model_name = record.get("_model")
+            model_name: str | None = record.get("_model")
             if model_name is None:
                 results.append(record)
                 continue

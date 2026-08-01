@@ -20,9 +20,11 @@ Usage::
     policies = await RetentionPolicy.list_policies()
 """
 
+from typing import cast
+
 from tortoise import connections
 
-from tortoise_extended._types import LibraryAny
+from tortoise_extended._types import LibraryAny, RowMapping
 
 
 class RetentionPolicy:
@@ -115,7 +117,7 @@ class RetentionPolicy:
         result = await conn.execute_query(sql)
         rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
 
-        return [dict(row) for row in rows]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+        return [cast(RowMapping, dict(row)) for row in rows]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
 
     @staticmethod
     async def get_chunks_to_drop(

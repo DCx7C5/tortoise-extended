@@ -100,6 +100,8 @@ def ltree_encoder(
 
     Args:
         value: List of path components or string
+        _instance: Model instance (unused, Tortoise encoder signature)
+        _field: Field instance (unused, Tortoise encoder signature)
 
     Returns:
         ltree string, or None if value is None
@@ -122,6 +124,8 @@ def _lquery_encoder(
 
     Args:
         value: lquery pattern string
+        _instance: Model instance (unused, Tortoise encoder signature)
+        _field: Field instance (unused, Tortoise encoder signature)
 
     Returns:
         lquery string, or None if value is None

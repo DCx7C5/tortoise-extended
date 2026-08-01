@@ -46,7 +46,7 @@ class CompressionManager:
         Args:
             table_name: Name of the hypertable
             compress_after: When to compress chunks (e.g., '7 days')
-            if_not_exists: Don't error if already enabled
+            _if_not_exists: Don't error if already enabled
 
         Example::
 

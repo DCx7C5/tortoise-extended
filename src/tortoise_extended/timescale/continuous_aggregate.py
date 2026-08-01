@@ -27,9 +27,11 @@ Usage::
     )
 """
 
+from typing import cast
+
 from tortoise import connections
 
-from tortoise_extended._types import LibraryAny
+from tortoise_extended._types import LibraryAny, RowMapping
 
 
 class ContinuousAggregateManager:
@@ -51,7 +53,7 @@ class ContinuousAggregateManager:
 
         Args:
             view_name: Name for the continuous aggregate
-            source_table: Source hypertable name
+            _source_table: Source hypertable name
             query: SQL query for the aggregate (must use time_bucket)
             with_data: Populate with existing data
 
@@ -249,4 +251,4 @@ class ContinuousAggregateManager:
         result = await conn.execute_query(sql)
         rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
 
-        return [dict(row) for row in rows]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+        return [cast(RowMapping, dict(row)) for row in rows]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
