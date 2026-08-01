@@ -106,7 +106,8 @@ class RetentionPolicy:
                 h.table_name,
                 p.config AS drop_after,
                 p.schedule_interval,
-                p.next_start
+                p.initial_start,
+                p.scheduled
             FROM _timescaledb_config.bgw_job p
             JOIN _timescaledb_catalog.hypertable h
             ON p.hypertable_id = h.id
@@ -145,7 +146,7 @@ class RetentionPolicy:
 
         sql = f"""
             SELECT
-                chunk_name
+                show_chunks AS chunk_name
             FROM show_chunks(
                 '{table_name}',
                 older_than => INTERVAL '{older_than}'

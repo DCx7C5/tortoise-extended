@@ -93,10 +93,10 @@ class HypertableManager:
         conn = connections.get("default")
 
         sql = f"""
-            SELECT drop_hypertable(
-                '{table_name}',
-                if_exists => {str(if_exists).lower()}
-            )
+            DROP TABLE
+            {"IF EXISTS" if if_exists else ""}
+            {table_name}
+            CASCADE
         """
 
         await conn.execute_query(sql)
@@ -174,13 +174,23 @@ class HypertableManager:
         table_name: str,
         column_name: str,
         chunk_time_interval: str | None = None,
+        number_partitions: int | None = None,
     ) -> None:
         """Add a dimension to a hypertable.
 
         Args:
             table_name: Name of the hypertable
             column_name: Name of the column to add as dimension
-            chunk_time_interval: Optional interval for time-based dimension
+            chunk_time_interval: Interval for time-typed dimensions
+                (e.g. ``"7 days"``).
+            number_partitions: Partition count for space dimensions on
+                integer columns. One of ``chunk_time_interval`` or
+                ``number_partitions`` is required — TimescaleDB rejects a
+                dimension without an explicit interval or partition count.
+
+        Raises:
+            ValueError: If neither ``chunk_time_interval`` nor
+                ``number_partitions`` is provided.
 
         Example::
 
@@ -188,6 +198,7 @@ class HypertableManager:
             await HypertableManager.add_dimension(
                 "events",
                 "tenant_id",
+                number_partitions=4,
             )
         """
         conn = connections.get("default")
@@ -200,13 +211,20 @@ class HypertableManager:
                     chunk_time_interval => INTERVAL '{chunk_time_interval}'
                 )
             """
-        else:
+        elif number_partitions is not None:
             sql = f"""
                 SELECT add_dimension(
                     '{table_name}',
-                    '{column_name}'
+                    '{column_name}',
+                    number_partitions => {number_partitions}
                 )
             """
+        else:
+            raise ValueError(
+                "add_dimension requires chunk_time_interval or "
+                "number_partitions — TimescaleDB rejects a dimension "
+                "without an explicit partition interval or count"
+            )
 
         await conn.execute_query(sql)
 
@@ -241,15 +259,15 @@ class HypertableManager:
             sql = f"""
                 SELECT show_chunks(
                     '{table_name}',
-                    TIMESTAMPTZ '{start_time}',
-                    TIMESTAMPTZ '{end_time}'
+                    newer_than => TIMESTAMPTZ '{start_time}',
+                    older_than => TIMESTAMPTZ '{end_time}'
                 )
             """
         elif start_time:
             sql = f"""
                 SELECT show_chunks(
                     '{table_name}',
-                    TIMESTAMPTZ '{start_time}'
+                    newer_than => TIMESTAMPTZ '{start_time}'
                 )
             """
         else:

@@ -21,8 +21,8 @@ Usage::
     # Set refresh policy
     await ContinuousAggregateManager.set_refresh_policy(
         "daily_events",
-        start_offset="1 hour",
-        end_offset="1 minute",
+        start_offset="1 week",
+        end_offset="1 day",
         schedule_interval="1 hour",
     )
 """
@@ -68,12 +68,18 @@ class ContinuousAggregateManager:
         """
         conn = connections.get("default")
 
-        # Ensure CREATE CONTINUOUS AGGREGATE syntax
-        if "CREATE CONTINUOUS AGGREGATE" not in query.upper():
+        # Ensure CREATE CONTINUOUS AGGREGATE syntax.
+        # Note: we build the canonical `CREATE MATERIALIZED VIEW ... WITH
+        # (timescaledb.continuous)` form. The older `CREATE CONTINUOUS
+        # AGGREGATE` spelling is equivalent on TimescaleDB 2.x but relies on a
+        # parser hook that is not registered in some 2.28.x builds.
+        if "CREATE MATERIALIZED VIEW" not in query.upper():
+            data_clause = "DATA" if with_data else "NO DATA"
             query = f"""
-                CREATE CONTINUOUS AGGREGATE {view_name}
+                CREATE MATERIALIZED VIEW {view_name}
+                WITH (timescaledb.continuous)
                 AS ({query})
-                WITH DATA = {str(with_data).lower()}
+                WITH {data_clause}
             """
         else:
             # User provided full CREATE statement
@@ -96,8 +102,9 @@ class ContinuousAggregateManager:
         conn = connections.get("default")
 
         sql = f"""
-            DROP MATERIALIZED VIEW {view_name}
+            DROP MATERIALIZED VIEW
             {"IF EXISTS" if if_exists else ""}
+            {view_name}
         """
 
         await conn.execute_query(sql)
@@ -152,8 +159,8 @@ class ContinuousAggregateManager:
     @staticmethod
     async def set_refresh_policy(
         view_name: str,
-        start_offset: str = "1 hour",
-        end_offset: str = "1 minute",
+        start_offset: str = "1 week",
+        end_offset: str = "1 day",
         schedule_interval: str = "1 hour",
     ) -> None:
         """Set automatic refresh policy for a continuous aggregate.
@@ -164,12 +171,17 @@ class ContinuousAggregateManager:
             end_offset: How far back from now to stop refreshing
             schedule_interval: How often to refresh
 
+        The refresh window (``start_offset`` minus ``end_offset``) must cover
+        at least two buckets of the aggregate, otherwise TimescaleDB rejects
+        the policy with "policy refresh window too small". For a daily
+        aggregate, offsets of ``"1 week"`` / ``"1 day"`` are safe defaults.
+
         Example::
 
             await ContinuousAggregateManager.set_refresh_policy(
                 "daily_events",
-                start_offset="1 hour",
-                end_offset="1 minute",
+                start_offset="1 week",
+                end_offset="1 day",
                 schedule_interval="1 hour",
             )
         """
@@ -244,7 +256,7 @@ class ContinuousAggregateManager:
             SELECT
                 view_name,
                 view_definition
-            FROM _timescaledb_catalog.continuous_agg
+            FROM timescaledb_information.continuous_aggregates
             ORDER BY view_name
         """
 

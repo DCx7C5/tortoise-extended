@@ -8,7 +8,10 @@ Usage::
     from tortoise_extended.timescale import CompressionManager
 
     # Enable compression on a hypertable
-    await CompressionManager.enable_compression(
+    await CompressionManager.enable_compression("events")
+
+    # Compress chunks older than 7 days (automatic policy)
+    await CompressionManager.add_compression_policy(
         "events",
         compress_after="7 days",
     )
@@ -36,33 +39,25 @@ class CompressionManager:
     """
 
     @staticmethod
-    async def enable_compression(
-        table_name: str,
-        compress_after: str = "7 days",
-        _if_not_exists: bool = True,
-    ) -> None:
+    async def enable_compression(table_name: str) -> None:
         """Enable compression on a hypertable.
 
         Args:
             table_name: Name of the hypertable
-            compress_after: When to compress chunks (e.g., '7 days')
-            _if_not_exists: Don't error if already enabled
 
         Example::
 
-            await CompressionManager.enable_compression(
-                "events",
-                compress_after="7 days",
-            )
+            await CompressionManager.enable_compression("events")
+
+        To compress chunks after a delay, add a compression policy with
+        :meth:`add_compression_policy` (``compress_after`` is not a valid
+        TimescaleDB reloption — it only exists on policies).
         """
         conn = connections.get("default")
 
         sql = f"""
             ALTER TABLE {table_name}
-            SET (
-                timescaledb.compress,
-                timescaledb.compress_after = INTERVAL '{compress_after}'
-            )
+            SET (timescaledb.compress)
         """
 
         await conn.execute_query(sql)
@@ -216,12 +211,12 @@ class CompressionManager:
                  JOIN _timescaledb_catalog.hypertable h
                  ON c.hypertable_id = h.id
                  WHERE h.table_name = '{table_name}'
-                 AND NOT c.is_compressed) AS uncompressed_chunks,
+                 AND c.compressed_chunk_id IS NULL) AS uncompressed_chunks,
                 (SELECT COUNT(*) FROM _timescaledb_catalog.chunk c
                  JOIN _timescaledb_catalog.hypertable h
                  ON c.hypertable_id = h.id
                  WHERE h.table_name = '{table_name}'
-                 AND c.is_compressed) AS compressed_chunks
+                 AND c.compressed_chunk_id IS NOT NULL) AS compressed_chunks
             FROM hypertable_compression_stats('{table_name}')
             LIMIT 1
         """
