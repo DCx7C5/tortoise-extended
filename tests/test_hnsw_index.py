@@ -1,9 +1,33 @@
 """Tests for HNSWIndex and IVFFlatIndex."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from tortoise_extended.exceptions import IndexDefinitionError
 from tortoise_extended.indexes.hnsw_index import HNSWIndex, IVFFlatIndex
+
+
+class FakeSchemaGenerator:
+    """Minimal schema-generator stand-in exposing the helper methods."""
+
+    def _qualify_table_name(self, table_name: str, schema: str | None) -> str:
+        if schema is None:
+            return f'"{table_name}"'
+        return f'"{schema}"."{table_name}"'
+
+    def _get_index_name(self, prefix: str, model: object, field_names: list[str]) -> str:
+        return f"{prefix}_{type(model).__name__}_{'_'.join(field_names)}"
+
+    def _format_index_fields(self, field_names: list[str]) -> str:
+        return ", ".join(f'"{f}"' for f in field_names)
+
+
+class FakeModel:
+    """Minimal model stand-in with the _meta surface get_sql reads."""
+
+    def __init__(self, db_table: str, schema: str | None = None) -> None:
+        self._meta = SimpleNamespace(db_table=db_table, schema=schema)
 
 
 class TestHNSWIndex:
@@ -82,3 +106,50 @@ class TestIVFFlatIndex:
         assert "IVFFlatIndex" in path
         assert kwargs["lists"] == 200
         assert kwargs["name"] == "my_ivf"
+
+
+class TestHNSWIndexSql:
+    """HNSWIndex.get_sql() DDL generation."""
+
+    def test_get_sql_safe(self) -> None:
+        idx = HNSWIndex(fields=("embedding",), m=32, ef_construction=400)
+        sql = idx.get_sql(FakeSchemaGenerator(), FakeModel("chunks"), safe=True)
+        assert sql.startswith('CREATE INDEX IF NOT EXISTS "hnsw_FakeModel_embedding"')
+        assert '"chunks"' in sql
+        assert "USING hnsw (\"embedding\" vector_l2_ops)" in sql
+        assert "WITH (m = 32, ef_construction = 400);" in sql
+
+    def test_get_sql_unsafe_custom(self) -> None:
+        idx = HNSWIndex(
+            fields=("embedding",),
+            name="emb_idx",
+            dist_metric="vector_cosine_ops",
+        )
+        sql = idx.get_sql(FakeSchemaGenerator(), FakeModel("chunks"), safe=False)
+        assert sql.startswith('CREATE INDEX "emb_idx"')
+        assert "IF NOT EXISTS" not in sql
+        assert "vector_cosine_ops" in sql
+
+
+class TestIVFFlatIndexSql:
+    """IVFFlatIndex.get_sql() DDL generation."""
+
+    def test_get_sql_safe(self) -> None:
+        idx = IVFFlatIndex(fields=("embedding",), lists=200)
+        sql = idx.get_sql(FakeSchemaGenerator(), FakeModel("chunks"), safe=True)
+        assert sql.startswith('CREATE INDEX IF NOT EXISTS "ivfflat_FakeModel_embedding"')
+        assert "USING ivfflat (\"embedding\" vector_l2_ops)" in sql
+        assert "WITH (lists = 200);" in sql
+
+    def test_get_sql_unsafe_custom(self) -> None:
+        idx = IVFFlatIndex(
+            fields=("embedding",),
+            name="ivf_idx",
+            lists=50,
+            dist_metric="vector_ip_ops",
+        )
+        sql = idx.get_sql(FakeSchemaGenerator(), FakeModel("chunks"), safe=False)
+        assert sql.startswith('CREATE INDEX "ivf_idx"')
+        assert "IF NOT EXISTS" not in sql
+        assert "vector_ip_ops" in sql
+        assert "WITH (lists = 50);" in sql
