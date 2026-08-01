@@ -40,18 +40,9 @@ addopts = "-ra --strict-markers"
 # Any warning outside the explicitly ignored upstream categories fails the run.
 filterwarnings = ["error"]
 
-[tool.coverage.run]
-# src-layout: measure only the package, never the tests themselves.
-source = ["src/tortoise_extended"]
-# Belt-and-braces: keep tests out of measurement even when the run is not
-# filtered by ``source`` (e.g. PyCharm's coverage.py runner).
-omit = ["tests/*", "tests/*/**", "src/*/tests/*"]
-
-[tool.coverage.report]
-show_missing = true
-# Report-level guard: never surface tests in coverage output regardless of how
-# the data was collected.
-omit = ["tests/*", "tests/*/**", "src/*/tests/*"]
+# NOTE: coverage.py settings live in .coveragerc (PyCharm's coverage.py runner
+# loads it from the project root; coverage consults only the first config file
+# found, so pyproject.toml must not carry a second, divergent copy).
 
 [dependency-groups]
 dev = [

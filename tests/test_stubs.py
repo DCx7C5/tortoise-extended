@@ -178,6 +178,40 @@ class TestStubPatchSurface:
             assert name in declared
 
 
+class TestStubExecutable:
+    """Every overlay stub is valid, executable Python.
+
+    ``.pyi`` files are normally never executed, so pytest line coverage cannot
+    touch them. Executing each stub via ``compile``/``exec`` with its real
+    path as the filename makes coverage.py trace the stub lines — the stubs
+    then show up as covered in the report, and the run doubles as a
+    syntax/name-resolution check (stub bodies are ``...``/assignments, so
+    execution is safe; annotations are deferred under PEP 649).
+    """
+
+    def test_all_overlay_stubs_execute(self) -> None:
+        stub_files = sorted(STUBS_DIR.rglob("*.pyi"))
+        assert stub_files, "no stub files found under stubs/"
+        failures: list[str] = []
+        for stub in stub_files:
+            source = stub.read_text(encoding="utf-8")
+            try:
+                code = compile(source, str(stub), "exec")
+                namespace: dict[str, object] = {
+                    "__name__": f"tortoise_extended_stubs.{stub.stem}"
+                }
+                exec(code, namespace)
+            except Exception as exc:  # pragma: no cover
+                failures.append(
+                    f"{stub.relative_to(PROJECT_ROOT)}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+        assert not failures, (
+            "stub files must compile and execute cleanly:\n  "
+            + "\n  ".join(failures)
+        )
+
+
 class TestStubOverlayPresent:
     """The stub files exist and cover the overlaid tortoise modules."""
 

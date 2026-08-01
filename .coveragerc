@@ -1,0 +1,22 @@
+# Coverage.py configuration — loaded by both the CLI and PyCharm's
+# coverage.py runner (PyCharm discovers this file in the working directory).
+#
+# NOTE: coverage.py consults config files in order — .coveragerc,
+# .coveragerc.toml, setup.cfg, tox.ini, pyproject.toml — and uses ONLY the
+# first one that exists. Keep every coverage setting here so pyproject.toml
+# cannot silently diverge.
+
+[run]
+# src-layout: measure only the package, never the tests themselves.
+# ``source`` limits measurement to the package; ``omit`` additionally keeps
+# tests out even when data was collected by an unfiltered runner.
+source = src/tortoise_extended
+omit =
+    tests/*
+
+[report]
+show_missing = true
+# Report-level guard: never surface tests in coverage output regardless of how
+# the data was collected.
+omit =
+    tests/*
