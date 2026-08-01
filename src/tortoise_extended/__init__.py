@@ -21,6 +21,8 @@ before Tortoise.init():
         modules={"models": ["..."]},
 """
 
+from collections.abc import Awaitable, Callable
+
 from asyncpg import Pool
 from tortoise.fields import Field
 from tortoise.filters import FilterInfoDict
@@ -82,6 +84,60 @@ from tortoise_extended.migrations.operations import (
 )
 
 # ---------------------------------------------------------------------------
+# pgvector codec helpers (module-level so every branch is unit-testable)
+# ---------------------------------------------------------------------------
+
+
+def _encode_vector(value: list[float] | str | None) -> str:
+    """Encode a vector value into the pgvector text format."""
+    if isinstance(value, str):
+        return value
+    if value:
+        return "[" + ",".join(str(x) for x in value) + "]"
+    return "[]"
+
+
+def _decode_vector(value: str) -> list[float]:
+    """Decode the pgvector text format into a list of floats."""
+    stripped = value.strip("[]")
+    if not stripped:
+        return []
+    return [float(x) for x in stripped.split(",") if x]
+
+
+async def _pgvector_codec_init(conn: object) -> None:
+    """Set the pgvector type codec on a single connection.
+
+    Gracefully skips if the ``vector`` extension is not yet created in the
+    database (e.g. before ``CREATE EXTENSION vector``) or if the connection
+    does not support custom type codecs.
+    """
+    set_codec = getattr(conn, "set_type_codec", None)
+    if set_codec is None:
+        return
+    try:
+        await set_codec(
+            "vector",
+            encoder=_encode_vector,
+            decoder=_decode_vector,
+            schema="public",
+        )
+    except (ValueError, AttributeError):
+        # ValueError: "unknown type: pgvector.vector" — extension not loaded
+        # AttributeError: conn doesn't support set_type_codec
+        pass
+
+
+async def _combined_codec_init(
+    conn: object, original_init: Callable[[object], Awaitable[None]] | None
+) -> None:
+    """Run the pgvector codec setup before a caller-provided init callback."""
+    await _pgvector_codec_init(conn)
+    if original_init is not None:
+        await original_init(conn)
+
+
+# ---------------------------------------------------------------------------
 # Apply monkey-patches
 # ---------------------------------------------------------------------------
 
@@ -141,43 +197,6 @@ def _apply_patches() -> None:
         return
     _original_create_pool = _asyncpg_client_mod.AsyncpgDBClient.create_pool
 
-    async def _pgvector_codec_init(conn: object) -> None:
-        """Set pgvector type codec on a single connection.
-
-        Gracefully skips if the ``vector`` extension is not yet created
-        in the database (e.g. before ``CREATE EXTENSION vector``).
-        """
-
-        def _encode_vector(value: list[float] | str | None) -> str:
-            """Encode a vector value into the pgvector text format."""
-            if isinstance(value, str):
-                return value
-            if value:
-                return "[" + ",".join(str(x) for x in value) + "]"
-            return "[]"
-
-        def _decode_vector(value: str) -> list[float]:
-            """Decode the pgvector text format into a list of floats."""
-            stripped = value.strip("[]")
-            if not stripped:
-                return []
-            return [float(x) for x in stripped.split(",") if x]
-
-        try:
-            set_codec = getattr(conn, "set_type_codec", None)
-            if set_codec is None:
-                return
-            await set_codec(
-                "vector",
-                encoder=_encode_vector,
-                decoder=_decode_vector,
-                schema="public",
-            )
-        except (ValueError, AttributeError):
-            # ValueError: "unknown type: pgvector.vector" — extension not loaded
-            # AttributeError: conn doesn't support set_type_codec
-            pass
-
     async def _patched_create_pool(
         self: _asyncpg_client_mod.AsyncpgDBClient,
         **kwargs: LibraryAny,  # pyright: ignore[reportExplicitAny]
@@ -186,9 +205,7 @@ def _apply_patches() -> None:
         original_init = kwargs.pop("init", None)
 
         async def _combined_init(conn: object) -> None:
-            await _pgvector_codec_init(conn)
-            if original_init is not None:
-                await original_init(conn)
+            await _combined_codec_init(conn, original_init)
 
         kwargs["init"] = _combined_init
         return await _original_create_pool(self, **kwargs)
