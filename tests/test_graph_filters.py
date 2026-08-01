@@ -22,6 +22,11 @@ class TestVectorEncoder:
         result = vector_encoder((1.0, 2.0), None, None)
         assert result == "[1.0,2.0]"
 
+    def test_non_iterable_scalar(self) -> None:
+        """A scalar (e.g. float) falls back to str(value)."""
+        result = vector_encoder(0.5, None, None)
+        assert result == "0.5"
+
 
 class TestGetVectorFilters:
     def test_returns_dict(self) -> None:

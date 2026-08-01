@@ -272,3 +272,92 @@ class TestHierarchyMutations:
         )
         roots = await Category.filter(path="electronics", namespace="shop")
         assert [r.namespace for r in roots] == ["shop"]
+
+
+class TestHierarchyEdgeBranches:
+    """Coverage for the defensive/edge branches of HierarchyModel helpers."""
+
+    @pytest.mark.asyncio
+    async def test_get_ancestors_empty_path(self) -> None:
+        detached = Category.construct(path=None, name="detached", depth=0)
+        qs = detached.get_ancestors()
+        assert list(await qs) == []
+
+    @pytest.mark.asyncio
+    async def test_get_descendants_empty_path(self) -> None:
+        detached = Category.construct(path=None, name="detached", depth=0)
+        assert list(await detached.get_descendants()) == []
+
+    @pytest.mark.asyncio
+    async def test_get_siblings_root(self) -> None:
+        electronics, _laptops, _macbook, _phones = await _make_tree()
+        assert list(await electronics.get_siblings()) == []
+
+    @pytest.mark.asyncio
+    async def test_get_root_empty_path(self) -> None:
+        detached = Category.construct(path=None, name="detached", depth=0)
+        assert await detached.get_root() is None
+
+    @pytest.mark.asyncio
+    async def test_get_root_single_label(self) -> None:
+        electronics, _laptops, _macbook, _phones = await _make_tree()
+        assert await electronics.get_root() is electronics
+
+    @pytest.mark.asyncio
+    async def test_get_path_to_root_empty_path(self) -> None:
+        detached = Category.construct(path=None, name="detached", depth=0)
+        assert await detached.get_path_to_root() == [detached]
+
+    @pytest.mark.asyncio
+    async def test_get_path_to_root_appends_detached_self(self) -> None:
+        electronics, _laptops, _macbook, _phones = await _make_tree()
+        detached = Category.construct(
+            path="electronics.phones", name="phones", depth=1, namespace="shop"
+        )
+        path = await detached.get_path_to_root()
+        names = [n.name for n in path]
+        assert "electronics" in names
+        assert detached in path  # unsaved instance appended
+
+    @pytest.mark.asyncio
+    async def test_move_to_missing_path_raises(self) -> None:
+        electronics, _laptops, _macbook, _phones = await _make_tree()
+        detached = Category.construct(path=None, name="detached", depth=0)
+        with pytest.raises(HierarchyError, match="Both source and target must have paths"):
+            await detached.move_to(electronics)
+
+    @pytest.mark.asyncio
+    async def test_validate_hierarchy_empty_path(self) -> None:
+        detached = Category.construct(path=None, name="detached", depth=0)
+        errors = await detached.validate_hierarchy()
+        assert errors == [f"Node {detached.pk} has no path"]
+
+    @pytest.mark.asyncio
+    async def test_validate_hierarchy_depth_mismatch(self) -> None:
+        _electronics, _laptops, _macbook, _phones = await _make_tree()
+        wrong = await Category.create(
+            path="electronics.laptops.macbook", name="macbook",
+            parent_id=_laptops.pk, depth=5, namespace="shop",
+        )
+        errors = await wrong.validate_hierarchy()
+        assert any("Depth mismatch" in e for e in errors)
+
+    @pytest.mark.asyncio
+    async def test_validate_hierarchy_missing_parent(self) -> None:
+        _electronics, _laptops, _macbook, _phones = await _make_tree()
+        orphan = await Category.create(
+            path="electronics.ghost", name="ghost",
+            parent_id=999999999, depth=1, namespace="shop",
+        )
+        errors = await orphan.validate_hierarchy()
+        assert any("does not exist" in e for e in errors)
+
+    @pytest.mark.asyncio
+    async def test_validate_hierarchy_non_prefix_parent(self) -> None:
+        _electronics, _laptops, _macbook, _phones = await _make_tree()
+        bad = await Category.create(
+            path="electronics.laptops.macbook", name="macbook",
+            parent_id=_phones.pk, depth=2, namespace="shop",
+        )
+        errors = await bad.validate_hierarchy()
+        assert any("is not a prefix" in e for e in errors)

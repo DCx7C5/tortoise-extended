@@ -195,6 +195,15 @@ class TestTraversal:
         assert sorted(r["name"] for r in incoming) == ["b", "c"]
 
     @pytest.mark.asyncio
+    async def test_neighbors_both_directions(self) -> None:
+        a, b, c, d, x = await _make_tree()
+        trav = GraphTraversal(ItNode, ItEdge)
+        # b is reachable both ways: a->b (outgoing from a) and b->c (outgoing
+        # from b, so incoming to b). "both" must follow edges in either direction.
+        both = await trav.neighbors(b.id, direction="both", max_depth=1)
+        assert sorted(r["name"] for r in both) == ["a", "c", "d"]
+
+    @pytest.mark.asyncio
     async def test_custom_source_target_fields(self) -> None:
         """source_field/target_field must actually drive the SQL (H2 regression)."""
         a, b, c, d, _ = await _make_tree()

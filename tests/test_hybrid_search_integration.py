@@ -122,6 +122,23 @@ class TestHybridSearchIntegration:
         assert scores == sorted(scores, reverse=True)
 
     @pytest.mark.asyncio
+    async def test_combined_search_with_min_distance(self) -> None:
+        """Combined branch with min_distance bound as a third parameter."""
+        await _seed()
+        search = HybridSearch(
+            model=SearchEntity,
+            vector_field="embedding",
+            text_field="description",
+        )
+        results = await search.search(
+            query_vector=[0.85, 0.15, 0.0],
+            query_text="machine learning",
+            min_distance=0.5,
+        )
+        assert all(r["distance"] <= 0.5 for r in results)
+        assert all(r["text_score"] > 0.0 for r in results)
+
+    @pytest.mark.asyncio
     async def test_vector_only_search(self) -> None:
         await _seed()
         search = HybridSearch(model=SearchEntity)
