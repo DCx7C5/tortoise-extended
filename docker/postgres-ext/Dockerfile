@@ -48,6 +48,8 @@ COPY --from=builder /usr/lib/postgresql/18/lib/timescaledb.so       /usr/lib/pos
 COPY --from=builder /usr/lib/postgresql/18/lib/timescaledb-*.so     /usr/lib/postgresql/18/lib/
 COPY --from=builder /usr/share/postgresql/18/extension/timescaledb*  /usr/share/postgresql/18/extension/
 
+COPY scripts/00-extensions.sql /docker-entrypoint-initdb.d/
+
 # Pre-load extensions into shared_preload_libraries
 # (must be set before first startup — sed on the sample config)
 RUN sed -i \

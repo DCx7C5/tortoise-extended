@@ -15,6 +15,12 @@ shutdown_hook() {
 
 trap 'shutdown_hook' SIGTERM SIGINT
 
+CORE_DB_USER="${CORE_DB_USER:-coreuser}"
+CORE_DB_PASS="${CORE_DB_PASS:-corepass}"
+SECRETS_DB_USER="${SECRETS_DB_USER:-secretsuser}"
+SECRETS_DB_PASS="${SECRETS_DB_PASS:-secretspass}"
+
+
 # Check Django project dir is mounted
 #if [ ! -f manage.py ]; then
 #  echo -e "${RED}Project root is missing...${NC}"
