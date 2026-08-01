@@ -43,9 +43,15 @@ filterwarnings = ["error"]
 [tool.coverage.run]
 # src-layout: measure only the package, never the tests themselves.
 source = ["src/tortoise_extended"]
+# Belt-and-braces: keep tests out of measurement even when the run is not
+# filtered by ``source`` (e.g. PyCharm's coverage.py runner).
+omit = ["tests/*", "tests/*/**", "src/*/tests/*"]
 
 [tool.coverage.report]
 show_missing = true
+# Report-level guard: never surface tests in coverage output regardless of how
+# the data was collected.
+omit = ["tests/*", "tests/*/**", "src/*/tests/*"]
 
 [dependency-groups]
 dev = [
