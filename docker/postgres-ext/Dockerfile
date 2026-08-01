@@ -65,7 +65,6 @@ RUN sed -i \
     /usr/share/postgresql/18/postgresql.conf.sample
 
 
-
 # Healthcheck — wait for accepting connections
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
     CMD pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}

@@ -1,7 +1,6 @@
 services:
 
   postgres-ext:
-    image: ghcr.io/dcx7c5/tortoise-extended/postgres-ext:0.1.0
     build:
       context: docker/postgres-ext
       dockerfile: Dockerfile
@@ -26,7 +25,9 @@ services:
       -c shared_buffers=256MB
 
   redis-ext:
-    image: ghcr.io/dcx7c5/tortoise-extended/redis-ext:0.1.0
+    build:
+      context: docker/redis-ext
+      dockerfile: Dockerfile
     container_name: redis-ext
     restart: unless-stopped
     ports:

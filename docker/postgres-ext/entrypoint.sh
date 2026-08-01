@@ -9,17 +9,17 @@ NC='\033[0m'
 
 INIT_DIR="/docker-entrypoint-initdb.d"
 
-DB_USER_1="${DB_USER_1:-postgres}"
-DB_PASS_1="${DB_PASS_1:-postgres}"
-DB_NAME_1="${DB_NAME_1:-postgres}"
+DB_USER_1="${DB_USER_1:-}"
+DB_PASS_1="${DB_PASS_1:-}"
+DB_NAME_1="${DB_NAME_1:-}"
 
 DB_USER_2="${DB_USER_2:-}"
 DB_PASS_2="${DB_PASS_2:-}"
 DB_NAME_2="${DB_NAME_2:-}"
 
-DB_USER_3="${DB_USER_3:-}"
-DB_PASS_3="${DB_PASS_3:-}"
-DB_NAME_3="${DB_NAME_3:-}"
+DB_USER_3="${DB_USER_3:-postgres}"
+DB_PASS_3="${DB_PASS_3:-postgres}"
+DB_NAME_3="${DB_NAME_3:-postgres}"
 
 # ---------------------------------------------------------------------------
 # Generate idempotent init SQL from the DB_USER_N / DB_PASS_N / DB_NAME_N env
