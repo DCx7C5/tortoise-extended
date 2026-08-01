@@ -1,47 +1,191 @@
 """Regression guards for the local ``tortoise-stubs`` typing overlay.
 
-The overlay lives in ``src/tortoise_extended/stubs/`` and is only exercised by
-basedpyright via the ``stubPath`` setting in ``pyrightconfig.json`` — it is
-never executed at runtime. These tests fail fast if the overlay or its wiring
-is accidentally removed or broken.
+The overlay lives in ``src/tortoise_extended/stubs/`` and is exercised by
+basedpyright via the ``stubPath`` setting in ``pyrightconfig.json``. ``.pyi``
+files are never executed, so pytest line coverage cannot touch them — the
+meaningful coverage measure is **declaration coverage**: every tortoise symbol
+that ``tortoise_extended`` imports or monkey-patches must be declared by the
+overlay. These tests compute that surface from the source with ``ast`` and
+fail fast if a declaration goes missing or the wiring is removed.
 """
 
+import ast
 import json
 import re
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SRC_DIR = PROJECT_ROOT / "src" / "tortoise_extended"
 STUBS_DIR = PROJECT_ROOT / "src" / "tortoise_extended" / "stubs"
 TORTOISE_STUBS_DIR = STUBS_DIR / "tortoise-stubs"
 PYRIGHT_CONFIG = PROJECT_ROOT / "pyrightconfig.json"
+
+# tortoise module path -> overlay stub file (relative to TORTOISE_STUBS_DIR).
+# Only these modules are replaced by the overlay; every other tortoise module
+# falls back to runtime analysis / the installed tortoise-orm-stubs.
+MODULE_TO_STUB = {
+    "tortoise.fields": "fields/__init__.pyi",
+    "tortoise.fields.base": "fields/base.pyi",
+    "tortoise.fields.relational": "fields/relational.pyi",
+    "tortoise.filters": "filters/__init__.pyi",
+    "tortoise.indexes": "indexes/__init__.pyi",
+    "tortoise.models": "models/__init__.pyi",
+    "tortoise.validators": "validators.pyi",
+    "tortoise.backends.asyncpg.client": "backends/asyncpg/client.pyi",
+}
+
+# ``from tortoise import ...`` names that are submodule references (the symbol
+# is the module itself, which the overlay covers by declaring the module file).
+SUBMODULE_NAMES = {"fields", "models", "filters", "indexes", "validators"}
+
+
+def _stub_names(stub_path: Path) -> set[str]:
+    """Names declared by a stub file (classes, functions, attributes, imports).
+
+    Class bodies are included — methods and class attributes are declared
+    names too (e.g. ``AsyncpgDBClient.create_pool``).
+    """
+    tree = ast.parse(stub_path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    names.add(target.id)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+        elif isinstance(node, ast.TypeAlias) and isinstance(node.name, ast.Name):
+            names.add(node.name.id)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                names.add(alias.asname or alias.name)
+    return names
+
+
+def _usage_surface() -> dict[str, set[str]]:
+    """tortoise module -> symbols imported by ``tortoise_extended`` source."""
+    usage: dict[str, set[str]] = {}
+    for py_file in SRC_DIR.rglob("*.py"):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                module = node.module
+                if module != "tortoise" and not module.startswith("tortoise."):
+                    continue
+                symbols = usage.setdefault(module, set())
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    if alias.name in SUBMODULE_NAMES:
+                        continue  # submodule reference — covered by module file
+                    symbols.add(alias.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.startswith("tortoise."):
+                        module = alias.name
+                        usage.setdefault(module, set())  # module itself
+    return usage
+
+
+class TestStubSymbolCoverage:
+    """Every tortoise symbol imported by the package is declared in the overlay."""
+
+    def test_imported_symbols_are_declared(self) -> None:
+        usage = _usage_surface()
+        failures: list[str] = []
+        for module, symbols in sorted(usage.items()):
+            stub_rel = MODULE_TO_STUB.get(module)
+            if stub_rel is None:
+                continue  # runtime-covered module — not the overlay's job
+            stub_path = TORTOISE_STUBS_DIR / stub_rel
+            assert stub_path.is_file(), (
+                f"tortoise_extended imports from {module} but no overlay stub "
+                f"exists at tortoise-stubs/{stub_rel}"
+            )
+            declared = _stub_names(stub_path)
+            for symbol in sorted(symbols):
+                if symbol not in declared:
+                    failures.append(f"{module}.{symbol} (stub: {stub_rel})")
+        assert not failures, (
+            "Stub overlay missing declarations used by the package:\n  "
+            + "\n  ".join(failures)
+        )
+
+    def test_every_overlay_module_is_used(self) -> None:
+        """Every stub module must back at least one import or patch target."""
+        usage = _usage_surface()
+        used = {module for module in usage if module in MODULE_TO_STUB}
+        # backends/asyncpg/client is imported as a whole module (patch target)
+        used.add("tortoise.backends.asyncpg.client")
+        # stub-to-stub imports (e.g. fields/__init__.pyi -> relational, validators)
+        for stub_rel in MODULE_TO_STUB.values():
+            stub_path = TORTOISE_STUBS_DIR / stub_rel
+            if not stub_path.is_file():
+                continue
+            tree = ast.parse(stub_path.read_text(encoding="utf-8"))
+            for node in tree.body:
+                if isinstance(node, ast.ImportFrom) and node.module in MODULE_TO_STUB:
+                    used.add(node.module)
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name in MODULE_TO_STUB:
+                            used.add(alias.name)
+        unused = set(MODULE_TO_STUB) - used
+        assert not unused, f"Overlay modules with no backing usage: {sorted(unused)}"
+
+
+class TestStubPatchSurface:
+    """The ``_apply_patches()`` monkey-patch targets are declared in the overlay."""
+
+    def test_fields_vectorfield_patch_target(self) -> None:
+        declared = _stub_names(TORTOISE_STUBS_DIR / "fields" / "__init__.pyi")
+        assert "VectorField" in declared, (
+            "_apply_patches() assigns fields.VectorField at import time"
+        )
+
+    def test_indexes_registered_types(self) -> None:
+        declared = _stub_names(TORTOISE_STUBS_DIR / "indexes" / "__init__.pyi")
+        for name in ("Index", "HNSWIndex", "IVFFlatIndex", "GiSTIndex"):
+            assert name in declared, (
+                f"_apply_patches() registers {name} on tortoise.indexes"
+            )
+
+    def test_filters_patch_flag_and_function(self) -> None:
+        declared = _stub_names(TORTOISE_STUBS_DIR / "filters" / "__init__.pyi")
+        for name in (
+            "get_filters_for_field",
+            "_tortoise_extended_patched",
+            "FilterInfoDict",
+        ):
+            assert name in declared
+
+    def test_models_get_filters_for_field_reexport(self) -> None:
+        declared = _stub_names(TORTOISE_STUBS_DIR / "models" / "__init__.pyi")
+        assert "get_filters_for_field" in declared, (
+            "_apply_patches() replaces the local reference in tortoise.models"
+        )
+
+    def test_asyncpg_codec_patch_targets(self) -> None:
+        declared = _stub_names(
+            TORTOISE_STUBS_DIR / "backends" / "asyncpg" / "client.pyi"
+        )
+        for name in ("AsyncpgDBClient", "create_pool", "_tortoise_extended_codec_patched"):
+            assert name in declared
 
 
 class TestStubOverlayPresent:
     """The stub files exist and cover the overlaid tortoise modules."""
 
-    @staticmethod
-    def _stub_files() -> set[Path]:
-        return {p.relative_to(STUBS_DIR) for p in STUBS_DIR.rglob("*.pyi")}
-
     def test_core_modules_have_stubs(self) -> None:
-        relative = {str(p) for p in self._stub_files()}
-        expected = {
-            "tortoise-stubs/models/__init__.pyi",
-            "tortoise-stubs/fields/__init__.pyi",
-            "tortoise-stubs/fields/base.pyi",
-            "tortoise-stubs/fields/relational.pyi",
-            "tortoise-stubs/filters/__init__.pyi",
-            "tortoise-stubs/indexes/__init__.pyi",
-            "tortoise-stubs/validators.pyi",
-            "tortoise-stubs/backends/asyncpg/client.pyi",
-        }
-        missing = expected - relative
-        assert not missing, f"Missing stub files: {sorted(missing)}"
-
-    def test_stub_modules_not_empty(self) -> None:
-        for path in self._stub_files():
-            content = (STUBS_DIR / path).read_text(encoding="utf-8")
-            assert content.strip(), f"Stub file is empty: {path}"
+        for module, stub_rel in MODULE_TO_STUB.items():
+            stub_path = TORTOISE_STUBS_DIR / stub_rel
+            assert stub_path.is_file(), f"{module} overlay missing: {stub_rel}"
+            assert stub_path.read_text(encoding="utf-8").strip()
 
 
 class TestStubWiring:
@@ -58,22 +202,3 @@ class TestStubWiring:
         config = json.loads(PYRIGHT_CONFIG.read_text(encoding="utf-8"))
         excludes = config.get("exclude", [])
         assert not any(re.search(r"migrations", e) for e in excludes), excludes
-
-
-class TestStubApiSurface:
-    """Key symbols the package relies on are declared in the overlay."""
-
-    def test_models_stub_declares_querysets(self) -> None:
-        content = (TORTOISE_STUBS_DIR / "models" / "__init__.pyi").read_text(
-            encoding="utf-8"
-        )
-        assert "QuerySet" in content
-        assert "QuerySetSingle" in content
-        assert "class Model" in content
-
-    def test_asyncpg_client_stub_declares_client(self) -> None:
-        content = (
-            TORTOISE_STUBS_DIR / "backends" / "asyncpg" / "client.pyi"
-        ).read_text(encoding="utf-8")
-        assert "class AsyncpgDBClient" in content
-        assert "create_pool" in content
