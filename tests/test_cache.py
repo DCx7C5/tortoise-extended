@@ -14,6 +14,7 @@ from tortoise_extended.cache.base import (
     JSONSerializer,
     NullSerializer,
     PickleSerializer,
+    Serializer,
 )
 from tortoise_extended.cache.decorators import (
     _build_cache_key,
@@ -21,6 +22,52 @@ from tortoise_extended.cache.decorators import (
     cached_method,
     invalidate,
 )
+from tortoise_extended.exceptions import CacheError
+
+# Concrete subclasses with the ABC machinery disabled so the *abstract*
+# method bodies (which raise NotImplementedError) can be invoked directly.
+_RawSerializer = Serializer
+setattr(_RawSerializer, "__abstractmethods__", frozenset())
+
+_RawBackend = CacheBackend
+setattr(_RawBackend, "__abstractmethods__", frozenset())
+
+
+# ---------------------------------------------------------------------------
+# Abstract method bodies — base coverage
+# ---------------------------------------------------------------------------
+
+
+class TestAbstractMethodBodies:
+    """The ``NotImplementedError`` bodies of abstract methods are reachable."""
+
+    def test_serializer_bodies_raise(self) -> None:
+        s = _RawSerializer()
+        with pytest.raises(NotImplementedError):
+            s.dumps(None)
+        with pytest.raises(NotImplementedError):
+            s.loads(b"")
+
+    @pytest.mark.asyncio
+    async def test_backend_bodies_raise(self) -> None:
+        b = _RawBackend()
+        with pytest.raises(NotImplementedError):
+            await b.get("k")
+        with pytest.raises(NotImplementedError):
+            await b.set("k", 1)
+        with pytest.raises(NotImplementedError):
+            await b.delete("k")
+        with pytest.raises(NotImplementedError):
+            await b.exists("k")
+        with pytest.raises(NotImplementedError):
+            await b.expire("k", 1)
+        with pytest.raises(NotImplementedError):
+            await b.keys("k")
+        with pytest.raises(NotImplementedError):
+            await b.delete_pattern("k")
+        with pytest.raises(NotImplementedError):
+            await b.flush()
+
 
 # ---------------------------------------------------------------------------
 # CacheKey tests
@@ -368,6 +415,187 @@ class TestInvalidateDecorator:
             assert await backend.get("entity:*") is None
         finally:
             redis_module.RedisCache = original_cls
+
+
+# ---------------------------------------------------------------------------
+# Decorator branch coverage — default backend, error paths, helpers
+# ---------------------------------------------------------------------------
+
+
+class TestCachedDecoratorBranches:
+    def setup_method(self):
+        self.backend = MockRedisBackend(default_ttl=300)
+
+    def _mock_redis_cache(self, monkeypatch, backend=None):
+        """Replace redis.RedisCache.get_backend so decorators use a fake."""
+        import tortoise_extended.cache.redis as redis_module
+
+        target = backend or self.backend
+
+        class MockRedisCache:
+            _pool = True
+
+            @classmethod
+            def get_backend(cls, **kwargs):
+                return target
+
+        monkeypatch.setattr(redis_module, "RedisCache", MockRedisCache)
+
+    @pytest.mark.asyncio
+    async def test_cached_default_backend(self, monkeypatch):
+        """With no backend passed, the decorator pulls one from RedisCache."""
+        self._mock_redis_cache(monkeypatch)
+        call_count = 0
+
+        @cached(ttl=60)
+        async def func(x: int) -> int:
+            nonlocal call_count
+            call_count += 1
+            return x * 2
+
+        assert await func(3) == 6
+        assert await func(3) == 6
+        assert call_count == 1  # second call served from cache
+
+    @pytest.mark.asyncio
+    async def test_cached_read_error_is_suppressed(self):
+        """A CacheError on read falls through to the function."""
+
+        class ErrorBackend(MockRedisBackend):
+            async def get(self, key):
+                raise CacheError("boom")
+
+        call_count = 0
+
+        @cached(ttl=60, backend=ErrorBackend())
+        async def func() -> int:
+            nonlocal call_count
+            call_count += 1
+            return 7
+
+        assert await func() == 7
+        assert await func() == 7
+        assert call_count == 2  # never cached — read always fails
+
+    @pytest.mark.asyncio
+    async def test_cached_write_error_is_suppressed(self):
+        """A CacheError on set does not break the call."""
+
+        class ErrorBackend(MockRedisBackend):
+            async def set(self, key, value, ttl=None):
+                raise CacheError("boom")
+
+        call_count = 0
+
+        @cached(ttl=60, backend=ErrorBackend())
+        async def func() -> int:
+            nonlocal call_count
+            call_count += 1
+            return 7
+
+        assert await func() == 7
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_wrapper_helpers_invalidate_and_cache_key(self, monkeypatch):
+        """wrapper.invalidate() and wrapper.cache_key() are exposed."""
+        self._mock_redis_cache(monkeypatch)
+
+        @cached(ttl=60, backend=self.backend)
+        async def func(x: int) -> int:
+            return x
+
+        await func(1)
+        key = func.cache_key(1)
+        assert isinstance(key, str)
+        assert "func" in key
+        assert await self.backend.exists(key) is True
+
+        await func.invalidate(1)
+        assert await self.backend.exists(key) is False
+
+    @pytest.mark.asyncio
+    async def test_cached_method_read_error(self, monkeypatch):
+        """cached_method swallows CacheError on read."""
+
+        class ErrorBackend(MockRedisBackend):
+            async def get(self, key):
+                raise CacheError("boom")
+
+        backend = ErrorBackend()
+
+        class MockRedisCache:
+            _pool = True
+
+            @classmethod
+            def get_backend(cls, **kwargs):
+                return backend
+
+        import tortoise_extended.cache.redis as redis_module
+
+        monkeypatch.setattr(redis_module, "RedisCache", MockRedisCache)
+
+        call_count = 0
+
+        class Service:
+            @cached_method(ttl=60, namespace="test")
+            async def get_data(self, item_id: str) -> dict:
+                nonlocal call_count
+                call_count += 1
+                return {"id": item_id}
+
+        service = Service()
+        assert await service.get_data("1") == {"id": "1"}
+        assert await service.get_data("1") == {"id": "1"}
+        assert call_count == 2
+
+
+class TestInvalidateDecoratorBranches:
+    def setup_method(self):
+        self.backend = MockRedisBackend(default_ttl=300)
+
+    def _mock_redis_cache(self, monkeypatch, backend=None):
+        import tortoise_extended.cache.redis as redis_module
+
+        target = backend or self.backend
+
+        class MockRedisCache:
+            _pool = True
+
+            @classmethod
+            def get_backend(cls, **kwargs):
+                return target
+
+        monkeypatch.setattr(redis_module, "RedisCache", MockRedisCache)
+
+    @pytest.mark.asyncio
+    async def test_invalidate_with_key_func(self, monkeypatch):
+        """key_func generates the exact key to delete."""
+        self._mock_redis_cache(monkeypatch)
+        await self.backend.set("custom:1", "v")
+
+        @invalidate(key_func=lambda *a, **kw: "custom:1", namespace="test")
+        async def update(entity_id: str) -> str:
+            return entity_id
+
+        await update("1")
+        assert await self.backend.get("custom:1") is None
+
+    @pytest.mark.asyncio
+    async def test_invalidate_error_is_suppressed(self, monkeypatch):
+        """A CacheError during invalidation does not break the call."""
+
+        class ErrorBackend(MockRedisBackend):
+            async def delete_pattern(self, pattern):
+                raise CacheError("boom")
+
+        self._mock_redis_cache(monkeypatch, backend=ErrorBackend())
+
+        @invalidate("entity:*", namespace="test")
+        async def update(entity_id: str) -> str:
+            return entity_id
+
+        assert await update("1") == "1"
 
 
 # ---------------------------------------------------------------------------

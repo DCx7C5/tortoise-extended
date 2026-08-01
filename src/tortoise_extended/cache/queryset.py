@@ -193,9 +193,13 @@ class CachedQuerySet(QuerySet[Model]):
             return None
 
         for app_config in Tortoise.apps.values():
-            models = app_config.get("models", {})
-            if model_name in models:
-                return models[model_name]
+            if not isinstance(app_config, dict):
+                continue
+            # Tortoise.apps maps app name -> {model_name: model_cls}.
+            models_by_name = cast("dict[str, type[Model]]", app_config)
+            model_cls = models_by_name.get(model_name)
+            if model_cls is not None:
+                return model_cls
         return None
 
     @staticmethod

@@ -33,6 +33,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, Self, cast, override
 
 from tortoise import models
+from tortoise.exceptions import DoesNotExist
 
 from tortoise_extended._types import LibraryAny, ModelKwargs, SerializedRecord
 from tortoise_extended.exceptions import CacheDataError, CacheError
@@ -112,7 +113,7 @@ class CacheableModel(models.Model):
         # Query database
         try:
             instance = await cls.get(**cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
-        except models.Model.DoesNotExist:
+        except DoesNotExist:
             return None
 
         # Cache result
