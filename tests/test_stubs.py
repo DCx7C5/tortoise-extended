@@ -12,6 +12,8 @@ fail fast if a declaration goes missing or the wiring is removed.
 import ast
 import json
 import re
+import sys
+import types
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -24,19 +26,42 @@ PYRIGHT_CONFIG = PROJECT_ROOT / "pyrightconfig.json"
 # Only these modules are replaced by the overlay; every other tortoise module
 # falls back to runtime analysis / the installed tortoise-orm-stubs.
 MODULE_TO_STUB = {
+    "tortoise": "__init__.pyi",
+    "tortoise.signals": "signals.pyi",
     "tortoise.fields": "fields/__init__.pyi",
     "tortoise.fields.base": "fields/base.pyi",
     "tortoise.fields.relational": "fields/relational.pyi",
+    "tortoise.fields.boolean": "fields/boolean.pyi",
     "tortoise.filters": "filters/__init__.pyi",
     "tortoise.indexes": "indexes/__init__.pyi",
     "tortoise.models": "models/__init__.pyi",
     "tortoise.validators": "validators.pyi",
     "tortoise.backends.asyncpg.client": "backends/asyncpg/client.pyi",
+    "tortoise.backends.base.client": "backends/base/client.pyi",
 }
 
 # ``from tortoise import ...`` names that are submodule references (the symbol
 # is the module itself, which the overlay covers by declaring the module file).
 SUBMODULE_NAMES = {"fields", "models", "filters", "indexes", "validators"}
+
+# Modules the overlay declares that have no runtime counterpart (they exist for
+# typing only, so executing stubs against the installed tortoise package must
+# resolve them through a placeholder instead of the real package).
+OVERLAY_ONLY_MODULES = {
+    "tortoise.fields.boolean": ("BooleanField",),
+}
+
+
+def _seed_overlay_only_modules() -> None:
+    """Register placeholder modules so stub-to-stub imports of typing-only
+    modules (e.g. ``tortoise.fields.boolean``) resolve during ``exec``."""
+    for module_name, attrs in OVERLAY_ONLY_MODULES.items():
+        if module_name in sys.modules:
+            continue
+        placeholder = types.ModuleType(module_name)
+        for attr in attrs:
+            setattr(placeholder, attr, object)
+        sys.modules[module_name] = placeholder
 
 
 def _stub_names(stub_path: Path) -> set[str]:
@@ -122,6 +147,10 @@ class TestStubSymbolCoverage:
         used = {module for module in usage if module in MODULE_TO_STUB}
         # backends/asyncpg/client is imported as a whole module (patch target)
         used.add("tortoise.backends.asyncpg.client")
+        # signals is a user-facing module stub (model signal decorators) with
+        # no direct ``tortoise_extended`` import — the overlay types it for
+        # user models even though no package code pulls it in.
+        used.add("tortoise.signals")
         # stub-to-stub imports (e.g. fields/__init__.pyi -> relational, validators)
         for stub_rel in MODULE_TO_STUB.values():
             stub_path = TORTOISE_STUBS_DIR / stub_rel
@@ -178,6 +207,76 @@ class TestStubPatchSurface:
             assert name in declared
 
 
+class TestStubTortoiseRoot:
+    """The root ``tortoise`` stub declares the package-level surface used by
+    ``tortoise_extended``: the ``Tortoise`` class with ``classproperty`` state,
+    connection accessors, and the ``fields``/``models`` submodule re-exports."""
+
+    def test_tortoise_class_surface(self) -> None:
+        declared = _stub_names(TORTOISE_STUBS_DIR / "__init__.pyi")
+        for name in (
+            "Tortoise",
+            "apps",
+            "_inited",
+            "init",
+            "get_connection",
+            "close_connections",
+            "generate_schemas",
+            "is_inited",
+            "init_models",
+            "init_app",
+            "describe_model",
+            "describe_models",
+            "_drop_database",
+        ):
+            assert name in declared, f"root tortoise stub missing {name}"
+
+    def test_reexports_declared(self) -> None:
+        declared = _stub_names(TORTOISE_STUBS_DIR / "__init__.pyi")
+        for name in (
+            "connections",
+            "get_connections",
+            "Apps",
+            "Model",
+            "ModelMeta",
+            "fields",
+            "models",
+        ):
+            assert name in declared, f"root tortoise stub missing re-export {name}"
+
+
+class TestStubSignals:
+    """The ``tortoise.signals`` stub declares the enum and handler decorators."""
+
+    def test_signals_module_declares_decorators(self) -> None:
+        declared = _stub_names(TORTOISE_STUBS_DIR / "signals.pyi")
+        for name in ("Signals", "post_save", "pre_save", "pre_delete", "post_delete"):
+            assert name in declared, f"signals stub missing {name}"
+
+
+class TestStubBooleanField:
+    """The ``tortoise.fields.boolean`` stub fully types ``BooleanField``."""
+
+    def test_boolean_field_is_concrete_class(self) -> None:
+        source = (TORTOISE_STUBS_DIR / "fields" / "boolean.pyi").read_text(
+            encoding="utf-8"
+        )
+        assert re.search(r"class BooleanField\(Field\[", source), (
+            "BooleanField must be a class generic over Field, not a function "
+            "overload chain"
+        )
+        assert "field_type: ClassVar[type] = bool" in source
+
+    def test_boolean_field_null_literal_overloads(self) -> None:
+        source = (TORTOISE_STUBS_DIR / "fields" / "boolean.pyi").read_text(
+            encoding="utf-8"
+        )
+        assert "BooleanField[bool]" in source
+        assert "BooleanField[bool | None]" in source
+        assert re.search(r"null: Literal\[False\]", source)
+        assert re.search(r"null: Literal\[True\]", source)
+
+
 class TestStubExecutable:
     """Every overlay stub is valid, executable Python.
 
@@ -192,6 +291,7 @@ class TestStubExecutable:
     def test_all_overlay_stubs_execute(self) -> None:
         stub_files = sorted(STUBS_DIR.rglob("*.pyi"))
         assert stub_files, "no stub files found under stubs/"
+        _seed_overlay_only_modules()
         failures: list[str] = []
         for stub in stub_files:
             source = stub.read_text(encoding="utf-8")

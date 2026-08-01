@@ -71,7 +71,7 @@ class GraphNode(Model):
         default=0,
         description="Hierarchy depth level (root=0)",
     )
-    is_root: fields.Field[bool] = fields.BooleanField(  # pyright: ignore[reportUnknownMemberType]
+    is_root: fields.Field[bool] = fields.BooleanField(
         default=False,
         description="True if this is a root node",
     )

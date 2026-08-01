@@ -61,6 +61,10 @@ class MetaInfo:
     manager: Manager
 
 
+class ModelMeta(type):
+    """Metaclass for all Tortoise models (mirrors the runtime metaclass)."""
+
+
 class Model:
     """Base class for all Tortoise ORM models."""
 

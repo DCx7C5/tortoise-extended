@@ -9,7 +9,7 @@ public surface concretely so subclass ``super().__init__`` calls and
 ``to_db_value`` / ``to_python_value`` overrides type-check cleanly.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar, overload, override
 
 import tortoise.validators
@@ -21,11 +21,11 @@ class OnDelete:
     """Enum of ON DELETE behaviours (mirrors ``tortoise.fields.base``)."""
 
 
-CASCADE: Any = ...
-RESTRICT: Any = ...
-SET_NULL: Any = ...
-SET_DEFAULT: Any = ...
-NO_ACTION: Any = ...
+CASCADE: OnDelete = ...
+RESTRICT: OnDelete = ...
+SET_NULL: OnDelete = ...
+SET_DEFAULT: OnDelete = ...
+NO_ACTION: OnDelete = ...
 
 
 class DatabaseDefault:
@@ -59,6 +59,11 @@ class Field(Generic[VALUE]):
     default: Any
     db_default: Any
     pk: bool
+
+    @property
+    def constraints(self) -> Mapping[str, object]:
+        """DB-level column constraints (covariant Mapping so subclass
+        overrides returning ``dict[str, int]`` remain valid)."""
 
     def __init__(
         self,

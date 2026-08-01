@@ -193,11 +193,11 @@ class CachedQuerySet(QuerySet[Model]):
             return None
 
         for app_config in Tortoise.apps.values():
-            if not isinstance(app_config, dict):
+            # Tortoise.apps maps app name -> {model_name: model_cls}; skip
+            # non-dict configs defensively (runtime context can be mutated).
+            if not isinstance(app_config, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
                 continue
-            # Tortoise.apps maps app name -> {model_name: model_cls}.
-            models_by_name = cast("dict[str, type[Model]]", app_config)
-            model_cls = models_by_name.get(model_name)
+            model_cls = app_config.get(model_name)
             if model_cls is not None:
                 return model_cls
         return None

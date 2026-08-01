@@ -24,6 +24,7 @@ from tortoise.fields.base import (
     OnDelete,
 )
 from tortoise.fields.data import CharEnumType, IntEnumType
+from tortoise.fields.boolean import BooleanField as BooleanField
 from tortoise.fields.relational import (
     BackwardFKRelation,
     BackwardOneToOneRelation,
@@ -126,42 +127,6 @@ def BinaryField(
     validators: _ValidatorType | None = None,
     **kwargs: Any,
 ) -> Field[bytes | None]: ...
-
-
-# ── BooleanField ────────────────────────────────────────────────────────
-
-@overload
-def BooleanField(
-    source_field: str | None = None,
-    generated: bool = False,
-    pk: bool = False,
-    *,
-    null: Literal[False] = False,
-    default: Any = None,
-    unique: bool = False,
-    index: bool = False,
-    description: str | None = None,
-    model: Model | None = None,
-    validators: _ValidatorType | None = None,
-    **kwargs: Any,
-) -> Field[bool]:
-    """Boolean field."""
-
-@overload
-def BooleanField(
-    source_field: str | None = None,
-    generated: bool = False,
-    pk: bool = False,
-    *,
-    null: Literal[True],
-    default: Any = None,
-    unique: bool = False,
-    index: bool = False,
-    description: str | None = None,
-    model: Model | None = None,
-    validators: _ValidatorType | None = None,
-    **kwargs: Any,
-) -> Field[bool | None]: ...
 
 
 # ── CharEnumField ───────────────────────────────────────────────────────
