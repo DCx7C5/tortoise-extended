@@ -166,11 +166,14 @@ sql = """
 results = await connection.fetch(sql, ["%Python%", 2])
 
 # After
-result = await connections.get("default").execute_query(
-    "SELECT * FROM local_search($1, NULL, $2, $3)",
-    ["Python", 2, 50],
+from tortoise_extended import GraphTraversal
+
+traversal = GraphTraversal(Entity, Relationship)
+rows = await traversal.neighbors(
+    node_id=python_entity.id,
+    direction="both",
+    max_depth=2,
 )
-rows = [dict(r) for r in result[1]]
 ```
 
 ## From Neo4j
@@ -351,23 +354,25 @@ from tortoise import Tortoise, connections
 from myapp.models import Entity
 
 @pytest.mark.asyncio
-async def test_local_search():
+async def test_local_neighborhood():
     # Create test data
     entity = await Entity.create(
         title="Python",
         type="TECHNOLOGY",
         embedding=[0.1, 0.2, 0.3],
     )
-    
-    # Execute search
-    result = await connections.get("default").execute_query(
-        "SELECT * FROM local_search($1, NULL, $2, $3)",
-        ["Python", 1, 50],
+
+    # Execute search via the library API
+    from tortoise_extended import GraphTraversal
+
+    traversal = GraphTraversal(Entity, Relationship)
+    rows = await traversal.neighbors(
+        node_id=entity.id,
+        direction="both",
+        max_depth=1,
     )
-    rows = [dict(r) for r in result[1]]
-    
-    assert len(rows) > 0
-    assert rows[0]["title"] == "Python"
+
+    assert isinstance(rows, list)
 ```
 
 ## Troubleshooting

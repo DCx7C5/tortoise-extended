@@ -82,31 +82,44 @@ async def graph_traversal():
     return outgoing, incoming
 ```
 
-## 6. Raw Graph Queries
+## 6. Graph Queries (Python API)
 
-The 6 SQL retrieval functions are defined in the database via `02-functions.sql`.
-Call them through Tortoise's connection:
+Neighborhood, path, and hybrid search are implemented in Python by the
+library — no SQL functions are needed in the database:
 
 ```python
-from tortoise.connections import connections
+from tortoise_extended import GraphTraversal, HybridSearch, shortest_path
 
 async def graph_queries():
-    conn = connections.get("default")
-
     # Local neighborhood search (1-2 hops)
-    result = await conn.execute_query(
-        "SELECT * FROM local_search($1, NULL, $2, $3)",
-        ["Python", 2, 50],
+    traversal = GraphTraversal(Entity, Relationship)
+    neighbors = await traversal.neighbors(
+        node_id=entity.id,
+        direction="both",
+        max_depth=2,
     )
-    rows = [dict(r) for r in result[1]]
+
+    # Shortest path between two entities
+    path = await shortest_path(
+        Entity, Relationship,
+        from_id=entity.id,
+        to_id=other_entity.id,
+        max_hops=5,
+    )
 
     # Hybrid search (vector + text)
-    result = await conn.execute_query(
-        "SELECT * FROM hybrid_search($1, $2, $3, $4, $5)",
-        ["[0.1,0.2,...]", "machine learning", 0.7, 0.3, 20],
+    search = HybridSearch(
+        model=Entity,
+        vector_field="embedding",
+        text_field="description",
+    )
+    results = await search.search(
+        query_vector=[0.1, 0.2, ...],
+        query_text="machine learning",
+        max_results=20,
     )
 
-    return rows
+    return neighbors, path, results
 ```
 
 ## 7. Recursive CTEs

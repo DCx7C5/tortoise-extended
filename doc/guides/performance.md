@@ -86,10 +86,11 @@ CREATE INDEX ix_entities_title ON entities(title);
 
 ```python
 # Bad: Unbounded traversal
-sql = local_search("Python", max_depth=10)
+traversal = GraphTraversal(Entity, Relationship)
+neighbors = await traversal.neighbors(node_id=entity.id, max_depth=10)
 
 # Good: Limited depth
-sql = local_search("Python", max_depth=2)
+neighbors = await traversal.neighbors(node_id=entity.id, max_depth=2)
 ```
 
 ### Materialized Views

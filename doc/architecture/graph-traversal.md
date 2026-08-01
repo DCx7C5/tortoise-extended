@@ -70,162 +70,107 @@ results = await connections.get("default").execute_query(str(cte), [])
 
 **Best practice:** Limit traversal depth to 2-3 hops for most use cases.
 
-## Graph Retrieval Functions
+## Python API
 
-The 6 SQL retrieval functions are defined in the database via
-`.docker/postgres/scripts/02-functions.sql` (not in `tortoise_extended`).
-Call them via raw SQL through Tortoise's connection:
+Graph retrieval is implemented in Python — no SQL functions need to be
+loaded into the database. The library builds parameterized recursive CTEs
+at runtime.
+
+### GraphTraversal
+
+Neighborhood / ancestor / descendant queries over node + edge tables:
 
 ```python
-from tortoise.connections import connections
+from tortoise_extended import GraphTraversal
 
-conn = connections.get("default")
-result = await conn.execute_query(
-    "SELECT * FROM local_search($1, $2, $3, $4)",
-    ["Python", None, 2, 50],
+traversal = GraphTraversal(Entity, Relationship)
+
+# Local neighborhood search (1-2 hops)
+neighbors = await traversal.neighbors(
+    node_id=entity.id,
+    direction="both",        # "outgoing" | "incoming" | "both"
+    edge_type=None,          # optional edge type filter
+    max_depth=2,
 )
-rows = [dict(r) for r in result[1]]
-```
 
-### local_search
+# Ancestors / descendants
+ancestors = await traversal.ancestors(node_id=entity.id, max_depth=5)
+descendants = await traversal.descendants(node_id=entity.id, max_depth=5)
 
-BFS neighborhood search starting from an entity.
-
-```sql
-SELECT * FROM local_search(
-    p_entity_name  => 'Python',
-    p_entity_type  => 'TECHNOLOGY',
-    p_max_depth    => 2,
-    p_max_results  => 50
-);
+# Cycle detection
+has_cycle = await traversal.has_cycle(max_depth=20)
 ```
 
 **Parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `p_entity_name` | text | Required | Starting entity name |
-| `p_entity_type` | text | NULL | Filter by entity type |
-| `p_max_depth` | int | 2 | Maximum traversal depth |
-| `p_max_results` | int | 50 | Maximum results |
+| `node_id` | int \| str \| UUID | Required | Starting node |
+| `direction` | str | `"both"` | Traversal direction (`neighbors` only) |
+| `edge_type` | str \| None | None | Filter by edge type |
+| `max_depth` | int | `1` (neighbors) / `10` (ancestors, descendants) | Maximum hops |
 
-**Returns:** Entity with neighbors at each depth level.
+**Returns:** List of node dicts (`id`, `name`, `depth`) with `hops`
+(`neighbors`) or `path_depth` (ancestors/descendants) metadata, ordered by depth.
 
-### community_search
+### Path Finding
 
-Vector search within a specific community.
+```python
+from tortoise_extended import shortest_path, all_paths, find_cycles
 
-```sql
-SELECT * FROM community_search(
-    p_query_embedding => '[0.1,0.2,...]',
-    p_community_id    => 'uuid-here',
-    p_max_results     => 20
-);
+path = await shortest_path(
+    Entity, Relationship,
+    from_id=entity_a.id,
+    to_id=entity_b.id,
+    max_hops=5,
+    edge_type=None,
+)
+
+paths = await all_paths(
+    Entity, Relationship,
+    from_id=entity_a.id,
+    to_id=entity_b.id,
+    max_hops=5,
+)
+
+cycles = await find_cycles(Entity, Relationship, max_hops=10)
 ```
 
-**Parameters:**
+### Hybrid Search
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `p_query_embedding` | text | Required | Query vector |
-| `p_community_id` | uuid | NULL | Filter by community |
-| `p_max_results` | int | 20 | Maximum results |
+```python
+from tortoise_extended import HybridSearch
 
-**Returns:** Entities ranked by vector similarity within community.
+search = HybridSearch(
+    model=Entity,
+    vector_field="embedding",
+    text_field="description",
+    distance_metric="cosine",   # "cosine" | "l2" | "inner_product"
+    vector_weight=0.7,
+    text_weight=0.3,
+)
 
-### shortest_path
-
-BFS shortest path between two entities.
-
-```sql
-SELECT * FROM shortest_path(
-    p_source_name => 'Python',
-    p_target_name => 'Machine Learning',
-    p_max_hops    => 5
-);
+results = await search.search(
+    query_vector=[0.1, 0.2, ...],
+    query_text="machine learning framework",
+    max_results=20,
+    min_distance=None,
+)
 ```
 
-**Parameters:**
+**Returns:** Model rows plus `distance`, `text_score`, and `combined_score` metadata.
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `p_source_name` | text | Required | Starting entity |
-| `p_target_name` | text | Required | Target entity |
-| `p_max_hops` | int | 5 | Maximum path length |
+### Fuzzy Entity Lookup
 
-**Returns:** Path with intermediate entities and edges.
+Fuzzy name matching uses `pg_trgm` through the Tortoise QuerySet API:
 
-### entity_lookup
+```python
+from tortoise.models import Q
 
-Fuzzy entity search by name and type.
-
-```sql
-SELECT * FROM entity_lookup(
-    p_entity_name          => 'Pyth',
-    p_entity_type          => 'TECHNOLOGY',
-    p_similarity_threshold => 0.3,
-    p_max_results          => 10
-);
+matches = await Entity.filter(
+    Q(name__icontains="pyth") | Q(name__icontains="python")
+).limit(10)
 ```
-
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `p_entity_name` | text | Required | Search term |
-| `p_entity_type` | text | NULL | Filter by type |
-| `p_similarity_threshold` | float | 0.3 | Minimum similarity |
-| `p_max_results` | int | 10 | Maximum results |
-
-**Returns:** Entities matching name with similarity scores.
-
-### hybrid_search
-
-Weighted combination of vector similarity and full-text search.
-
-```sql
-SELECT * FROM hybrid_search(
-    p_query_embedding => '[0.1,0.2,...]',
-    p_text_query      => 'machine learning framework',
-    p_vector_weight   => 0.7,
-    p_text_weight     => 0.3,
-    p_max_results     => 20
-);
-```
-
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `p_query_embedding` | text | Required | Query vector |
-| `p_text_query` | text | Required | Search text |
-| `p_vector_weight` | float | 0.7 | Vector similarity weight |
-| `p_text_weight` | float | 0.3 | Full-text weight |
-| `p_max_results` | int | 20 | Maximum results |
-
-**Returns:** Entities ranked by weighted combination of vector and text similarity.
-
-### raptor_search
-
-Multi-level RAPTOR tree search.
-
-```sql
-SELECT * FROM raptor_search(
-    p_query_embedding => '[0.1,0.2,...]',
-    p_max_levels      => 3,
-    p_max_results     => 10
-);
-```
-
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `p_query_embedding` | text | Required | Query vector |
-| `p_max_levels` | int | 3 | Maximum abstraction levels |
-| `p_max_results` | int | 10 | Maximum results |
-
-**Returns:** Entities at different abstraction levels.
 
 ## Query Patterns
 
@@ -234,70 +179,74 @@ SELECT * FROM raptor_search(
 Use for understanding context around an entity.
 
 ```python
-from tortoise.connections import connections
+from tortoise_extended import GraphTraversal
 
-conn = connections.get("default")
-result = await conn.execute_query(
-    "SELECT * FROM local_search($1, NULL, $2, $3)",
-    ["Python", 2, 50],
+traversal = GraphTraversal(Entity, Relationship)
+neighbors = await traversal.neighbors(
+    node_id=entity.id,
+    direction="both",
+    max_depth=2,
 )
-rows = [dict(r) for r in result[1]]
 
-for row in rows:
-    if row["depth"] == 0:
-        print(f"Center: {row['title']}")
+for row in neighbors:
+    if row["hops"] == 0:
+        print(f"Center: {row['name']}")
     else:
-        print(f"  Hop {row['depth']}: {row['title']} ({row['type']})")
+        print(f"  Hop {row['hops']}: {row['name']}")
 ```
 
 ### Pattern 2: Entity Resolution
 
-Use for finding duplicate or similar entities.
+Use for finding duplicate or similar entities by name:
 
 ```python
-result = await conn.execute_query(
-    "SELECT * FROM entity_lookup($1, NULL, $2, $3)",
-    ["Pyth", 0.3, 10],
-)
-rows = [dict(r) for r in result[1]]
-
-for row in rows:
-    if row["similarity"] > 0.9:
-        print(f"High confidence match: {row['title']}")
-    elif row["similarity"] > 0.7:
-        print(f"Possible match: {row['title']}")
+matches = await Entity.filter(name__icontains="pyth").limit(10)
+for row in matches:
+    print(f"Match: {row.name}")
 ```
+
+For true pg_trgm similarity scoring, compute it inline with a raw expression
+(see `doc/guides/performance.md`).
 
 ### Pattern 3: Community Exploration
 
-Use for understanding community structure.
+Explore communities by following typed edges, then filter with the standard
+QuerySet API:
 
 ```python
-# Find community
-result = await conn.execute_query(
-    "SELECT * FROM entity_lookup($1, NULL, 0.3, 1)",
-    ["Machine Learning"],
-)
-community_id = dict(result[1][0])["community_id"]
+from tortoise_extended import GraphTraversal
 
-# Search within community
-result = await conn.execute_query(
-    "SELECT * FROM community_search($1, $2, $3)",
-    ["[0.1,0.2,...]", community_id, 20],
+traversal = GraphTraversal(Entity, Relationship)
+
+# All entities reachable via "member_of" edges
+members = await traversal.neighbors(
+    node_id=community_entity.id,
+    edge_type="member_of",
+    max_depth=1,
 )
+
+# Narrow with ordinary filters
+members = await Entity.filter(community_id=community_entity.id)
 ```
 
 ### Pattern 4: Path Finding
 
-Use for understanding relationships between entities.
+Use for understanding relationships between entities:
 
 ```python
-result = await conn.execute_query(
-    "SELECT * FROM shortest_path($1, $2, $3)",
-    ["Python", "TensorFlow", 5],
+from tortoise_extended import shortest_path
+
+path = await shortest_path(
+    Entity, Relationship,
+    from_id=python_entity.id,
+    to_id=tensorflow_entity.id,
+    max_hops=5,
 )
-for i, row in enumerate(result[1]):
-    print(f"{'→' if i > 0 else ''} {dict(row)['title']}")
+
+if path:
+    for i, node in enumerate(path):
+        arrow = "→" if i > 0 else ""
+        print(f"{arrow} {node['name']}")
 ```
 
 ## Performance Optimization

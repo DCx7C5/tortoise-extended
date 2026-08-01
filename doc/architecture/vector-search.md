@@ -175,15 +175,23 @@ similar = await Entity.filter(
 
 ### Hybrid Search (Vector + Full-Text)
 
-Use the `hybrid_search` SQL function defined in the database:
+Use the `HybridSearch` class (vector + full-text scoring):
 
 ```python
-from tortoise.connections import connections
+from tortoise_extended import HybridSearch
 
-conn = connections.get("default")
-result = await conn.execute_query(
-    "SELECT * FROM hybrid_search($1, $2, $3, $4, $5)",
-    ["[0.1,0.2,...]", "machine learning framework", 0.7, 0.3, 20],
+search = HybridSearch(
+    model=Entity,
+    vector_field="embedding",
+    text_field="description",
+    vector_weight=0.7,
+    text_weight=0.3,
+)
+
+results = await search.search(
+    query_vector=[0.1, 0.2, ...],
+    query_text="machine learning framework",
+    max_results=20,
 )
 ```
 

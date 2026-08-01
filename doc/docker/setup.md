@@ -53,12 +53,9 @@ await Tortoise.init(
 
 ## Init Scripts
 
-Scripts run in order from `docker/postgres-ext/scripts/` on first start:
+A single script runs from `docker/postgres-ext/scripts/` on first start:
 
-1. `00-extensions.sql` — Install PostgreSQL extensions
-2. `01-init.sql` — Create tables and indexes
-3. `02-functions.sql` — Create retrieval functions
-4. `03-roles.sql` — Create roles/grants
+1. `00-extensions.sql` — Install PostgreSQL extensions (`vector`, `ltree`, `timescaledb`, `pg_trgm`, `uuid-ossp`)
 
 ## Base Image Pinning
 
