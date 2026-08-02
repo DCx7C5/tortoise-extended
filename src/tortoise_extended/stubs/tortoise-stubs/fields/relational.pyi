@@ -213,7 +213,7 @@ def ForeignKeyField(
     db_constraint: bool = True,
     null: bool = False,
     **kwargs: Any,
-) -> ForeignKeyFieldInstance[Model]: ...
+) -> ForeignKeyFieldInstance[Any]: ...
 
 
 @overload
@@ -245,7 +245,7 @@ def OneToOneField(
     db_constraint: bool = True,
     null: bool = False,
     **kwargs: Any,
-) -> OneToOneFieldInstance[Model]: ...
+) -> OneToOneFieldInstance[Any]: ...
 
 
 def ManyToManyField(
