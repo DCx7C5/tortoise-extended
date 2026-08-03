@@ -15,6 +15,8 @@ Or connect to an existing PostgreSQL instance with pgvector + ltree + TimescaleD
 ```python
 import asyncio
 import tortoise_extended  # Must be first import — applies monkey-patches
+
+tortoise_extended.patch()  # Explicit: apply all monkey-patches (idempotent)
 from tortoise import Tortoise
 
 # Define your models (see doc/architecture/schema.md for the GraphRAG schema)
@@ -65,22 +67,33 @@ async def vector_search():
 ## 5. Graph Traversal
 
 ```python
+from tortoise_extended import GraphEdge
+
 async def graph_traversal():
     entity = await Entity.get(title="Python")
 
-    # Get outgoing relationships
-    outgoing = await entity.outgoing.all()
+    # Outgoing / incoming relationships via the GraphEdge base-class helpers.
+    # These return QuerySets, so `.all()` is optional:
+    outgoing = await Relationship.outgoing(source_id=entity.id).all()
+    incoming = await Relationship.incoming(target_id=entity.id).all()
 
-    # Get incoming relationships
-    incoming = await entity.incoming.all()
-
-    # Traverse with filter
-    tech_entities = await entity.outgoing.all().filter(
-        target__type="TECHNOLOGY"
-    )
+    # Filter by edge type
+    parent_of = await Relationship.outgoing(
+        source_id=entity.id,
+        edge_type="parent_of",
+    ).all()
 
     return outgoing, incoming
 ```
+
+> **Note:** `GraphEdge` stores `source_id` / `target_id` as plain UUID columns (no
+> database FK constraint), and `GraphNode` keeps `parent_id` the same way — this
+> lets one edge table link nodes of different types. Traverse edges with the
+> `GraphEdge.outgoing(...)` / `GraphEdge.incoming(...)` classmethods above, or use
+> `GraphTraversal` for multi-hop traversal. If you instead declare real
+> `ForeignKeyField` relations on your own models (as in
+> `doc/architecture/schema.md`), Tortoise's `related_name` back-references work
+> as usual.
 
 ## 6. Graph Queries (Python API)
 

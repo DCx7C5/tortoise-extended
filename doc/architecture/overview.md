@@ -104,7 +104,7 @@ The package applies monkey-patches at import time:
 2. **`get_filters_for_field`** — Adds `__l2_distance`, `__cosine_distance`, `__inner_product` filters (patches both `tortoise.filters` and `tortoise.models`)
 3. **pgvector codec** — Injects `set_type_codec("vector", ...)` into every asyncpg connection via `create_pool` init callback
 
-These patches are applied once when `import tortoise_extended` executes. They are safe because they extend existing functions without modifying core behavior.
+These patches are applied once when `import tortoise_extended` executes, and can also be applied explicitly via the public `tortoise_extended.patch()` function (idempotent, safe to call repeatedly). They are safe because they extend existing functions without modifying core behavior.
 
 ## Why Monkey-Patching?
 

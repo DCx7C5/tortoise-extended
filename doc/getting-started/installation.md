@@ -42,6 +42,8 @@ uv add "tortoise-extended[redis]"
 import tortoise_extended
 from tortoise_extended import VectorField, HNSWIndex, LTreeField, GiSTIndex
 
+tortoise_extended.patch()  # explicitly apply the monkey-patches
+
 print("tortoise-extended installed and working")
 ```
 

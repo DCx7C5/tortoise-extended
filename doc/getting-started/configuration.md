@@ -6,6 +6,8 @@
 
 ```python
 import tortoise_extended  # Must be first import
+
+tortoise_extended.patch()  # Explicitly apply monkey-patches (idempotent)
 from tortoise import Tortoise
 
 await Tortoise.init(

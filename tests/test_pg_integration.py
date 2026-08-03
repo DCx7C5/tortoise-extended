@@ -18,6 +18,7 @@ from tortoise.models import Model
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended import (
     CosineDistance,
+    GraphVectorSearch,
     HNSWIndex,
     InnerProduct,
     L2Distance,
@@ -102,6 +103,56 @@ class Node(Model):
         table = "test_nodes"
 
 
+class Document(Model):
+    """Document with vector embedding — target of relational vector filters."""
+
+    id = fields.IntField(primary_key=True)
+    title = fields.CharField(max_length=255)
+    embedding = VectorField(dimensions=3)
+
+    class Meta:
+        table = "test_documents"
+
+
+class Page(Model):
+    """Page with a real FK to Document — exercises relational join + vector filter."""
+
+    id = fields.IntField(primary_key=True)
+    text = fields.TextField()
+    document = fields.ForeignKeyField(
+        "models.Document",
+        related_name="pages",
+        on_delete=fields.OnDelete.CASCADE,
+    )
+
+    class Meta:
+        table = "test_pages"
+
+
+class VecNode(Model):
+    """Graph node with vector embedding for GraphVectorSearch."""
+
+    id = fields.IntField(primary_key=True)
+    name = fields.CharField(max_length=100)
+    embedding = VectorField(dimensions=3)
+
+    class Meta:
+        table = "test_vec_nodes"
+
+
+class VecEdge(Model):
+    """Directed graph edge matching the GraphEdge shape (no FK constraints)."""
+
+    id = fields.IntField(primary_key=True)
+    source_id = fields.IntField()
+    target_id = fields.IntField()
+    edge_type = fields.CharField(max_length=50, default="rel")
+    is_bidirectional = fields.BooleanField(default=False)
+
+    class Meta:
+        table = "test_vec_edges"
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -118,7 +169,15 @@ async def _init_db():
     yield
     # Cleanup — drop test tables
     conn = Tortoise.get_connection("default")
-    for table in ("test_chunks", "test_articles", "test_nodes"):
+    for table in (
+        "test_vec_edges",
+        "test_vec_nodes",
+        "test_pages",
+        "test_documents",
+        "test_chunks",
+        "test_articles",
+        "test_nodes",
+    ):
         await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.close_connections()
 
@@ -391,7 +450,182 @@ class TestVectorSimilarityQueries:
 
 
 # ---------------------------------------------------------------------------
-# 6. RecursiveCTE — real recursive query
+# 6. Relational join + vector filter — cross-feature regression
+# ---------------------------------------------------------------------------
+
+
+class TestRelationalVectorFilter:
+    """Vector filters must work through Tortoise relational joins (``parent__embedding__l2_distance``)."""
+
+    @pytest.fixture(autouse=True)
+    async def _seed_data(self) -> None:
+        """Two documents (near/far) each with pages."""
+        await Page.all().delete()
+        await Document.all().delete()
+        doc_a = await Document.create(title="alpha-doc", embedding=[1.0, 0.0, 0.0])
+        doc_b = await Document.create(title="beta-doc", embedding=[0.0, 1.0, 0.0])
+        await Page.create(text="p1", document=doc_a)
+        await Page.create(text="p2", document=doc_a)
+        await Page.create(text="p3", document=doc_b)
+
+    @pytest.mark.asyncio
+    async def test_related_l2_distance_filter(self) -> None:
+        """``document__embedding__l2_distance`` filters pages by parent vector."""
+        results = await Page.filter(
+            document__embedding__l2_distance=[[1.0, 0.0, 0.0], 0.5]
+        )
+        texts = {r.text for r in results}
+        assert texts == {"p1", "p2"}  # doc_a distance 0; doc_b distance sqrt(2) ≈ 1.41
+
+    @pytest.mark.asyncio
+    async def test_related_cosine_distance_filter(self) -> None:
+        """Narrow cosine threshold excludes pages whose parent is far."""
+        results = await Page.filter(
+            document__embedding__cosine_distance=[[0.0, 1.0, 0.0], 0.1]
+        )
+        texts = {r.text for r in results}
+        assert texts == {"p3"}  # doc_b distance 0; doc_a distance 1.0 (orthogonal)
+
+
+# ---------------------------------------------------------------------------
+# 7. GraphVectorSearch — single-query vector + graph compositor
+# ---------------------------------------------------------------------------
+
+
+class TestGraphVectorSearchIntegration:
+    """GraphVectorSearch returns typed hits ordered by vector similarity."""
+
+    @pytest.fixture(autouse=True)
+    async def _seed_graph(self) -> None:
+        """seed --near/far--> deep; query vector points at [1,0,0]."""
+        await VecEdge.all().delete()
+        await VecNode.all().delete()
+        self.seed = await VecNode.create(name="seed", embedding=[1.0, 0.0, 0.0])
+        self.near = await VecNode.create(name="near", embedding=[0.9, 0.1, 0.0])
+        self.far = await VecNode.create(name="far", embedding=[0.0, 1.0, 0.0])
+        self.deep = await VecNode.create(name="deep", embedding=[0.0, 0.0, 1.0])
+        await VecEdge.create(source_id=self.seed.id, target_id=self.near.id)
+        await VecEdge.create(source_id=self.seed.id, target_id=self.far.id)
+        await VecEdge.create(source_id=self.near.id, target_id=self.deep.id)
+
+    def _search(self, seed_id: int | None = None, **kwargs: object) -> GraphVectorSearch:
+        return GraphVectorSearch(
+            node_model=VecNode,
+            edge_model=VecEdge,
+            query_vector=[1.0, 0.0, 0.0],
+            seed_id=seed_id if seed_id is not None else self.seed.id,
+            **kwargs,
+        )
+
+    @pytest.mark.asyncio
+    async def test_returns_typed_hits_ordered_by_distance(self) -> None:
+        """L2 search returns seed first, then near/far/deep by distance."""
+        from tortoise_extended import GraphVectorHit
+
+        hits = await self._search(max_hops=2).search()
+        assert [h.node.name for h in hits] == ["seed", "near", "far", "deep"]
+        assert all(isinstance(h, GraphVectorHit) for h in hits)
+        assert all(isinstance(h.node, VecNode) for h in hits)
+        assert hits[0].hops == 0
+        assert hits[0].distance < 0.01
+        assert hits[3].node.name == "deep"
+        # distances ascending
+        distances = [h.distance for h in hits]
+        assert distances == sorted(distances)
+
+    @pytest.mark.asyncio
+    async def test_max_hops_limits_traversal(self) -> None:
+        """max_hops=1 excludes the 2-hop node."""
+        hits = await self._search(max_hops=1).search()
+        names = {h.node.name for h in hits}
+        assert names == {"seed", "near", "far"}
+
+    @pytest.mark.asyncio
+    async def test_direction_outgoing_from_near(self) -> None:
+        """Outgoing from near reaches only deep (plus near itself)."""
+        hits = await self._search(seed_id=self.near.id, direction="outgoing").search()
+        names = {h.node.name for h in hits}
+        assert names == {"near", "deep"}
+
+    @pytest.mark.asyncio
+    async def test_threshold_filters_far_nodes(self) -> None:
+        """min_distance=0.5 keeps only seed and near."""
+        hits = await self._search(min_distance=0.5).search()
+        names = {h.node.name for h in hits}
+        assert names == {"seed", "near"}
+
+    @pytest.mark.asyncio
+    async def test_edge_type_filter(self) -> None:
+        """edge_type='rel' excludes edges retagged to another type."""
+        await VecEdge.filter(
+            source_id=self.seed.id, target_id=self.far.id
+        ).update(edge_type="far_type")
+        hits = await self._search(edge_type="rel", max_hops=1).search()
+        names = {h.node.name for h in hits}
+        assert names == {"seed", "near"}  # far edge now has edge_type='far_type'
+
+    @pytest.mark.asyncio
+    async def test_inner_product_metric_orders_by_similarity(self) -> None:
+        """inner_product returns positive inner product, best first."""
+        hits = await self._search(distance_metric="inner_product").search()
+        assert hits[0].node.name == "seed"
+        assert hits[0].distance > 0.99  # dot([1,0,0],[1,0,0]) = 1
+        distances = [h.distance for h in hits]
+        assert distances == sorted(distances, reverse=True)
+
+    @pytest.mark.asyncio
+    async def test_edge_type_and_threshold_combined(self) -> None:
+        """edge_type ($5) and min_distance ($6) parameters coexist correctly."""
+        await VecEdge.filter(
+            source_id=self.seed.id, target_id=self.far.id
+        ).update(edge_type="far_type")
+        hits = await self._search(edge_type="rel", min_distance=0.5).search()
+        names = {h.node.name for h in hits}
+        assert names == {"seed", "near"}  # far excluded by type AND by distance
+
+    @pytest.mark.asyncio
+    async def test_direction_incoming_from_deep(self) -> None:
+        """Incoming follows reverse edges up the chain (deep <- near <- seed)."""
+        hits = await self._search(seed_id=self.deep.id, direction="incoming").search()
+        names = {h.node.name for h in hits}
+        assert names == {"deep", "near", "seed"}
+        by_name = {h.node.name: h.hops for h in hits}
+        assert by_name["deep"] == 0
+        assert by_name["near"] == 1
+        assert by_name["seed"] == 2
+
+    @pytest.mark.asyncio
+    async def test_bidirectional_edge_traversed_both_ways(self) -> None:
+        """is_bidirectional edges are followed in reverse for outgoing queries."""
+        await VecEdge.create(
+            source_id=self.far.id,
+            target_id=self.near.id,
+            is_bidirectional=True,
+        )
+        hits = await self._search(seed_id=self.near.id, direction="outgoing").search()
+        names = {h.node.name for h in hits}
+        assert names == {"near", "deep", "far"}
+
+    @pytest.mark.asyncio
+    async def test_seed_without_edges_returns_seed_only(self) -> None:
+        """Isolated seed still yields one typed hit at hops 0."""
+        solo = await VecNode.create(name="solo", embedding=[0.5, 0.5, 0.5])
+        hits = await self._search(seed_id=solo.id).search()
+        assert len(hits) == 1
+        assert hits[0].node.name == "solo"
+        assert hits[0].hops == 0
+
+    @pytest.mark.asyncio
+    async def test_invalid_metric_raises(self) -> None:
+        """Unsupported metric raises HybridSearchError before any SQL."""
+        from tortoise_extended.exceptions import HybridSearchError
+
+        with pytest.raises(HybridSearchError):
+            self._search(distance_metric="bogus")
+
+
+# ---------------------------------------------------------------------------
+# 8. RecursiveCTE — real recursive query
 # ---------------------------------------------------------------------------
 
 
@@ -499,7 +733,7 @@ class TestRecursiveCTEIntegration:
 
 
 # ---------------------------------------------------------------------------
-# 7. pgvector extension verification
+# 8. pgvector extension verification
 # ---------------------------------------------------------------------------
 
 
@@ -537,7 +771,7 @@ class TestExtensionPresence:
 
 
 # ---------------------------------------------------------------------------
-# 8. Cache — CacheableModel with real DB
+# 9. Cache — CacheableModel with real DB
 # ---------------------------------------------------------------------------
 
 

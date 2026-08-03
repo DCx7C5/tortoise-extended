@@ -59,6 +59,7 @@ class MetaInfo:
     fields_map: dict[str, Field[Any]]
     filters: dict[str, object]
     manager: Manager
+    db_pk_column: str
 
 
 class ModelMeta(type):
@@ -103,6 +104,10 @@ class Model:
 
     @classmethod
     def filter(cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any) -> QuerySet[Self]: ...
+
+    @classmethod
+    def _init_from_db(cls: type[Self], **kwargs: Any) -> Self:
+        """Hydrate a raw DB row (model-field kwargs) into a model instance."""
 
     @classmethod
     def exclude(cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any) -> QuerySet[Self]: ...

@@ -5,16 +5,22 @@ Monkey-patches tortoise-orm to add:
 - HNSWIndex / IVFFlatIndex / GiSTIndex (index types)
 - Custom filters for vector similarity search
 - RecursiveCTE, GraphTraversal, pathfinding helpers
+- GraphVectorSearch (single-query vector + graph compositor with typed results)
 - HybridSearch (vector + FTS weighted scoring)
 - GraphNode / GraphEdge / HierarchyModel (graph patterns)
 - LTreeField + ltree filters (hierarchical data)
 - TimescaleDB hypertable migration operations
 - Redis caching (optional)
 
-All patches are applied on import. Import this package once, early,
-before Tortoise.init():
+Patches are applied automatically on import, and can also be applied
+explicitly via :func:`patch` for consumers that want to make the
+monkey-patching visible in their entry point. Either way, importing this
+package (and calling :func:`patch` if used) must happen before
+``Tortoise.init()``:
 
-    import tortoise_extended  # noqa: F401 — apply patches
+    import tortoise_extended
+
+    tortoise_extended.patch()  # explicit; also applied automatically on import
 
     await Tortoise.init(
         db_url="...",
@@ -65,6 +71,10 @@ from tortoise_extended.expressions.graph_filters import (
     vector_encoder,
 )
 from tortoise_extended.expressions.graph_traversal import GraphTraversal
+from tortoise_extended.expressions.graph_vector_search import (
+    GraphVectorHit,
+    GraphVectorSearch,
+)
 from tortoise_extended.expressions.hybrid_search import HybridSearch
 from tortoise_extended.expressions.ltree_filters import get_ltree_filters
 from tortoise_extended.expressions.pathfinding import (
@@ -140,6 +150,31 @@ async def _combined_codec_init(
 # ---------------------------------------------------------------------------
 # Apply monkey-patches
 # ---------------------------------------------------------------------------
+
+
+def patch() -> None:
+    """Apply all monkey-patches to tortoise-orm explicitly.
+
+    Idempotent — safe to call any number of times, including after the
+    patches were already applied automatically at import time. Re-applying
+    never double-wraps a patched function.
+
+    Usage in a consumer entry point (e.g. ``main.py``)::
+
+        import tortoise_extended
+
+        tortoise_extended.patch()  # apply all patches before Tortoise.init()
+
+        await Tortoise.init(
+            db_url="...",
+            modules={"models": ["..."]},
+        )
+
+    The import itself already applies the patches, so calling ``patch()`` is
+    optional but recommended when you want the monkey-patching to be explicit
+    in the entry point instead of relying on the import side effect.
+    """
+    _apply_patches()
 
 
 def _apply_patches() -> None:
@@ -232,6 +267,8 @@ __all__ = [
     "GraphNode",
     "GraphTraversal",
     "GraphTraversalError",
+    "GraphVectorHit",
+    "GraphVectorSearch",
     "HNSWIndex",
     "HierarchyError",
     "HierarchyModel",
@@ -260,9 +297,10 @@ __all__ = [
     "get_ltree_filters",
     "get_vector_filters",
     "invalidate",
+    "patch",
     "shortest_path",
     "vector_encoder",
 ]
 
-# Apply patches at import time
+# Apply patches at import time (idempotent; `patch()` re-applies safely)
 _apply_patches()

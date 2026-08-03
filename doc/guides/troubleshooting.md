@@ -19,6 +19,7 @@ import tortoise_extended  # Too late!
 
 # Right
 import tortoise_extended  # First!
+tortoise_extended.patch()  # Explicitly apply the monkey-patches
 from tortoise import Tortoise
 ```
 

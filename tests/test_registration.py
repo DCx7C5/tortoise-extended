@@ -177,6 +177,42 @@ class TestPgvectorCodecBranches:
 class TestPatchIdempotency:
     """Re-applying patches should never double-wrap."""
 
+    def test_public_patch_is_callable_and_idempotent(self) -> None:
+        """``patch()`` is the explicit entry point and never double-wraps."""
+        from tortoise_extended import patch
+
+        assert callable(patch)
+        assert patch() is None
+        assert filters_mod.get_filters_for_field is not None
+
+    def test_public_patch_keeps_wrapper_stable(self) -> None:
+        """Calling ``patch()`` after import keeps the existing wrappers."""
+        from tortoise_extended import patch
+
+        filter_wrapper = filters_mod.get_filters_for_field
+        pool_wrapper = AsyncpgDBClient.create_pool
+        patch()
+        patch()
+        assert filters_mod.get_filters_for_field is filter_wrapper
+        assert AsyncpgDBClient.create_pool is pool_wrapper
+
+    def test_patch_exported_in_all(self) -> None:
+        """``patch`` is part of the public API surface and re-exported."""
+        from tortoise_extended import patch
+
+        import tortoise_extended
+
+        assert "patch" in tortoise_extended.__all__
+        assert tortoise_extended.patch is patch
+
+    def test_patch_patches_models_local_reference(self) -> None:
+        """``patch()`` keeps ``tortoise.models`` aligned with ``tortoise.filters``."""
+        import tortoise.models as models_mod
+        from tortoise_extended import patch
+
+        patch()
+        assert models_mod.get_filters_for_field is filters_mod.get_filters_for_field
+
     def test_get_filters_patch_applied_once(self) -> None:
         """Re-running _apply_patches keeps the same wrapper object."""
         original = filters_mod.get_filters_for_field

@@ -10,6 +10,7 @@ Complete API documentation for all tortoise-extended modules.
 - **[Graph Filters](graph-filters.md)** — pgvector distance operators (L2, cosine, inner product)
 - **[Recursive CTE](recursive-cte.md)** — Recursive Common Table Expressions
 - **[Graph Traversal](graph-traversal.md)** — CTE-based ancestors, descendants, neighbors
+- **[Graph Vector Search](graph-vector-search.md)** — single-query vector + graph compositor with typed results
 - **[Pathfinding](pathfinding.md)** — Shortest path, all paths, cycle detection
 - **[Hybrid Search](hybrid-search.md)** — Vector + FTS weighted scoring
 - **[Graph (Node/Edge/Mixin)](graph.md)** — GraphNode, GraphEdge, HierarchyMixin base classes
@@ -34,7 +35,7 @@ from tortoise_extended import HNSWIndex, IVFFlatIndex, GiSTIndex
 ```python
 from tortoise_extended import RecursiveCTE
 from tortoise_extended import L2Distance, CosineDistance, InnerProduct
-from tortoise_extended import GraphTraversal, HybridSearch
+from tortoise_extended import GraphTraversal, GraphVectorSearch, HybridSearch
 from tortoise_extended import shortest_path, all_paths, find_cycles
 ```
 
