@@ -68,6 +68,9 @@ results = await connections.get("default").execute_query(str(cte), [])
 | 4 | <1s | 100 |
 | 5+ | >1s | <50 |
 
+> **Illustrative.** Machine-dependent — reproduce on your hardware with
+> `uv run python benchmarks/bench_graph_traversal.py` (docker PG required).
+
 **Best practice:** Limit traversal depth to 2-3 hops for most use cases.
 
 ## Python API

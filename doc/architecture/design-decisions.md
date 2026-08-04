@@ -41,6 +41,12 @@ Implement VectorField ourselves (~50 lines) plus pgvector codec (~30 lines). Thi
 | AGE `cypher()` wrapper | 78 | 640ms |
 | Neo4j | 15,000 | 10ms |
 
+> **Illustrative.** Machine-dependent figures — see
+> `benchmarks/bench_graph_traversal.py` for a reproducible harness that
+> measures the PG recursive-CTE side on your own hardware. The AGE/Neo4j
+> comparison rows predate the harness and cannot be reproduced without those
+> systems installed.
+
 ### Analysis
 
 AGE adds ~13ms overhead per `cypher()` call because:
@@ -60,7 +66,7 @@ Recursive CTEs are sub-millisecond for these patterns. AGE's overhead is unneces
 ### Our Decision
 
 Use plain PostgreSQL recursive CTEs. They're:
-- 290x faster than AGE for typical workloads
+- ~290x faster than AGE for typical workloads (illustrative — see above)
 - Simpler to maintain
 - No extension compilation required
 - Better SQL compatibility

@@ -180,6 +180,8 @@ WITH (lists = 100);
 | 100K - 1M | 500-2000 |
 | > 1M | 2000-10000 |
 
+(Recommendations follow the pgvector docs; not measured here.)
+
 **Rule of thumb:** `lists = sqrt(rows)` for < 1M rows, `lists = rows / 1000` for > 1M rows.
 
 ### Requirements

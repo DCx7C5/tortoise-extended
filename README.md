@@ -414,11 +414,17 @@ The expressions in `graph_traversal.py`, `pathfinding.py`, `hybrid_search.py`, a
 
 ### Why no Apache AGE?
 
-Benchmarked at 22,581 RPS (plain PG recursive CTEs) vs 78 RPS (AGE `cypher()` wrapper) for GraphRAG retrieval patterns. Recursive CTEs are 290x faster because:
+Recursive-CTE traversal is **illustratively** ~290x faster than the AGE
+`cypher()` wrapper for GraphRAG retrieval patterns (22,581 RPS vs 78 RPS —
+machine-dependent, reproduced by `benchmarks/bench_graph_traversal.py`;
+AGE/Neo4j comparison rows cannot be reproduced without those systems):
 - AGE adds ~13ms overhead per `cypher()` call
 - 85% of GraphRAG retrieval is 1-hop (point lookups + direct edges)
 - Recursive CTEs on indexed tables are sub-millisecond
 - No extension compilation or maintenance burden
+
+Run `uv run python benchmarks/bench_graph_traversal.py` for current numbers
+on your hardware.
 
 ## Documentation
 
