@@ -2,7 +2,7 @@
 
 ## Overview
 
-`tortoise-extended` provides graph traversal capabilities through recursive CTEs and 6 SQL retrieval functions. This enables efficient knowledge graph queries without external graph databases.
+`tortoise-extended` provides graph traversal capabilities through recursive CTEs and a Python query API. This enables efficient knowledge graph queries without external graph databases.
 
 ## Recursive CTEs
 
@@ -165,7 +165,7 @@ results = await search.search(
 Fuzzy name matching uses `pg_trgm` through the Tortoise QuerySet API:
 
 ```python
-from tortoise.models import Q
+from tortoise import Q
 
 matches = await Entity.filter(
     Q(name__icontains="pyth") | Q(name__icontains="python")
@@ -262,17 +262,21 @@ CREATE INDEX ix_relationships_target ON relationships(target_entity_id);
 CREATE INDEX ix_relationships_source_type ON relationships(source_entity_id, type);
 ```
 
-### Query Hints
+### Index Usage
 
-```python
-# Force index usage
-sql = """
-    SELECT /*+ IndexScan(entities ix_entities_title) */
-        id, title, type
-    FROM entities
-    WHERE title ILIKE $1
-"""
+The traversal query builder relies on ordinary B-tree indexes on the edge
+table — PostgreSQL picks them automatically:
+
+```sql
+-- Verify the planner is using them
+EXPLAIN ANALYZE
+SELECT * FROM relationships
+WHERE source_entity_id = $1 AND type = 'member_of';
 ```
+
+The `GraphEdge` base class already indexes `source_id` / `target_id` /
+`edge_type`. For custom edge tables, add the same three indexes plus the
+composite `(source_id, edge_type)` pattern above.
 
 ### Materialized Views
 

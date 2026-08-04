@@ -65,27 +65,31 @@ Use plain PostgreSQL recursive CTEs. They're:
 - No extension compilation required
 - Better SQL compatibility
 
-## Why Port 5432?
+## Why Port 5433?
 
 ### The Problem
 
-PostgreSQL defaults to port 5432. Most developers have a local PostgreSQL instance running.
+PostgreSQL defaults to port 5432. Most developers already have a local
+PostgreSQL instance running there — a second dev database on 5432 would
+collide with it.
 
 ### The Solution
 
-Map container port 5432 to host port 5432.
+Map the container's internal 5432 to the host port **5433**, and Redis to
+host port **6380**:
 
 ```bash
-docker run -p 5432:5432 tortoise-extended-pg
+docker compose -f docker-compose.dev.yml up -d
+# postgres-ext -> 127.0.0.1:5433, redis-ext -> 127.0.0.1:6380
 ```
 
 ### Trade-offs
 
 - Non-standard port requires explicit configuration
-- May confuse new users
-- Requires port documentation
+- All examples must use `127.0.0.1:5433`
 
-**Decision:** Avoiding port conflicts is more important than following defaults.
+**Decision:** Avoiding conflicts with an existing local PostgreSQL is more
+important than following defaults.
 
 ## Why Monkey-Patching?
 
@@ -113,52 +117,63 @@ Monkey-patching allows us to extend the ORM without maintaining a fork. The patc
 - Documented in source code
 - Reversible if needed
 
-## Why 12 Models?
+## Why Reusable Graph Base Classes?
 
 ### The Problem
 
-GraphRAG requires multiple interconnected tables. Users need to define these tables correctly.
+Graph-style schemas (nodes + edges + hierarchies) repeat across projects:
+`GraphNode` / `GraphEdge` for entity-relationship graphs, `HierarchyModel`
+for ltree-path trees. Hand-rolling them each time leads to inconsistent
+indexes and wrong query patterns.
 
 ### Our Solution
 
-Provide 12 pre-defined models that:
-- Match the init.sql schema exactly
-- Include proper foreign keys and indexes
-- Document all fields and relationships
-- Work out of the box
+Provide three small, well-indexed abstract base models:
+
+- `GraphNode` — `id`, `name`, `type`, `description`, `embedding`, `metadata`
+- `GraphEdge` — `source_id`/`target_id` (plain columns, no FK — one edge
+  table can link nodes of different types), `type`, `weight`, `metadata`,
+  plus `outgoing(...)` / `incoming(...)` queryset helpers
+- `HierarchyModel` — `path` `LTreeField`, `parent_id`, `depth`, `namespace`
+  with a `GiSTIndex` on `path`
 
 ### Trade-offs
 
-- Users must use our models (can't customize schema)
-- Models may not fit all use cases
-- Adds package size
+- Base classes are intentionally minimal — application models extend them
+- No auto-generated schema: models still map to your own table names
+- Single-table inheritance is not provided; compose with your own fields
 
-**Decision:** Providing correct models saves users hours of debugging schema mismatches.
+**Decision:** Reusable, minimal base classes save setup time without
+dictating the application schema.
 
-## Why Raw SQL for Graph Functions?
+## Why Raw SQL for Graph Expressions?
 
 ### The Problem
 
-Tortoise ORM doesn't support:
+Tortoise ORM's QuerySet cannot express:
 - Recursive CTEs (`WITH RECURSIVE`)
 - `DISTINCT ON`
-- `UNION` in subqueries
-- `ts_rank_cd` full-text search
+- `UNION` subqueries
+- `ts_rank_cd` full-text ranking
 - `ARRAY[]` literals
 
 ### Our Solution
 
-Generate parameterized SQL strings for the 6 retrieval functions. Users execute them with `conn.execute_query()`.
+These stay inside the library — `RecursiveCTE`, `GraphTraversal`,
+`shortest_path` / `all_paths` / `find_cycles`, and `HybridSearch` build the
+parameterized SQL for you and expose async Python APIs. Application code
+never hand-writes SQL for these patterns; raw SQL remains reserved for
+operations the library doesn't cover.
 
 ### Trade-offs
 
-- No type safety for generated SQL
-- No query builder integration
-- Requires raw SQL knowledge
+- SQL generation is internal, not a public query-builder language
+- Postgres-specific features require the PostgreSQL backend
 
-**Decision:** Raw SQL is necessary for these features. The functions provide parameterization and documentation.
+**Decision:** Keep the raw SQL encapsulated behind async Python APIs; users
+get type-safe, parameterized access without writing CTE strings themselves.
 
-## Why Deterministic Lockfiles?
+## Why uv with Constraints?
 
 ### The Problem
 
@@ -169,29 +184,27 @@ Package managers can resolve different dependency versions, causing:
 
 ### Our Solution
 
-Pin all dependencies with exact versions and hashes:
+Use `uv` and pin the *ranges* that matter in `pyproject.toml`:
 
 ```toml
-[[package]]
-name = "tortoise-orm"
-version = "1.1.7"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [...]
+dependencies = [
+    "tortoise-orm>=1.1.7,<1.2",
+    "pypika-tortoise>=0.6.5,<0.7",
+    "msgspec>=0.21.0",
 ]
-
-[[package]]
-name = "asyncpg"
-version = "0.31.0"
-source = { registry = "https://pypi.org/simple" }
 ```
+
+Dependencies are added only via `uv add <pkg>` so `pyproject.toml` and
+`uv.lock` stay in sync. (The lockfile is not committed by default — if one is
+introduced deliberately, pin it to the project.)
 
 ### Trade-offs
 
-- Requires manual dependency updates
-- May miss security patches
-- Larger lockfile
+- Range pins allow resolver freedom within a major version
+- Exact-repro builds are the caller's choice via `uv sync --locked`
 
-**Decision:** Deterministic builds are critical for production systems.
+**Decision:** Constrain what matters (the ORM version and query builder),
+leave the rest to the resolver.
 
 ## Future Considerations
 

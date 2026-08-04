@@ -17,7 +17,7 @@ The `VectorField` stores vectors in PostgreSQL using the pgvector extension. It 
 ### Binary Format
 
 ```
-Bytes 0-3:   Header (0x00000000 for valid vector)
+Bytes 0-3:   Dimension count (uint32 little-endian)
 Bytes 4-7:   Float32 dimension 0
 Bytes 8-11:  Float32 dimension 1
 ...
@@ -108,7 +108,7 @@ class Entity(models.Model):
 ```python
 # Query
 entities = await Entity.filter(
-    embedding__l2_distance=([query_vec, 0.5])
+    embedding__l2_distance=[[query_vec], 0.5]
 ).order_by("embedding__l2_distance").limit(10)
 ```
 
@@ -121,7 +121,7 @@ entities = await Entity.filter(
 ```python
 # Query
 entities = await Entity.filter(
-    embedding__cosine_distance=([query_vec, 0.3])
+    embedding__cosine_distance=[[query_vec], 0.3]
 ).order_by("embedding__cosine_distance").limit(10)
 ```
 
@@ -134,7 +134,7 @@ entities = await Entity.filter(
 ```python
 # Query
 entities = await Entity.filter(
-    embedding__inner_product=([query_vec, 0.8])
+    embedding__inner_product=[[query_vec], 0.8]
 ).order_by("embedding__inner_product").limit(10)
 ```
 
@@ -152,7 +152,7 @@ from myapp.models import Entity  # define in your project
 # Find similar entities
 query_embedding = await get_embedding("machine learning")
 similar = await Entity.filter(
-    embedding__cosine_distance=([query_embedding, 0.5])
+    embedding__cosine_distance=[[query_embedding], 0.5]
 ).order_by("embedding__cosine_distance").limit(10)
 ```
 
@@ -162,14 +162,14 @@ similar = await Entity.filter(
 # Search within entity type
 similar = await Entity.filter(
     type="TECHNOLOGY",
-    embedding__cosine_distance=([query_embedding, 0.5])
+    embedding__cosine_distance=[[query_embedding], 0.5]
 ).order_by("embedding__cosine_distance").limit(10)
 
 # Search with multiple filters
 similar = await Entity.filter(
     type__in=["TECHNOLOGY", "CONCEPT"],
     metadata__contains={"source": "arxiv"},
-    embedding__cosine_distance=([query_embedding, 0.5])
+    embedding__cosine_distance=[[query_embedding], 0.5]
 ).order_by("embedding__cosine_distance").limit(10)
 ```
 
@@ -203,7 +203,7 @@ async def batch_search(query_embeddings: list[list[float]], limit: int = 10):
     results = []
     for embedding in query_embeddings:
         similar = await Entity.filter(
-            embedding__cosine_distance=([embedding, 0.5])
+            embedding__cosine_distance=[[embedding], 0.5]
         ).order_by("embedding__cosine_distance").limit(limit)
         results.append(similar)
     return results

@@ -9,7 +9,12 @@
 │                    tortoise-extended                         │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
 │  │  VectorField │  │ HNSW/IVFFlat │  │ RecursiveCTE │      │
-│  │  GraphFilters│  │ GraphFuncs   │  │ Client       │      │
+│  │  LTreeField  │  │  GiSTIndex   │  │ GraphTraversal │    │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │ HybridSearch │  │  GraphNode / │  │ Timescale +  │      │
+│  │ GraphVector  │  │  GraphEdge / │  │ Redis cache  │      │
+│  │ Search       │  │  Hierarchy   │  │ (optional)   │      │
 │  └──────────────┘  └──────────────┘  └──────────────┘      │
 ├─────────────────────────────────────────────────────────────┤
 │                      tortoise-orm                            │
@@ -21,7 +26,7 @@
 ├─────────────────────────────────────────────────────────────┤
 │                   PostgreSQL 18 + Extensions                 │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   pgvector   │  │ TimescaleDB  │  │  pg_trgm     │      │
+│  │   pgvector   │  │ TimescaleDB  │  │  ltree/trgm  │      │
 │  └──────────────┘  └──────────────┘  └──────────────┘      │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -88,11 +93,12 @@ Results (list[dict])
 | `expressions/ltree_filters.py` | ltree operators | Ancestor/descendant/match filters |
 | `graph/node.py` | Graph nodes | Adjacency list base class |
 | `graph/edge.py` | Graph edges | Typed/weighted edge base class |
-| `graph/hierarchy_mixin.py` | ltree trees | HierarchyMixin for ltree models |
+| `graph/hierarchy_model.py` | ltree trees | `HierarchyModel` for ltree models |
 | `timescale/hypertable.py` | Hypertable manager | Create/drop/list hypertables |
 | `timescale/compression.py` | Compression manager | Chunk compression policies |
 | `timescale/retention.py` | Retention policies | Auto-delete old chunks |
 | `timescale/continuous_aggregate.py` | Continuous aggregates | Auto-refresh materialized views |
+| `timescale/stream.py` | Event streams | `EventStreamMixin` (COPY ingestion, rollups) |
 | `cache/` | Redis caching | CacheableModel, CachedQuerySet, decorators |
 | `migrations/operations.py` | Migration ops | TimescaleDB operations |
 
@@ -100,9 +106,11 @@ Results (list[dict])
 
 The package applies monkey-patches at import time:
 
-1. **`VectorField` registration** — Adds `VectorField` to `tortoise.fields`
-2. **`get_filters_for_field`** — Adds `__l2_distance`, `__cosine_distance`, `__inner_product` filters (patches both `tortoise.filters` and `tortoise.models`)
-3. **pgvector codec** — Injects `set_type_codec("vector", ...)` into every asyncpg connection via `create_pool` init callback
+1. **`VectorField` / `LTreeField` registration** — Adds both field types to `tortoise.fields`
+2. **`HNSWIndex` / `IVFFlatIndex` / `GiSTIndex` registration** — Adds the index types to `tortoise.indexes`
+3. **`get_filters_for_field`** — Adds the pgvector (`__l2_distance`, `__cosine_distance`, `__inner_product`) and ltree (`__ancestor_of`, `__descendant_of`, `__match`, ...) filters (patches both `tortoise.filters` and `tortoise.models`)
+4. **pgvector codec** — Injects `set_type_codec("vector", ...)` into every asyncpg connection via the pool init callback
+5. **Migration serialization** — Patches `OperationGenerator.generate` and `MigrationWriter._format_operation` so `CreateHypertable` / `CreateContinuousAggregate` round-trip through Aerich
 
 These patches are applied once when `import tortoise_extended` executes, and can also be applied explicitly via the public `tortoise_extended.patch()` function (idempotent, safe to call repeatedly). They are safe because they extend existing functions without modifying core behavior.
 

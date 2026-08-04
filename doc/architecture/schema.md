@@ -2,7 +2,7 @@
 
 ## Overview
 
-The GraphRAG schema consists of 12 tables organized into four domains:
+The GraphRAG schema consists of 12 tables organized into five domains:
 
 1. **Document Processing** — `documents`, `text_units`
 2. **Knowledge Graph** — `entities`, `relationships`, `facts`, `entity_merges`
