@@ -120,20 +120,6 @@ class ForeignKeyFieldInstance(RelationalField[_MODEL]):
         **kwargs: Any,
     ) -> None: ...
 
-    @overload
-    def __get__(
-        self, instance: None, owner: type[Model]
-    ) -> ForeignKeyFieldInstance[_MODEL]: ...
-    @overload
-    def __get__(
-        self, instance: Model, owner: type[Model]
-    ) -> _MODEL: ...
-    @override
-    def __get__(
-        self, instance: Model | None, owner: type[Model]
-    ) -> ForeignKeyFieldInstance[_MODEL] | _MODEL: ...
-    @override
-    def __set__(self, instance: Model, value: _MODEL) -> None: ...
 
 
 class BackwardFKRelation(RelationalField[_MODEL]):
