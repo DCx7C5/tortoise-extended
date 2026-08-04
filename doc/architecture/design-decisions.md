@@ -69,33 +69,7 @@ Use plain PostgreSQL recursive CTEs. They're:
 - ~290x faster than AGE for typical workloads (illustrative — see above)
 - Simpler to maintain
 - No extension compilation required
-- Better SQL compatibility
-
-## Why Port 5433?
-
-### The Problem
-
-PostgreSQL defaults to port 5432. Most developers already have a local
-PostgreSQL instance running there — a second dev database on 5432 would
-collide with it.
-
-### The Solution
-
-Map the container's internal 5432 to the host port **5433**, and Redis to
-host port **6380**:
-
-```bash
-docker compose -f docker-compose.dev.yml up -d
-# postgres-ext -> 127.0.0.1:5433, redis-ext -> 127.0.0.1:6380
-```
-
-### Trade-offs
-
-- Non-standard port requires explicit configuration
-- All examples must use `127.0.0.1:5433`
-
-**Decision:** Avoiding conflicts with an existing local PostgreSQL is more
-important than following defaults.
+ - Better SQL compatibility
 
 ## Why Monkey-Patching?
 
@@ -214,15 +188,64 @@ leave the rest to the resolver.
 
 ## Future Considerations
 
+Research-informed outlook (web, 2026-08): best practices, anti-patterns, and
+the "not now" boundary for each topic. These are forward-looking notes, not
+commitments.
+
 ### Potential Enhancements
 
-1. **Vector quantization** — Scalar or product quantization for large vectors
-2. **Graph algorithms** — PageRank, community detection, centrality
-3. **Streaming ingestion** — Real-time document processing
-4. **Multi-tenancy** — Row-level security for shared databases
+1. **Vector quantization** — pgvector 0.8 ships `halfvec` (16-bit scalar
+   quantization) and binary `bit` quantization. Practice:
+   - `halfvec` + HNSW: ~50x faster index build with negligible accuracy
+     drop — the default for dense vectors at scale.
+   - `bit` + HNSW: ~150x faster build, 5–10% recall loss unless you
+     **re-rank the top-100 hits against the full vector** (store both the
+     `bit` index column and the original `vector`).
+   - IVFFlat: `lists` ≈ `sqrt(rows)` is the documented default; HNSW knobs
+     are `m`, `ef_construction` (build) and `ef_search` (query).
+   - **Anti-pattern:** quantizing only at write time with no re-rank path,
+     or running a full-vector index at 50M+ rows "because accuracy".
+     `VectorField` is storage-only today; a quantization-aware index would
+     need dual-column modeling, so this stays application-side for now.
+
+2. **Graph algorithms** — PageRank, community detection, and shortest-path
+   variants are all expressible as recursive SQL (our `RecursiveCTE`
+   already covers reachability/paths). Practice:
+   - Iterative algorithms (PageRank, label propagation) converge in
+     ~10–20 iterations in-PG; **pg_trickle**-style incremental maintenance
+     exists but scans full edges+scores per iteration — a real cost concern
+     at 50M edges.
+   - **Anti-pattern:** export-to-Neo4j/JanusGraph + import-back when
+     freshness matters; you pay ETL latency and two sources of truth for
+     what recursive SQL does in place.
+   - Decision: add algorithm helpers only if a concrete use case needs
+     them; keep raw `RecursiveCTE` as the escape hatch.
+
+3. **Streaming ingestion** — COPY is bulk-throughput king for well-formed
+   batches; row-wise streaming gives low latency with per-row control.
+   Practice: the safest production pattern is **both** — a streaming path
+   for real-time events and COPY for staged backfill, with a
+   validate → stage → cast/dedupe/business-rules → final-table pipeline.
+   `EventStreamMixin.bulk_insert` already covers the COPY side.
+
+4. **Multi-tenancy** — shared-pooled models need **DB-level RLS
+   enforcement**, centralized in Postgres (9.5+; supported on RDS/Aurora),
+   not app-level `WHERE tenant_id = ...` clauses. Practice:
+   - RLS policies per tenant (`USING`/`WITH CHECK`) on every pooled table;
+     `SET app.current_tenant` per connection or per-transaction.
+   - **Anti-pattern:** "hoping the correct WHERE is written in every SQL
+     query" — one missed filter leaks a tenant's rows; RLS is a last line
+     of defense, not a replacement for correct queries.
+   - Not built yet: this needs a `TenantMixin` + policy-generation helper,
+     and `VectorField`/ltree columns must participate in policies too.
 
 ### What We Won't Do
 
 1. **Embedding generation** — Belongs in application layer
 2. **Graph visualization** — Belongs in frontend
 3. **Real-time sync** — Use websockets instead
+4. **Neo4j/JanusGraph interchange** — recursive SQL covers in-PG graph
+   needs; a separate graph DB is a deployment choice, not a library feature
+5. **Quantization storage formats** — pgvector's `halfvec`/`bit` need
+   dual-column modeling and are application decisions; `VectorField`
+   remains full-precision storage

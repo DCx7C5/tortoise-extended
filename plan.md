@@ -60,6 +60,15 @@
     `WHERE version = <stored>`; raises `VersionMismatchError` on conflict.
     Tortoise has no optimistic locking.
 
+### Tier 1b/4 — Python 3.14 stdlib notes
+- **`UUID7Field`** (Tier 1b) should use `uuid.uuid7()` as its default — Python
+  3.14 stdlib, time-ordered + sortable (see §F pk strategy).
+- **Auth kit** (Tier 4.12): `scrypt`/`pbkdf2_hmac` are sync CPU-bound — run
+  them in `asyncio.to_thread` inside `set_password`/`check_password`; never
+  block the event loop with hashing.
+- **Async helpers**: prefer `asyncio.timeout` over `asyncio.wait_for` and
+  `asyncio.TaskGroup` over manual gather, in all new async code.
+
 ### Guardrails
 - **Zero new deps** (auth uses stdlib `hashlib`).
 - **Idempotent monkey-patches** — every new field/index/filter goes through
@@ -228,131 +237,30 @@ class UUID7Field(fields.UUIDField):
 
 ---
 
-## G. Audit findings — 2026-08-04
+## G. Audit findings — 2026-08-04 (COMPLETE)
 
-Method: 4 parallel auditors (devel-tortoise-db-engineer, python-code-reviewer,
-python-developer, rubber-duck) reviewed every module + ran the verification
-gate (`ruff` clean, `basedpyright` 0/0/0, 664 passed / 1 skipped) and did
-mandatory online research (tortoise 1.1.7, pgvector 0.8.x, TimescaleDB 2.x,
-redis-py 8, Python 3.14). Findings cross-validated; severity = max across
-auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
+Four parallel auditors (devel-tortoise-db-engineer, python-code-reviewer,
+python-developer, rubber-duck) reviewed every module and ran the verification
+gate. All 30 findings (G1–G30) were fixed and verified on 2026-08-04:
 
-| ID | Sev | Location | Finding | Fix |
-|----|-----|----------|---------|-----|
-| G1 | ✅ FIXED | `cache/decorators.py:42` | `@cached` key collision for plain functions: `args[1:]` drops the first positional arg → `foo(1)`/`foo(2)` share a key, wrong cached data served. Bound methods safe by accident. Tests only cover methods. | Key on full `args`; regression tests `TestCachedKeyCollision` (2 cases) added |
-| G2 | ✅ FIXED | `cache/model.py` | `CacheableModel` invalidation hardcodes `id=str(self.pk)` while `get_cached(**kwargs)` keys on caller kwargs → stale cache for any model whose pk isn't named `id`. Also `get_cached`/`filter_cached`/`delete_cached` share one key space and `filter_cached` ignores order/limit. | Key from `model._meta.pk_attr`; namespace by op (`get:`/`filter:`) + order/limit in filter keys |
-| G3 | ✅ FIXED | `graph/hierarchy_model.py`, `graph/edge.py` | Abstract `Meta.indexes` do **not** propagate to concrete subclasses (empirically confirmed `Child._meta.indexes == ()`) → `HierarchyModel` GiST(path) and `GraphEdge` composite indexes are never created; ltree + edge queries lose indexes. | `__init_subclass__` guard raises `NotImplementedError` at import time unless concrete subclasses redeclare `Meta.indexes` (explicit `indexes = ()` opts out); abstract subclasses exempt; test subclasses + docs redeclared; 5 unit tests added |
-| G4 | ✅ FIXED | `expressions/graph_filters.py` | Bare `filter(embedding=<vec>)` maps to `IS NULL` via `get_vector_filters` → silent wrong results for non-None values. | `_vector_eq_guard` raises `VectorFieldError` for any non-None bare value (Tortoise redirects `None` → `__isnull` first); +8 regression tests (2 unit, 3 SQLite BLOB integration, 3 live-PG) |
-| G5 | ✅ FIXED | `graph/hierarchy_model.py` | `get_ancestors`/`get_descendants` omit the `namespace` filter (unlike `get_path_to_root`/`get_root`) → cross-tenant data leak in multi-tenant trees. | Added `namespace: str \| None = None` param (defaults to instance namespace) to both; 3 PG regression tests added |
-| G6 | ✅ FIXED | `graph/hierarchy_model.py` | `move_to` is non-atomic (row-by-row UPDATEs, no `in_transaction`), N+1, and self-move (`new_parent=self`) bypasses the cycle guard → partial-tree corruption on mid-cascade failure. | Wrapped in `in_transaction()`; descendant cascade is one bulk UPDATE (`_PrefixReplace` prefix-only rewrite + `F("depth") + delta`, namespace-scoped); self-move guard; 3 PG regression tests added |
-| G7 | ✅ FIXED | `timescale/hypertable.py`, `compression.py`, `retention.py`, `continuous_aggregate.py` | Table/interval names interpolated into SQL at 24+ sites, unquoted/unescaped; internal `_timescaledb_catalog`/`_timescaledb_config` tables queried instead of public `timescaledb_information` views. | Shared `_quote.py` helpers (`quote_ident`/`quote_literal`) extracted from `migrations/operations.py`; all interpolated names quoted/escaped; `is_hypertable` → `timescaledb_information.hypertables`, `get_stats` → `timescaledb_information.chunks` (`is_compressed`), `list_policies` → `timescaledb_information.jobs`; +9 unit tests, live-PG suite green. Also folded in the G19 division-by-zero guard |
-| G8 | ✅ FIXED | `indexes/hnsw_index.py`, `ltree_index.py` | HNSW/IVFFlat/GiST emit PG DDL on **any** backend → SQLite `generate_schemas` breaks; no dialect guard. | `indexes/_dialect.py` `assert_postgres_dialect` checks `schema_generator.DIALECT` and raises `IndexDefinitionError` on non-PG (getattr default `"postgres"` keeps test fakes working); +5 unit tests |
-| G9 | ✅ FIXED | `timescale/stream.py` | `bulk_insert` (COPY) does not populate `auto_now_add` fields; unquoted identifiers in DDL; only the PK caveat is documented. | `auto_now_add`/`auto_now` confirmed populated via `DatetimeField.to_db_value` (instance passed through) and documented + regression-tested; `db_default`-only columns now omitted from COPY when unset on all instances (mixed usage → `OperationalError`, mirroring `bulk_create`); identifiers quoted via `_quote.py` in `setup()` DDL and `latest_per_stream`/`time_series`; stub overlay gained `has_db_default`/`get_db_default_value`; +3 live-PG tests |
-| G10 | ✅ FIXED | `migrations/operations.py` | `_patch_format_operation` swallows ALL `ValueError`s from the original formatter → masks real errors as `MigrationOperationError`. | Re-raise non-serialization errors — only the stock writer's terminal `"Unsupported operation type"` ValueError routes to the fallback serializer; render-helper ValueErrors (e.g. unserializable lambda in `SQLOperation`) propagate; +1 unit test |
-| G11 | ✅ FIXED | `AGENTS.md`, `doc/architecture/overview.md`, `design-decisions.md` | Docs claim `OperationGenerator.generate` is patched — **it is not** (only `MigrationWriter._format_operation`). | False patch claims removed from `overview.md`/`design-decisions.md`/README (commit `dde6836`); AGENTS.md mention only describes tortoise-embeddings' own patch surface |
-| G12 | ✅ FIXED | README + `doc/architecture/design-decisions.md`, `graph-traversal.md`, `recursive-cte.md`, `api/cache.md` | Benchmark claims (22,581 RPS, 290x, 4ms, 100K-sec) have no benchmark harness/evidence in repo. | Added `benchmarks/bench_graph_traversal.py` — reproducible harness measuring 0/1/3-hop recursive-CTE retrieval on docker PG; all doc/README tables marked **illustrative** with harness pointer; AGE/Neo4j comparison rows explicitly flagged as non-reproducible; IVFFlat lists table attributed to pgvector docs |
-| G13 | ✅ FIXED | `timescale/compression.py` | `add_compression_policy`/`compress_chunk`/`decompress_chunk` deprecated since TimescaleDB 2.18 (→ `add_columnstore_policy`/`convert_to_columnstore`/`convert_to_rowstore`). | Migrated to 2.18+ columnstore API: `timescaledb.enable_columnstore` reloption, `CALL add_columnstore_policy(hypertable, after => INTERVAL, if_not_exists)`, `CALL remove_columnstore_policy`, `CALL convert_to_columnstore`/`convert_to_rowstore`, `hypertable_columnstore_stats` for `get_stats`; method names kept stable; verified live against docker TimescaleDB 2.28.3; +1 unit test (deprecation-free SQL assertions) |
-| G14 | ✅ FIXED | `doc/guides/migration.md` | Guide steers to aerich, but code patches built-in `tortoise.migrations` writer (aerich = legacy). | Migration guides/api rewritten around the built-in `python -m tortoise` CLI; all Aerich references removed repo-wide (commit `dde6836`) |
-| G15 | ✅ FIXED | `plan.md` §A/§F | Tier-1 premise wrong: `GraphNode` uses `UUIDField` (not BigInt); `GraphEdge` (UUID source/target) **cannot** link `HierarchyModel` (BigInt) nodes. §F/Tier-1b must first reconcile the pk split. | Pk strategy decided (2026-08-04): `GraphNode` stays UUID (uuid4→uuid7 in Tier-1b); `HierarchyModel` stays BigInt with `UUID7Field(pk=True)` opt-in per subclass; GraphEdge links GraphNode-family only — cross-family edges require the polymorphic `ref_id`+`ref_type` pair, not a shared edge type. Documented in §F |
-| G16 | ✅ FIXED | `fields/vector_field.py` | SQLite BLOB round-trip: `to_python_value(bytes)` → `list(bytes)` of ints (memoryview path OK). | `bytes` now decoded via the shared pgvector binary layout (`_decode_binary`), same as memoryview; +1 SQLite round-trip test (`struct.pack`ed header+floats decode to `[0.25, 0.75]`) |
-| G17 | ✅ FIXED | `fields/ltree_field.py` | Typed `Field[str]` but returns `list[str]`; `max_length`/`separator` unused in DDL. | Generic fixed to `Field[list[str]]`; `max_length` is now a real Python-side guard in `to_db_value` (ltree DDL has no length modifier — over-long paths raise `ValueError`); `separator` documented as used; +2 unit tests |
-| G18 | ✅ FIXED | `__init__.py` codec | `set_type_codec(..., schema="public")` — extension in a non-public schema silently skipped. | `_pgvector_codec_init` probes `pg_type`/`pg_namespace` via `conn.fetchval` when available; falls back to `"public"` on probe failure; codec errors still swallowed. +2 unit tests (non-public schema resolution, probe-failure fallback) |
-| G19 | ✅ FIXED | `timescale/hypertable.py` | `get_stats` divides by `after_compression_total_bytes` (0 → DB error); `number_partitions` power-of-2 unvalidated. | Division guard folded into G7; partition validation still pending |
-| G20 | ✅ FIXED | `expressions/graph_filters.py` | Compound `[vector, threshold]` detection is an `isinstance(value[0], list)` heuristic; thresholds silently default (1.0/0.0). | `_parse_vector_threshold` validates the threshold slot: compound values whose second element is not a number (e.g. `[[v1], [v2]]` two-vector mistake, bools) raise `VectorFieldError` with the shape spelled out; plain vectors keep documented defaults; +5 unit tests |
-| G21 | ✅ FIXED | `timescale/*.py` | 7 `print()` call sites in library code instead of logging. | Resolved with no code change (2026-08-04): all `print()` sites live inside docstring `Example::` blocks — not executable code |
-| G22 | ✅ FIXED | docs (3 files) | `pip install/uninstall` at 8 sites vs uv-only rule. | All `pip install`/`pip uninstall` replaced with `uv add`/`uv remove` in `doc/guides/migration.md`, `doc/getting-started/installation.md`, `doc/api/cache.md` (pip-only install section dropped) |
-| G23 | ✅ FIXED | `timescale/continuous_aggregate.py` | `create(query=...)` interpolates caller SQL verbatim into `CREATE MATERIALIZED VIEW ... AS {query}` — documented but unvalidated. | `ContinuousAggregateManager.create` rejects bare `query` containing `;` or not starting with `SELECT`/`WITH` → `ValueError`; full `CREATE MATERIALIZED VIEW` passthrough unchanged; docstring warning. +3 unit tests |
-| G24 | ✅ FIXED | `cache/redis.py` | `pool.close()` vs redis-py ≥8 `aclose()`; real-Redis path untested (tests use mock). | `close()` prefers `aclose()`, falls back to deprecated `close()`; backend `set` uses modern `SET key value PX` (avoids deprecated `setex()` warning under `-W error`); +1 unit test (aclose preference), +1 docker-gated live-Redis smoke test on 6380 |
-| G25 | ✅ FIXED | README | README says "428 tests" (actual 664), references deleted `.env.example`, and lists `backends/` package that doesn't exist. | README test count synced (720); `.env.example` restored (still gitignore-whitelisted — dropped accidentally in `ac07176`); `backends/` removed from architecture tree; `graph_vector_search.py` + `stream.py` added to tree |
-| G26 | ✅ FIXED | packaging | Wheel ships stray `stubs/aiodocker/` third-party `.pyi`; README feature list omits `GraphVectorSearch` + `EventStreamMixin`. | `stubs/aiodocker/` deleted (css_mcp leftover, zero references in repo); README feature list adds `GraphVectorSearch` + `EventStreamMixin` |
-| G27 | ✅ FIXED | `expressions/graph_traversal.py`, `pathfinding.py` | `_et_clause` helper duplicated verbatim. | Shared `et_clause` extracted to `expressions/_edge_filter.py`; all three callers (`graph_traversal`, `pathfinding`, `graph_vector_search`) import it |
-| G28 | ✅ FIXED | whole repo | `orjson`/`ciso8601`/`uvloop` auto-use claims have **zero** usage anywhere — remove claims (AGENTS.md lists them). | Resolved with no code change (2026-08-04): zero claims in repo AGENTS.md and zero usage in `src/` — claims existed only in agent-prompt boilerplate |
-| G29 | INFO | roadmap | Python 3.14 offers `uuid.uuid7`, `asyncio.timeout`, `TaskGroup`; planned auth kit (`scrypt`/`pbkdf2_hmac`) must run in `asyncio.to_thread` (sync CPU-bound blocks the loop). | Fold into Tier 1b/4 implementation |
-| G30 | ✅ FIXED | infra | Docker PG (5433)/Redis (6380) down during audit → `test_pg_integration.py` unrun; the 664-pass suite is SQLite-backed only. | Docker stack started; `tests/test_pg_integration.py` now runs and passes (40 tests) against live PG 18 + pgvector + TimescaleDB on 5433; live-Redis smoke test added and passing on 6380 (2026-08-04) |
-| DISPUTED | — | `doc/guides/migration.md:60` | One auditor claimed `=[[query_vec], 0.5]` is wrong. **Rejected:** tests (`test_pg_integration.py`) and runtime (`graph_filters.py:183` `isinstance(value[0], list)`) both require `[[vec], threshold]`. | No change |
+- **Code fixes:** cache key collisions & pk-attr invalidation (G1/G2),
+  abstract-Meta index propagation guard (G3), vector `=value` guard (G4),
+  hierarchy namespace leak + atomic `move_to` (G5/G6), timescale SQL quoting
+  + public views (G7/G19), index dialect guard (G8), stream COPY
+  auto_now/db_default (G9), migration writer error masking (G10),
+  columnstore API (G13), pk strategy (G15), field binary decode / typing /
+  threshold validation (G16/G17/G20), codec schema probe (G18), cagg query
+  validation (G23), redis aclose/PX (G24), shared `et_clause` (G27).
+- **Docs/packaging:** patch-surface claims, aerich → built-in migration CLI,
+  uv-only install, README sync, `.env.example` restore, `stubs/aiodocker/`
+  removal, benchmark provenance (G11/G12/G14/G21/G22/G25/G26/G28).
+- **Infra:** live docker PG 18 + TimescaleDB 2.28.3 on 5433 (40 live-PG
+  tests) and live Redis on 6380 (G30); one auditor finding rejected (see
+  git history for the DISPUTED bracket-syntax note).
 
-### Roadmap impact
-- **Cache fixes (G1, G2): DONE 2026-08-04** — data-correctness bugs fixed,
-  +4 regression tests, gate green (668 passed / 1 skipped, ruff clean,
-  basedpyright 0/0/0). `filter_cached` still ignores order/limit — doc note
-  only (API takes no ordering args).
-- **Hierarchy fixes (G3, G5, G6): DONE 2026-08-04** — `__init_subclass__`
-  index-redeclaration guard, namespace-scoped ancestor/descendant queries,
-  atomic single-UPDATE `move_to`; +11 regression tests, full gate green
-  including live-PG hierarchy suite (docker up).
-- **§F/Tier-1b unblocked by G15 (2026-08-04)**: pk strategy decided —
-  GraphNode stays UUID (uuid4→uuid7 in Tier-1b), HierarchyModel stays BigInt
-  with per-subclass `UUID7Field(pk=True)` opt-in; GraphEdge only links
-  GraphNode-family nodes (cross-family edges use polymorphic
-  `ref_id`+`ref_type`).
-- **Timescale 2.18 API drift (G13)** and **built-in migrations (G14)** change
-  §B/C/D and migration docs before implementation.
-- **Vector bare-value guard (G4): DONE 2026-08-04** — bare non-None
-  `filter(embedding=<vec>)` now raises `VectorFieldError` instead of
-  silently compiling to `IS NULL`; +8 regression tests (unit + SQLite BLOB
-  integration + live-PG), full gate green (687 passed / 1 skipped, ruff
-  clean, basedpyright 0/0/0).
-- **Timescale SQL hardening (G7): DONE 2026-08-04** — shared
-  `_quote.py` quoting helpers; every timescale manager SQL site now quotes
-  identifiers/escapes literals; private catalog queries replaced with
-  `timescaledb_information` public views (`hypertables`, `chunks`, `jobs`);
-  G19 division guard folded in; +9 unit tests, live-Timescale suite green
-  (696 passed / 1 skipped, ruff clean, basedpyright 0/0/0).
-- **Index dialect guard (G8): DONE 2026-08-04** — HNSW/IVFFlat/GiST
-  `get_sql` now raise `IndexDefinitionError` on non-PostgreSQL backends via
-  shared `indexes/_dialect.py` (``DIALECT`` check); +5 unit tests
-  (701 passed / 1 skipped, ruff clean, basedpyright 0/0/0).
-- **Stream COPY defaults + quoting (G9): DONE 2026-08-04** —
-  `auto_now_add`/`auto_now` population proven + documented + live-PG
-  regression test; `db_default` columns omitted from COPY when unset on all
-  instances (mixed → `OperationalError`, mirroring `bulk_create`); all DDL
-  and query-helper identifiers quoted via `_quote.py`; +3 live-PG tests
-  (704 passed / 1 skipped, ruff clean, basedpyright 0/0/0).
-- **Migration writer exception masking (G10): DONE 2026-08-04** —
-  `_patch_format_operation` no longer swallows every `ValueError`; only the
-  stock writer's terminal `"Unsupported operation type"` error routes to the
-  generic deconstruct serializer. Real render errors (e.g. unserializable
-  lambda in `SQLOperation.values`) propagate; +1 unit test (705 passed /
-  1 skipped, ruff clean, basedpyright 0/0/0).
-- **Docs patch-surface (G11) + built-in migrations (G14) + pk split
-  (G15): DONE 2026-08-04** — removed the false `OperationGenerator.generate`
-  patch claim (design-decisions.md, overview.md, README); rewrote migration
-  guides/api around the built-in `python -m tortoise` CLI (`init`,
-  `makemigrations`, `sqlmigrate`, `migrate`, `downgrade`) and dropped Aerich
-  references; §F pk strategy decided — GraphNode stays UUID
-  (uuid4→uuid7 in Tier-1b), HierarchyModel stays BigInt with per-subclass
-  `UUID7Field(pk=True)` opt-in, GraphEdge links GraphNode-family only.
-- **Timescale 2.18 columnstore API (G13): DONE 2026-08-04** —
-  `CompressionManager` migrated off every deprecated pre-2.18 function:
-  `timescaledb.enable_columnstore` reloption, `CALL
-  add_columnstore_policy`/`remove_columnstore_policy`/
-  `convert_to_columnstore`/`convert_to_rowstore`, and
-  `hypertable_columnstore_stats` for `get_stats`; method names kept stable;
-  verified live against docker TimescaleDB 2.28.3 (docker ARG already
-  2.28.3 — no bump needed); +1 unit test (706 passed / 1 skipped, ruff
-  clean, basedpyright 0/0/0).
-- **Fields fixes (G16, G17, G20): DONE 2026-08-04** — `VectorField`
-  `to_python_value` decodes `bytes`/`memoryview` via shared pgvector binary
-  layout (`_decode_binary`); `LTreeField` generic fixed to
-  `Field[list[str]]` with real `max_length` guard; `_parse_vector_threshold`
-  rejects non-number/bool thresholds; +8 tests (714 passed / 1 skipped,
-  ruff clean, basedpyright 0/0/0).
-- **Codec schema + cagg validation + redis hygiene (G18, G23, G24, G27) +
-  docs/README/AGENTS sweep (G21, G22, G25, G26, G28): DONE 2026-08-04** —
-  codec schema resolved via `pg_type`/`pg_namespace` probe with `"public"`
-  fallback; `ContinuousAggregateManager.create` validates bare SELECT/WITH
-  queries; `RedisCache.close` prefers `aclose()` and backend `set` uses
-  modern `SET key value PX` (no deprecated `setex`); shared `et_clause`
-  extracted to `expressions/_edge_filter.py`; docs uv-only, README synced
-  (720 tests, `.env.example` restored, feature list + tree updated), stray
-  `stubs/aiodocker/` deleted; +8 unit tests + 1 docker-gated live-Redis
-  smoke test (720 passed / 1 skipped, ruff clean, basedpyright 0/0/0).
-- **Benchmark provenance (G12): DONE 2026-08-04** —
-  `benchmarks/bench_graph_traversal.py` harness added (0/1/3-hop CTE
-  retrieval on docker PG, verified live: 10K nodes ≈ 10.4K RPS 0-hop, 9.1K
-  RPS 1-hop); all README/doc performance tables marked illustrative with
-  harness pointer; AGE/Neo4j rows flagged non-reproducible; IVFFlat lists
-  table attributed to pgvector docs.
-- New recommended order: roadmap Tiers.
-- plan.md itself is currently **untracked** in git — commit alongside first
-  fix batch.
+Verification state at close: `ruff` clean, `basedpyright` 0/0/0,
+**720 passed / 1 skipped** (SQLite), live-PG 40 passed, live-Redis smoke
+passing, working tree clean. One INFO note (G29, Python 3.14 stdlib) folded
+into §A Tier 1b/4. Per-item detail lives in the git history (commits
+`db79fb6`, `ef32eb1`, `d884814`, `dde6836`, and the G-audit fix batches);
+plan.md is committed and tracked.
