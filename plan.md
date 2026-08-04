@@ -8,11 +8,13 @@
 ## A. Roadmap — Tortoise gaps we can fill
 
 ### Tier 1 — model primitives (low risk, no new deps) — `todo`
-1. **`BaseModel(models.Model)`** — `id = BigIntField(primary_key=True)` on an
-   abstract base. Simple, one class. Tortoise requires manual pk declaration
-   on every model; `GraphNode`/`HierarchyModel` already use BigInt pk —
-   unify. Models that need a globally-unique id (cross-table refs) opt in by
-   declaring `id = UUID7Field(pk=True)` themselves (Tier 1b).
+1. **`BaseModel(models.Model)`** — abstract base with
+   `id = BigIntField(primary_key=True)` **and**
+   `uid = UUID7Field(unique=True, index=True)`. Tortoise requires manual pk
+   declaration on every model; every subclass gets a JOIN-fast BigInt pk
+   **plus** a UUID7 unified-id field (see §F) for cross-table refs — one
+   class, nothing opt-in. `uid` lands with `UUID7Field` (Tier 1b); until
+   then the base ships pk-only.
 2. **`TimestampMixin`** — `created_at`/`updated_at` (`DatetimeField`,
    `use_tz=True`, `auto_now_add`/`auto_now`). Tortoise only shows this as a
    docs example, never ships it.
@@ -62,7 +64,7 @@
 
 ### Tier 1b/4 — Python 3.14 stdlib notes
 - **`UUID7Field`** (Tier 1b) should use `uuid.uuid7()` as its default — Python
-  3.14 stdlib, time-ordered + sortable (see §F pk strategy).
+  3.14 stdlib, time-ordered + sortable (see §F unified-id design).
 - **Auth kit** (Tier 4.12): `scrypt`/`pbkdf2_hmac` are sync CPU-bound — run
   them in `asyncio.to_thread` inside `set_password`/`check_password`; never
   block the event loop with hashing.
@@ -188,22 +190,25 @@ other model.
   (UUID4's random order is the classic objection — avoided).
 - Collision-free across all tables, no shared-sequence coordination.
 
-**G15 reconciliation — pk strategy decided (2026-08-04):**
-- **`GraphNode` stays `UUIDField` (uuid4, upgraded to `UUID7Field` in
-  Tier-1b).** Graph edges are long-lived cross-table references; UUID is the
-  unified ID space for the graph subsystem.
-- **`HierarchyModel` stays `BigIntField`.** Tree nodes are internal to one
-  table; BigInt FKs JOIN faster and `EventStreamMixin` keeps its composite
-  pk. `HierarchyModel` nodes may opt into the shared ID space by declaring
-  `id = UUID7Field(pk=True)` in the concrete subclass.
-- **Constraint (documented): `GraphEdge.source_id`/`target_id` are UUID and
-  therefore only link `GraphNode`-family nodes.** They cannot directly
-  reference a BigInt-pk `HierarchyModel`. If an edge table must span both
-  families, use `UUID7Field(pk=True)` on the hierarchy subclass (or a
-  polymorphic `ref_id: UUID7Field` + `ref_type: CharField` pair), not a
-  shared edge type.
-- Tier-1b (`UUID7Field` + `GraphNode`/`GraphEdge` uuid4→uuid7 upgrade) is
-  therefore unblocked; §B `FileNode` uses `UUID7Field(pk=True)`.
+**G15 reconciliation — unified id is a FIELD, not a pk (decided 2026-08-04):**
+- **`BaseModel` carries both identifiers:** `id = BigIntField(primary_key=True)`
+  (JOIN-fast ints, internal FKs, `EventStreamMixin` composite pk untouched)
+  **and** `uid = UUID7Field(unique=True, index=True)` — the unified id,
+  usable across all models for all entities. One base, nothing opt-in.
+- **`GraphEdge.source_id`/`target_id` are `UUID7Field` referencing `uid`** —
+  since every `BaseModel` subclass has a `uid`, edges can now link **any**
+  family (`GraphNode`, `HierarchyModel`, `FileNode`, ...) regardless of pk
+  type. This resolves the original constraint (UUID edges could not point
+  at BigInt-pk rows).
+- **`GraphNode`/`GraphEdge` adopt `BaseModel` in Tier-1b:** pk becomes
+  BigInt, the former UUID pk column is migrated to `uid`, and edges point at
+  `uid`. **Breaking change** for existing graph data — one-time migration:
+  keep the UUID pk as `uid`, add BigInt pk, repoint edges. (Alternative if
+  a smooth cutover matters more: keep the UUID pk and treat it as `uid` via
+  `pk = uid`; not preferred — two pk schemes across the codebase.)
+- **Polymorphic refs** (audit/notifications "on any object"):
+  `ref_uid: UUID7Field` + `ref_type: CharField` pair — natural now, because
+  every `BaseModel` row has a `uid`.
 
 ```python
 class UUID7Field(fields.UUIDField):
@@ -212,25 +217,30 @@ class UUID7Field(fields.UUIDField):
         # PG18: db_default=SqlDefault("uuidv7()") on postgres backend
 ```
 
-**One base, one opt-in field (keep it simple):**
-- `BaseModel` — `id = BigIntField(primary_key=True)`, abstract. Default for
-  every model; JOIN-fast ints for internal FKs.
-- `UUID7Field` — opt-in for models that must participate in cross-table
-  references (graph nodes, polymorphic refs): declare
-  `id = UUID7Field(pk=True)` in the subclass. No second base class.
+**One base, both fields (keep it simple):**
+```python
+class BaseModel(models.Model):
+    """Abstract base: BigInt pk + UUID7 unified id for every model."""
+    id = fields.BigIntField(primary_key=True)          # JOIN-fast ints
+    uid = UUID7Field(unique=True, index=True)          # cross-table refs
 
-**Upgrades:** `GraphNode`/`GraphEdge` `UUIDField` default `uuid4` → `uuid7`
-(drop-in, better locality). `FileNode` (§B) uses `UUID7BaseModel` so
-`FileLink` edges remain unambiguous and its metadata cache key becomes
-`fs:{ns}:node:{uuid7}` (rename-safe; path = alias, not identity).
+    class Meta:
+        abstract = True
+```
+- `id` — internal FK target, JOINs, `EventStreamMixin` composite pk stays
+  as-is (`stream_id`, `time_field`).
+- `uid` — the shared ID space: graph edges, polymorphic refs, cache keys,
+  cross-table lookups (`fs:{ns}:node:{uid}`; path = alias, not identity).
+
+**Upgrades:** graph subsystem migration in Tier-1b (above). `FileNode` (§B)
+inherits `uid` from `BaseModel` — no per-class declaration needed.
 
 **Boundaries:**
-- Don't force UUID7 everywhere — BigInt FKs JOIN faster; `EventStreamMixin`
-  keeps its composite pk (`stream_id`, `time_field`).
-- Polymorphic refs (audit/notifications "on any object"): `ref_id:
-  UUID7Field` + `ref_type: CharField` pair; optional `PolymorphicRef`
-  msgspec helper (Tier 4).
+- Don't force UUID7 everywhere — BigInt pk stays the JOIN workhorse;
+  `uid` exists for cross-table refs only.
+- `EventStreamMixin` keeps its composite pk (`stream_id`, `time_field`);
+  it still inherits `uid` if the stream model derives `BaseModel`.
 - SQLite fallback (uuid7 stored as string) keeps non-PG tests green.
-- New roadmap item: **Tier 1b — `UUID7Field` + graph uuid4→uuid7 upgrade**
-  (sits between Tier 1 and Tier 2; §B `FileNode` uses `UUID7Field` when it
-  needs cross-table edge targets).
+- New roadmap item: **Tier 1b — `UUID7Field` + `BaseModel.uid` + graph
+  migration** (sits between Tier 1 and Tier 2; §B `FileNode` inherits
+  `uid` from `BaseModel`).
