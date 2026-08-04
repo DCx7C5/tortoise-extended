@@ -19,6 +19,12 @@ class QueryEdge(GraphEdge):
 
     class Meta:
         table = "query_edges"
+        # Redeclared — Tortoise does not propagate Meta.indexes from abstract bases.
+        indexes = (
+            ("source_id", "edge_type"),
+            ("target_id", "edge_type"),
+            ("source_id", "target_id", "edge_type"),
+        )
 
 
 class QueryNode(GraphNode):

@@ -21,6 +21,13 @@ Usage::
 
         class Meta:
             table = "relationships"
+            # Tortoise does NOT inherit Meta.indexes from the abstract base —
+            # redeclare them on every concrete subclass.
+            indexes = (
+                ("source_id", "edge_type"),
+                ("target_id", "edge_type"),
+                ("source_id", "target_id", "edge_type"),
+            )
 """
 
 from tortoise_extended.graph.edge import GraphEdge

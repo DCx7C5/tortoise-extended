@@ -5,7 +5,7 @@ Base classes for graph traversal with adjacency list pattern and ltree hierarchi
 ## Imports
 
 ```python
-from tortoise_extended import GraphNode, GraphEdge, HierarchyModel
+from tortoise_extended import GraphNode, GraphEdge, HierarchyModel, GiSTIndex
 ```
 
 ---
@@ -179,6 +179,13 @@ class Category(HierarchyModel):
 
     class Meta:
         table = "categories"
+        # Tortoise does NOT inherit Meta.indexes from the abstract base —
+        # redeclare them on every concrete subclass.
+        indexes = (
+            GiSTIndex(fields=("path",)),
+            ("namespace", "depth"),
+            ("parent_id", "depth"),
+        )
 
 
 # Create hierarchy (fields are inherited — no manual path/name/depth setup)

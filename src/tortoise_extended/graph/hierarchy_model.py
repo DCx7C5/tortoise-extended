@@ -20,12 +20,24 @@ from tortoise_extended.graph.hierarchy_model import HierarchyModel
             table = "categories"
             verbose_name = "Category"
             verbose_name_plural = "Categories"
+            # Tortoise does NOT inherit Meta.indexes from the abstract base —
+            # redeclare them on every concrete subclass.
+            indexes = (
+                GiSTIndex(fields=("path",)),
+                ("namespace", "depth"),
+                ("parent_id", "depth"),
+            )
 """
 
 from typing import Self, override
 
+from pypika_tortoise.context import SqlContext
+from pypika_tortoise.terms import Term, ValueWrapper
+from pypika_tortoise.terms import Function as PypikaFunction
 from tortoise import fields
+from tortoise.expressions import F, Function
 from tortoise.models import Model
+from tortoise.transactions import in_transaction
 from tortoise_extended.exceptions import HierarchyError
 from tortoise.queryset import QuerySet
 
@@ -33,6 +45,46 @@ from tortoise_extended.fields.ltree_field import LTreeField
 from tortoise_extended.indexes.ltree_index import GiSTIndex
 
 # ── Internal helpers ────────────────────────────────────────────────────
+
+
+class _PrefixReplaceFunction(PypikaFunction):
+    """pypika term emitting a prefix-only path replacement.
+
+    Renders ``CONCAT(<new>::text, SUBSTRING(<field>::text FROM <start>)::text)::ltree``
+    — a ``substring`` from just past the old prefix, so only the leading
+    label sequence is rewritten.  This matters because SQL ``REPLACE()``
+    rewrites *every* occurrence: a descendant whose path repeats the moved
+    ancestor's label sequence deeper in the tree (e.g. ``a.b.c.a.b`` under
+    ``a.b``) would otherwise be corrupted.
+    """
+
+    def __init__(self, field: Term, old_prefix: str, new_prefix: str) -> None:
+        super().__init__("PREFIX_REPLACE", field)
+        self._field = field
+        self._new_wrapper = ValueWrapper(new_prefix)
+        self._start = len(old_prefix) + 1
+
+    @override
+    def get_sql(self, ctx: SqlContext) -> str:
+        """Render ``CONCAT(new, SUBSTRING(field FROM start))`` with casts."""
+        field_sql = self._field.get_sql(ctx)
+        new_sql = self._new_wrapper.get_sql(ctx)
+        return (
+            f"CONCAT({new_sql}::text, "
+            f"SUBSTRING({field_sql}::text FROM {self._start})::text)::ltree"
+        )
+
+
+class _PrefixReplace(Function):
+    """Tortoise ``Function`` wrapping :class:`_PrefixReplaceFunction`.
+
+    Usable as a value in ``QuerySet.update(path=_PrefixReplace(...))``.
+    """
+
+    database_func = _PrefixReplaceFunction
+
+    def __init__(self, field: str, old_prefix: str, new_prefix: str) -> None:
+        super().__init__(field, old_prefix, new_prefix)
 
 
 def _path_to_str(path: list[str] | str | None) -> str:
@@ -67,7 +119,13 @@ class HierarchyModel(Model):
     *and* simple parent/child lookups.  Every field is declared — no
     ``getattr`` guessing required.
 
-    Subclasses **must** set ``class Meta: table = "..."`` to an explicit name.
+    Subclasses **must** set ``class Meta: table = "..."`` to an explicit name
+    and **must redeclare the base indexes** in ``Meta.indexes`` — Tortoise
+    does not propagate ``Meta.indexes`` from abstract bases to concrete
+    subclasses (confirmed empirically: ``Child._meta.indexes == ()``).  A
+    concrete subclass that omits ``Meta.indexes`` fails at import time via
+    :meth:`__init_subclass__` instead of silently losing its ltree/GiST and
+    adjacency indexes.  Abstract intermediate subclasses are exempt.
     """
 
     # ── Fields ───────────────────────────────────────────────────────────
@@ -123,6 +181,38 @@ class HierarchyModel(Model):
             ("parent_id", "depth"),
         )
 
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Guard against silently losing the abstract base indexes.
+
+        Tortoise only copies base fields/indexes for abstract bases and does
+        not propagate ``Meta.indexes`` to concrete subclasses.  A subclass
+        that forgets to redeclare them would run every ltree/adjacency query
+        without its indexes — raise at class-creation time instead.
+
+        Raise:
+            NotImplementedError: When a concrete subclass (or one without an
+                explicit ``Meta``) does not declare ``Meta.indexes``.  Opt
+                out deliberately with ``Meta.indexes = ()``.
+        """
+        super().__init_subclass__(**kwargs)
+        meta = cls.__dict__.get("Meta")
+        if meta is None:
+            raise NotImplementedError(
+                f"{cls.__name__} must declare a Meta class with table and indexes. "
+                "Tortoise does not propagate Meta.indexes from abstract bases; "
+                "redeclare the hierarchy indexes (GiST(path), (namespace, depth), "
+                "(parent_id, depth)) on every concrete subclass."
+            )
+        if getattr(meta, "abstract", False):
+            return
+        if "indexes" not in meta.__dict__:
+            raise NotImplementedError(
+                f"{cls.__name__}.Meta must redeclare indexes — Tortoise does not "
+                "propagate Meta.indexes from abstract bases. Add the hierarchy "
+                "indexes (GiST(path), (namespace, depth), (parent_id, depth)) or "
+                "opt out explicitly with indexes = ()."
+            )
+
     # ── Dunder helpers ───────────────────────────────────────────────────
 
     @override
@@ -152,7 +242,7 @@ class HierarchyModel(Model):
     # ── Tree Queries (sync — return lazy QuerySets) ──────────────────────
 
     def get_ancestors(
-        self, *, include_self: bool = False
+        self, *, include_self: bool = False, namespace: str | None = None
     ) -> QuerySet[HierarchyModel] | QuerySet[Self]:
         """Return all ancestor nodes from root down to this node's parent.
 
@@ -162,6 +252,10 @@ class HierarchyModel(Model):
 
         Args:
             include_self: When *True*, include this node in the result.
+            namespace: Namespace to scope the query to.  Defaults to this
+                instance's :attr:`namespace` — required because ltree paths
+                are only unique *within* a namespace, so an unscoped path
+                prefix match would leak nodes from other tenants.
 
         Returns:
             Lazy QuerySet of ancestor nodes.
@@ -174,6 +268,7 @@ class HierarchyModel(Model):
             type(self)
             .filter(
                 path__ancestor_of=path_str,
+                namespace=namespace if namespace is not None else self.namespace,
             )
             .order_by("path")
         )
@@ -184,7 +279,7 @@ class HierarchyModel(Model):
         return q
 
     def get_descendants(
-        self, *, include_self: bool = False
+        self, *, include_self: bool = False, namespace: str | None = None
     ) -> QuerySet[HierarchyModel] | QuerySet[Self]:
         """Return all descendant nodes below this node.
 
@@ -194,6 +289,10 @@ class HierarchyModel(Model):
 
         Args:
             include_self: When *True*, include this node in the result.
+            namespace: Namespace to scope the query to.  Defaults to this
+                instance's :attr:`namespace` — required because ltree paths
+                are only unique *within* a namespace, so an unscoped path
+                prefix match would leak nodes from other tenants.
 
         Returns:
             Lazy QuerySet of descendant nodes.
@@ -206,6 +305,7 @@ class HierarchyModel(Model):
             type(self)
             .filter(
                 path__descendant_of=path_str,
+                namespace=namespace if namespace is not None else self.namespace,
             )
             .order_by("path")
         )
@@ -331,22 +431,30 @@ class HierarchyModel(Model):
         """Move this node and all its descendants under *new_parent*.
 
         Validates that the move does not create a cycle, then updates this
-        node and cascades path/depth changes to every descendant.  Each
-        row is updated individually — wrap the caller in ``async with
-        in_transaction()`` for atomicity if needed.
+        node and cascades path/depth changes to every descendant.  The whole
+        move runs inside a single transaction, and the descendant cascade is
+        a single bulk ``UPDATE`` (no N+1 row-by-row writes) using a
+        prefix-only path rewrite so descendant paths that repeat the moved
+        ancestor's label sequence deeper in the tree are not corrupted.
 
         Args:
             new_parent: The target parent node.
 
         Raises:
-            ValueError: If either node lacks a path, or the move would
-                create a cycle (moving a node into its own descendant).
+            HierarchyError: If either node lacks a path, the move targets
+                this node itself, or the move would create a cycle (moving a
+                node into its own descendant).
         """
         self_path_str = _path_to_str(self.path)
         new_parent_path_str = _path_to_str(new_parent.path)
 
         if not self_path_str or not new_parent_path_str:
             raise HierarchyError("Both source and target must have paths")
+
+        # Self-move — moving a node under itself is a cycle by definition and
+        # is not caught by the descendant prefix check below (paths are equal).
+        if new_parent.pk == self.pk:
+            raise HierarchyError("Cannot move a node under itself")
 
         # Cycle guard — new_parent must not sit inside this node's subtree.
         if new_parent_path_str.startswith(self_path_str + "."):
@@ -356,28 +464,32 @@ class HierarchyModel(Model):
         new_path = f"{new_parent_path_str}.{self.name}"
         depth_delta = new_parent.depth - self.depth + 1
 
-        # Update this node.
-        _ = (
-            await type(self)
-            .filter(pk=self.pk)
-            .update(
-                path=new_path,
-                parent_id=new_parent.pk,
-                depth=new_parent.depth + 1,
-            )
-        )
-
-        # Cascade path prefix replacement to every descendant.
-        async for desc in self.get_descendants():
-            old_desc_path = _path_to_str(desc.path)
-            new_desc_path = old_desc_path.replace(old_path, new_path, 1)
-
+        async with in_transaction():
+            # Update this node.
             _ = (
                 await type(self)
-                .filter(pk=desc.pk)
+                .filter(pk=self.pk)
                 .update(
-                    path=new_desc_path,
-                    depth=desc.depth + depth_delta,
+                    path=new_path,
+                    parent_id=new_parent.pk,
+                    depth=new_parent.depth + 1,
+                )
+            )
+
+            # Cascade path prefix replacement + depth shift to every
+            # descendant in a single bulk UPDATE.  The ltree ``@>`` filter is
+            # label-boundary precise, so only true descendants match; the
+            # namespace filter keeps the move scoped to this tenant.
+            _ = (
+                await type(self)
+                .filter(
+                    path__descendant_of=self_path_str,
+                    namespace=self.namespace,
+                )
+                .exclude(pk=self.pk)
+                .update(
+                    path=_PrefixReplace("path", old_path, new_path),
+                    depth=F("depth") + depth_delta,
                 )
             )
 

@@ -15,6 +15,7 @@ from tortoise import Tortoise
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.exceptions import HierarchyError
 from tortoise_extended.graph.hierarchy_model import HierarchyModel
+from tortoise_extended.indexes.ltree_index import GiSTIndex
 
 # ---------------------------------------------------------------------------
 # Config — skip entire module if PG is not available
@@ -53,6 +54,12 @@ class Category(HierarchyModel):
     class Meta:
         table = "hierarchy_it_categories"
         verbose_name = "Category"
+        # Redeclared — Tortoise does not propagate Meta.indexes from abstract bases.
+        indexes = (
+            GiSTIndex(fields=("path",)),
+            ("namespace", "depth"),
+            ("parent_id", "depth"),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +259,51 @@ class TestHierarchyMutations:
             await electronics.move_to(macbook)
 
     @pytest.mark.asyncio
+    async def test_move_into_self_raises(self) -> None:
+        electronics, laptops, macbook, phones = await _make_tree()
+        with pytest.raises(HierarchyError, match="Cannot move a node under itself"):
+            await electronics.move_to(electronics)
+
+    @pytest.mark.asyncio
+    async def test_move_to_rewrites_only_leading_prefix(self) -> None:
+        """G6 — the bulk descendant rewrite must be prefix-only.
+
+        A subtree that repeats the moved ancestor's label sequence deeper
+        (a -> b -> c -> a -> b) must not have that inner sequence rewritten —
+        SQL REPLACE() would corrupt it; _PrefixReplace must not.
+        """
+        a = await Category.create(path="a", name="a", parent_id=None, depth=0, namespace="shop")
+        b = await Category.create(path="a.b", name="b", parent_id=a.pk, depth=1, namespace="shop")
+        c = await Category.create(path="a.b.c", name="c", parent_id=b.pk, depth=2, namespace="shop")
+        a2 = await Category.create(path="a.b.c.a", name="a", parent_id=c.pk, depth=3, namespace="shop")
+        b2 = await Category.create(path="a.b.c.a.b", name="b", parent_id=a2.pk, depth=4, namespace="shop")
+        root = await Category.create(path="root", name="root", parent_id=None, depth=0, namespace="shop")
+
+        await b.move_to(root)
+
+        moved = await Category.get(pk=b2.pk)
+        assert moved.path_str == "root.b.c.a.b"
+        assert moved.depth == 4
+        assert (await Category.get(pk=c.pk)).path_str == "root.b.c"
+
+    @pytest.mark.asyncio
+    async def test_move_to_scoped_to_namespace(self) -> None:
+        """G6 — the descendant cascade must not touch another tenant's tree."""
+        electronics, laptops, macbook, phones = await _make_tree()
+        kitchen = await Category.create(
+            path="kitchen", name="kitchen", parent_id=None, depth=0, namespace="shop"
+        )
+        # Same paths in another namespace must be left untouched.
+        other_phones = await Category.create(
+            path="electronics.phones", name="phones", parent_id=None,
+            depth=1, namespace="other",
+        )
+        await phones.move_to(kitchen)
+        untouched = await Category.get(pk=other_phones.pk)
+        assert untouched.path_str == "electronics.phones"
+        assert untouched.depth == 1
+
+    @pytest.mark.asyncio
     async def test_validate_hierarchy(self) -> None:
         electronics, laptops, macbook, phones = await _make_tree()
         assert await macbook.validate_hierarchy() == []
@@ -272,6 +324,39 @@ class TestHierarchyMutations:
         )
         roots = await Category.filter(path="electronics", namespace="shop")
         assert [r.namespace for r in roots] == ["shop"]
+
+    @pytest.mark.asyncio
+    async def test_get_ancestors_scoped_to_namespace(self) -> None:
+        """G5 — ancestors must not leak nodes from another namespace."""
+        electronics, laptops, macbook, phones = await _make_tree()
+        await Category.create(
+            path="electronics.laptops.macbook", name="macbook", parent_id=None,
+            depth=2, namespace="other",
+        )
+        ancestors = await macbook.get_ancestors()
+        assert [n.namespace for n in ancestors] == ["shop", "shop"]
+
+    @pytest.mark.asyncio
+    async def test_get_descendants_scoped_to_namespace(self) -> None:
+        """G5 — descendants must not leak nodes from another namespace."""
+        electronics, laptops, macbook, phones = await _make_tree()
+        await Category.create(
+            path="electronics.phones", name="phones", parent_id=None,
+            depth=1, namespace="other",
+        )
+        descendants = await electronics.get_descendants()
+        assert [n.namespace for n in descendants] == ["shop", "shop", "shop"]
+
+    @pytest.mark.asyncio
+    async def test_get_ancestors_explicit_namespace(self) -> None:
+        """G5 — the namespace param can query a different tenant explicitly."""
+        _electronics, _laptops, _macbook, _phones = await _make_tree()
+        other = await Category.create(
+            path="electronics.laptops.macbook", name="macbook", parent_id=None,
+            depth=2, namespace="other",
+        )
+        ancestors = await other.get_ancestors(namespace="shop")
+        assert [n.namespace for n in ancestors] == ["shop", "shop", "shop"]
 
 
 class TestHierarchyEdgeBranches:

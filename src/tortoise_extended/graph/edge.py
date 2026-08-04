@@ -13,6 +13,13 @@ Usage::
 
         class Meta:
             table = "relationships"
+            # Tortoise does NOT inherit Meta.indexes from the abstract base —
+            # redeclare them on every concrete subclass.
+            indexes = (
+                ("source_id", "edge_type"),
+                ("target_id", "edge_type"),
+                ("source_id", "target_id", "edge_type"),
+            )
 """
 
 from typing import TYPE_CHECKING, Self, override
@@ -108,6 +115,40 @@ class GraphEdge(Model):
             ("target_id", "edge_type"),
             ("source_id", "target_id", "edge_type"),
         )
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Guard against silently losing the abstract base indexes.
+
+        Tortoise does not propagate ``Meta.indexes`` from abstract bases to
+        concrete subclasses — a subclass that forgets to redeclare them would
+        run every edge query without its composite indexes.  Raise at
+        class-creation time instead.
+
+        Raise:
+            NotImplementedError: When a concrete subclass (or one without an
+                explicit ``Meta``) does not declare ``Meta.indexes``.  Opt
+                out deliberately with ``Meta.indexes = ()``.
+        """
+        super().__init_subclass__(**kwargs)
+        meta = cls.__dict__.get("Meta")
+        if meta is None:
+            raise NotImplementedError(
+                f"{cls.__name__} must declare a Meta class with table and indexes. "
+                "Tortoise does not propagate Meta.indexes from abstract bases; "
+                "redeclare the edge indexes ((source_id, edge_type), "
+                "(target_id, edge_type), (source_id, target_id, edge_type)) "
+                "on every concrete subclass."
+            )
+        if getattr(meta, "abstract", False):
+            return
+        if "indexes" not in meta.__dict__:
+            raise NotImplementedError(
+                f"{cls.__name__}.Meta must redeclare indexes — Tortoise does not "
+                "propagate Meta.indexes from abstract bases. Add the edge indexes "
+                "((source_id, edge_type), (target_id, edge_type), "
+                "(source_id, target_id, edge_type)) or opt out explicitly "
+                "with indexes = ()."
+            )
 
     @override
     def __str__(self) -> str:

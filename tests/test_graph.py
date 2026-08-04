@@ -4,6 +4,8 @@ Tests model definitions, helper methods, classmethod queries, properties,
 str/repr, and abstract status. No database connection required.
 """
 
+import pytest
+
 from tortoise_extended.graph.edge import GraphEdge
 from tortoise_extended.graph.hierarchy_model import HierarchyModel
 from tortoise_extended.graph.node import GraphNode
@@ -121,6 +123,41 @@ class TestHierarchyModel:
         assert hasattr(HierarchyModel, "get_path_to_root")
         assert hasattr(HierarchyModel, "move_to")
         assert hasattr(HierarchyModel, "validate_hierarchy")
+
+
+class TestAbstractIndexGuard:
+    """G3 regression — abstract Meta.indexes never propagate, so concrete
+    subclasses must redeclare them. The __init_subclass__ guard enforces this
+    at import time instead of silently dropping indexes."""
+
+    def test_concrete_subclass_without_meta_raises(self) -> None:
+        """A concrete subclass with no Meta at all must raise."""
+        with pytest.raises(NotImplementedError, match="must declare a Meta class"):
+            type("NoMetaCat", (HierarchyModel,), {})
+
+    def test_concrete_subclass_without_indexes_raises(self) -> None:
+        """A concrete subclass whose Meta omits indexes must raise."""
+        meta = type("Meta", (), {"table": "cats"})
+        with pytest.raises(NotImplementedError, match="must redeclare indexes"):
+            type("NoIndexCat", (HierarchyModel,), {"Meta": meta})
+
+    def test_abstract_subclass_allowed(self) -> None:
+        """Abstract intermediate subclasses are exempt from the guard."""
+        meta = type("Meta", (), {"abstract": True})
+        cls = type("AbstractCat", (HierarchyModel,), {"Meta": meta})
+        assert getattr(cls.Meta, "abstract", False) is True
+
+    def test_concrete_subclass_explicit_empty_indexes_allowed(self) -> None:
+        """indexes = () is an explicit opt-out and must not raise."""
+        meta = type("Meta", (), {"table": "cats", "indexes": ()})
+        cls = type("NoIndexCat2", (HierarchyModel,), {"Meta": meta})
+        assert cls.Meta.indexes == ()
+
+    def test_edge_subclass_without_indexes_raises(self) -> None:
+        """GraphEdge enforces the same redeclaration guard."""
+        meta = type("Meta", (), {"table": "rels"})
+        with pytest.raises(NotImplementedError, match="must redeclare indexes"):
+            type("NoIndexEdge", (GraphEdge,), {"Meta": meta})
 
 
 class TestHierarchyModelProperties:

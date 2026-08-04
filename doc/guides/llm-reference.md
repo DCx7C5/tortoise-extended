@@ -248,13 +248,30 @@ Files/folders live in a `HierarchyModel` tree (path = `project.src.pkg`); ad
 hoc cross-references between files use a `GraphEdge` table.
 
 ```python
-from tortoise_extended import HierarchyModel, GraphEdge
+from tortoise_extended import HierarchyModel, GraphEdge, GiSTIndex
 
 class FileNode(HierarchyModel):
     size_bytes = fields.BigIntField(default=0)
 
+    class Meta:
+        table = "file_nodes"
+        # Tortoise does NOT inherit Meta.indexes from the abstract base —
+        # redeclare them on every concrete subclass.
+        indexes = (
+            GiSTIndex(fields=("path",)),
+            ("namespace", "depth"),
+            ("parent_id", "depth"),
+        )
+
 class CodeLink(GraphEdge):
-    pass
+    class Meta:
+        table = "code_links"
+        # Redeclared for the same reason.
+        indexes = (
+            ("source_id", "edge_type"),
+            ("target_id", "edge_type"),
+            ("source_id", "target_id", "edge_type"),
+        )
 
 # subtree query
 docs = await FileNode.get_descendants()  # from a root node

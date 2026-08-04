@@ -15,6 +15,7 @@ ltree-based `HierarchyModel` base class.
 import tortoise_extended  # noqa: F401 — patches must apply first
 from tortoise import fields, models
 from tortoise_extended.graph.hierarchy_model import HierarchyModel
+from tortoise_extended.indexes.ltree_index import GiSTIndex
 
 
 class ProjectModel(models.Model):
@@ -38,6 +39,13 @@ class ProjectFileTree(HierarchyModel):
 
     class Meta:
         table = "project_files"
+        # Tortoise does NOT inherit Meta.indexes from the abstract base —
+        # redeclare them on every concrete subclass.
+        indexes = (
+            GiSTIndex(fields=("path",)),
+            ("namespace", "depth"),
+            ("parent_id", "depth"),
+        )
 ```
 
 The `namespace` column (inherited from `HierarchyModel`) mirrors

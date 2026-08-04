@@ -98,6 +98,13 @@ class Category(GraphNode):
 class CategoryLink(GraphEdge):
     class Meta:
         table = "category_links"
+        # Tortoise does NOT inherit Meta.indexes from the abstract base —
+        # redeclare them on every concrete subclass.
+        indexes = (
+            ("source_id", "edge_type"),
+            ("target_id", "edge_type"),
+            ("source_id", "target_id", "edge_type"),
+        )
 
 # Create a tree
 root = await Category.create(name="Electronics")
