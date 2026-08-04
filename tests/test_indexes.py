@@ -183,3 +183,40 @@ class TestIVFFlatIndexValidation:
         for metric in ("vector_l2_ops", "vector_ip_ops"):
             idx = IVFFlatIndex(fields=("embedding",), dist_metric=metric)
             assert idx.dist_metric == metric
+
+
+class TestGiSTDialectGuard:
+    """G8 — GiSTIndex must refuse non-PostgreSQL schema generators."""
+
+    class _FakeModel:
+        class _Meta:
+            db_table = "categories"
+            schema = None
+
+        _meta = _Meta()
+
+    class _FakeGenerator:
+        DIALECT = "sqlite"
+
+        def _qualify_table_name(self, table_name: str, schema: str | None) -> str:
+            return f'"{table_name}"'
+
+        def _get_index_name(
+            self, prefix: str, model: object, field_names: list[str]
+        ) -> str:
+            return f"{prefix}_idx"
+
+        def _format_index_fields(self, field_names: list[str]) -> str:
+            return ", ".join(f'"{f}"' for f in field_names)
+
+    def test_gist_raises_on_sqlite(self) -> None:
+        idx = GiSTIndex(fields=("path",))
+        with pytest.raises(IndexDefinitionError, match="PostgreSQL-only"):
+            idx.get_sql(self._FakeGenerator(), self._FakeModel, safe=True)
+
+    def test_gist_accepts_postgres(self) -> None:
+        gen = self._FakeGenerator()
+        gen.DIALECT = "postgres"
+        sql = GiSTIndex(fields=("path",)).get_sql(gen, self._FakeModel, safe=False)
+        assert sql.startswith('CREATE INDEX "gist_idx" ON "categories"')
+        assert "USING gist" in sql

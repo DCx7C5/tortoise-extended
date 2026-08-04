@@ -153,3 +153,30 @@ class TestIVFFlatIndexSql:
         assert "IF NOT EXISTS" not in sql
         assert "vector_ip_ops" in sql
         assert "WITH (lists = 50);" in sql
+
+
+class TestDialectGuard:
+    """G8 — HNSW/IVFFlat/GiST must refuse non-PostgreSQL schema generators."""
+
+    def _sqlite_generator(self) -> FakeSchemaGenerator:
+        gen = FakeSchemaGenerator()
+        gen.DIALECT = "sqlite"
+        return gen
+
+    def test_hnsw_raises_on_sqlite(self) -> None:
+        idx = HNSWIndex(fields=("embedding",))
+        with pytest.raises(IndexDefinitionError, match="PostgreSQL-only"):
+            idx.get_sql(self._sqlite_generator(), FakeModel("chunks"), safe=True)
+
+    def test_ivfflat_raises_on_sqlite(self) -> None:
+        idx = IVFFlatIndex(fields=("embedding",))
+        with pytest.raises(IndexDefinitionError, match="PostgreSQL-only"):
+            idx.get_sql(self._sqlite_generator(), FakeModel("chunks"), safe=True)
+
+    def test_hnsw_accepts_postgres(self) -> None:
+        gen = FakeSchemaGenerator()
+        gen.DIALECT = "postgres"
+        sql = HNSWIndex(fields=("embedding",)).get_sql(
+            gen, FakeModel("chunks"), safe=False
+        )
+        assert sql.startswith('CREATE INDEX "hnsw_FakeModel_embedding"')

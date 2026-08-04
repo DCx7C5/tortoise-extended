@@ -229,7 +229,7 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
 | G5 | ✅ FIXED | `graph/hierarchy_model.py` | `get_ancestors`/`get_descendants` omit the `namespace` filter (unlike `get_path_to_root`/`get_root`) → cross-tenant data leak in multi-tenant trees. | Added `namespace: str \| None = None` param (defaults to instance namespace) to both; 3 PG regression tests added |
 | G6 | ✅ FIXED | `graph/hierarchy_model.py` | `move_to` is non-atomic (row-by-row UPDATEs, no `in_transaction`), N+1, and self-move (`new_parent=self`) bypasses the cycle guard → partial-tree corruption on mid-cascade failure. | Wrapped in `in_transaction()`; descendant cascade is one bulk UPDATE (`_PrefixReplace` prefix-only rewrite + `F("depth") + delta`, namespace-scoped); self-move guard; 3 PG regression tests added |
 | G7 | ✅ FIXED | `timescale/hypertable.py`, `compression.py`, `retention.py`, `continuous_aggregate.py` | Table/interval names interpolated into SQL at 24+ sites, unquoted/unescaped; internal `_timescaledb_catalog`/`_timescaledb_config` tables queried instead of public `timescaledb_information` views. | Shared `_quote.py` helpers (`quote_ident`/`quote_literal`) extracted from `migrations/operations.py`; all interpolated names quoted/escaped; `is_hypertable` → `timescaledb_information.hypertables`, `get_stats` → `timescaledb_information.chunks` (`is_compressed`), `list_policies` → `timescaledb_information.jobs`; +9 unit tests, live-PG suite green. Also folded in the G19 division-by-zero guard |
-| G8 | MED | `indexes/hnsw_index.py`, `ltree_index.py` | HNSW/IVFFlat/GiST emit PG DDL on **any** backend → SQLite `generate_schemas` breaks; no dialect guard. | Backend guard in `get_sql` (skip or raise on non-PG) |
+| G8 | ✅ FIXED | `indexes/hnsw_index.py`, `ltree_index.py` | HNSW/IVFFlat/GiST emit PG DDL on **any** backend → SQLite `generate_schemas` breaks; no dialect guard. | `indexes/_dialect.py` `assert_postgres_dialect` checks `schema_generator.DIALECT` and raises `IndexDefinitionError` on non-PG (getattr default `"postgres"` keeps test fakes working); +5 unit tests |
 | G9 | MED | `timescale/stream.py` | `bulk_insert` (COPY) does not populate `auto_now_add` fields; unquoted identifiers in DDL; only the PK caveat is documented. | Populate server-side defaults explicitly; quote identifiers; document |
 | G10 | MED | `__init__.py` migration patch | `_patch_format_operation` swallows ALL `ValueError`s from the original formatter → masks real errors as `MigrationOperationError`. | Re-raise non-serialization errors; only catch expected cases |
 | G11 | MED | `AGENTS.md`, `doc/architecture/overview.md`, `design-decisions.md` | Docs claim `OperationGenerator.generate` is patched — **it is not** (only `MigrationWriter._format_operation`). | Correct docs to match actual patch surface |
@@ -279,7 +279,11 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
   `timescaledb_information` public views (`hypertables`, `chunks`, `jobs`);
   G19 division guard folded in; +9 unit tests, live-Timescale suite green
   (696 passed / 1 skipped, ruff clean, basedpyright 0/0/0).
-- New recommended order: G8 (index dialect guard) next, then G9/G10, then
-  roadmap Tiers.
+- **Index dialect guard (G8): DONE 2026-08-04** — HNSW/IVFFlat/GiST
+  `get_sql` now raise `IndexDefinitionError` on non-PostgreSQL backends via
+  shared `indexes/_dialect.py` (``DIALECT`` check); +5 unit tests
+  (701 passed / 1 skipped, ruff clean, basedpyright 0/0/0).
+- New recommended order: G9 (stream COPY + quoting), G10 (migration
+  exception masking), then roadmap Tiers.
 - plan.md itself is currently **untracked** in git — commit alongside first
   fix batch.

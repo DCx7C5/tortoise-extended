@@ -18,6 +18,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, cast, override
 
 from tortoise.indexes import Index
+from tortoise_extended.indexes._dialect import assert_postgres_dialect
 
 if TYPE_CHECKING:
     from tortoise.backends.base.schema_generator import BaseSchemaGenerator
@@ -73,6 +74,7 @@ class GiSTIndex(Index):
 
     @override
     def get_sql(self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool) -> str:
+        assert_postgres_dialect(schema_generator, "GiSTIndex")
         self.resolve_expressions(model)
         table_name = _qualify_table_name(schema_generator, model._meta.db_table, model._meta.schema)
         index_name = self.name or _get_index_name(schema_generator, "gist", model, self.field_names)

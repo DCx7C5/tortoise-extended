@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, cast, override
 from tortoise.indexes import Index
 from tortoise_extended._types import LibraryAny
 from tortoise_extended.exceptions import IndexDefinitionError
+from tortoise_extended.indexes._dialect import assert_postgres_dialect
 
 if TYPE_CHECKING:
     from tortoise.backends.base.schema_generator import BaseSchemaGenerator
@@ -105,6 +106,7 @@ class HNSWIndex(Index):
         # NOTE: Can't use _get_index_sql() — pgvector's USING ... WITH ()
         # syntax doesn't match INDEX_CREATE_TEMPLATE. If Tortoise adds a
         # hook for custom index SQL, migrate to that.
+        assert_postgres_dialect(schema_generator, "HNSWIndex")
         self.resolve_expressions(model)
         table_name = _qualify_table_name(schema_generator, model._meta.db_table, model._meta.schema)
         index_name = self.name or _get_index_name(schema_generator, "hnsw", model, self.field_names)
@@ -169,6 +171,7 @@ class IVFFlatIndex(Index):
         # NOTE: Can't use _get_index_sql() — pgvector's USING ... WITH ()
         # syntax doesn't match INDEX_CREATE_TEMPLATE. If Tortoise adds a
         # hook for custom index SQL, migrate to that.
+        assert_postgres_dialect(schema_generator, "IVFFlatIndex")
         self.resolve_expressions(model)
         table_name = _qualify_table_name(schema_generator, model._meta.db_table, model._meta.schema)
         index_name = self.name or _get_index_name(schema_generator, "ivfflat", model, self.field_names)
