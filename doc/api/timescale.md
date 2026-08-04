@@ -44,16 +44,17 @@ Enable and manage compression on hypertables.
 
 | Method | Description |
 |--------|-------------|
-| `enable_compression(table, compress_after?)` | Enable compression |
+| `enable_compression(table)` | Enable compression (columnstore reloption) |
 | `disable_compression(table)` | Disable compression |
-| `add_compression_policy(table, compress_after?)` | Auto-compress old chunks |
+| `add_compression_policy(table, compress_after="7 days")` | Auto-compress old chunks |
 | `remove_compression_policy(table)` | Remove auto-compress policy |
 | `compress_chunk(chunk_name)` | Manually compress a chunk |
 | `decompress_chunk(chunk_name)` | Decompress a chunk |
 | `get_stats(table)` | Get compression statistics |
 
 ```python
-await CompressionManager.enable_compression("events", compress_after="7 days")
+await CompressionManager.enable_compression("events")
+await CompressionManager.add_compression_policy("events", compress_after="7 days")
 stats = await CompressionManager.get_stats("events")
 ```
 
