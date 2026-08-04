@@ -24,7 +24,7 @@ class Entity(Model):
         indexes = [HNSWIndex(fields=("embedding",), m=32, ef_construction=400)]
 
 await Tortoise.init(
-    db_url="asyncpg://user:pass@localhost:5432/graphrag",
+    db_url="postgres://user:pass@localhost:5432/graphrag",
     modules={"models": ["__main__"]},
 )
 
@@ -403,14 +403,18 @@ uv run pytest tests/ -v
 
 ### Why raw SQL for graph helpers?
 
-Tortoise ORM doesn't support:
-- Recursive CTEs (no `WITH RECURSIVE` in the query builder)
-- `DISTINCT ON` (PostgreSQL-specific)
-- `UNION` in subqueries
-- `ts_rank_cd` full-text search ranking
-- `ARRAY[]` literal construction
+Tortoise ORM's QuerySet still cannot express these, so the package ships
+parameterized builders/helpers instead of hand-written SQL:
 
-The expressions in `graph_traversal.py`, `pathfinding.py`, `hybrid_search.py`, and `recursive_cte.py` build parameterized SQL for exactly these cases; everything else goes through the Tortoise QuerySet API.
+| Capability | QuerySet support | tortoise-extended |
+|---|---|---|
+| Recursive CTEs (`WITH RECURSIVE`) | none | `RecursiveCTE` builder + `GraphTraversal`/`pathfinding` |
+| `DISTINCT ON` | none | `EventStreamMixin.latest_per_stream` |
+| `UNION` subqueries | none | recursive steps in `RecursiveCTE` + traversal queries |
+| `ts_rank_cd` ranking | none | `HybridSearch` weighted scoring |
+| `ARRAY[]` literals | none | `pathfinding` path aggregation |
+
+Everything else goes through the Tortoise QuerySet API.
 
 ### Why no Apache AGE?
 
