@@ -97,10 +97,19 @@ class RedisCache:
 
     @classmethod
     async def close(cls) -> None:
-        """Close Redis connection pool."""
+        """Close Redis connection pool.
+
+        Uses the async ``aclose()`` API (redis-py >= 5), falling back to the
+        deprecated ``close()`` on older drivers (G24).
+        """
         instance = cls()
-        if instance._pool is not None:
-            await instance._pool.close()
+        pool = instance._pool
+        if pool is not None:
+            aclose = getattr(pool, "aclose", None)
+            if aclose is not None:
+                await aclose()
+            else:
+                await pool.close()
             instance._pool = None
             logger.info("Redis cache disconnected")
 
@@ -189,7 +198,9 @@ class RedisCacheBackend(CacheBackend):
             raise CacheSerializationError(str(exc)) from exc
         try:
             if ttl > 0:
-                await self.pool.setex(self._key(key), ttl, data)
+                # Modern SET key value PX ttl form (redis-py >= 3.5); avoids
+                # the deprecated setex() which redis-py >= 5 warns on (G24).
+                await self.pool.set(self._key(key), data, ex=ttl)
             else:
                 await self.pool.set(self._key(key), data)
         except _REDIS_INFRA_ERRORS as exc:

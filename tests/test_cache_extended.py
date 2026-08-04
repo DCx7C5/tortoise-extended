@@ -6,6 +6,7 @@ No Redis connection required.
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime
+import socket
 
 import pytest
 from tortoise import Tortoise, fields
@@ -298,10 +299,13 @@ class FakeRedisPool:
         self.store[k] = value
         self.ttls[k] = ttl
 
-    async def set(self, key: str | bytes, value: bytes) -> None:
+    async def set(self, key: str | bytes, value: bytes, ex: int | None = None) -> None:
         k = self._norm(key)
         self.store[k] = value
-        self.ttls.pop(k, None)
+        if ex is not None:
+            self.ttls[k] = ex
+        else:
+            self.ttls.pop(k, None)
 
     async def delete(self, key: str | bytes) -> int:
         return int(self.store.pop(self._norm(key), None) is not None)
@@ -469,6 +473,36 @@ class TestRedisCacheSingleton:
         await RedisCache.close()
         with pytest.raises(CacheBackendNotInitializedError):
             RedisCache.get_pool()
+
+    @pytest.mark.asyncio
+    async def test_close_prefers_aclose(self, monkeypatch) -> None:
+        """G24 — close() uses aclose() when available, falls back to close()."""
+        import tortoise_extended.cache.redis as redis_module
+
+        class ModernPool:
+            def __init__(self) -> None:
+                self.closed_with: list[str] = []
+
+            async def ping(self) -> bool:
+                return True
+
+            async def aclose(self) -> None:
+                self.closed_with.append("aclose")
+
+            async def close(self) -> None:
+                self.closed_with.append("close")
+
+        class FakeAIORedis:
+            @classmethod
+            def from_url(cls, url, max_connections=None, decode_responses=None, **kwargs):
+                return ModernPool()
+
+        monkeypatch.setattr(redis_module, "aioredis", FakeAIORedis)
+        await RedisCache.init(url="redis://localhost:6379/0")
+        pool = RedisCache.get_pool()
+        await RedisCache.close()
+        assert pool.closed_with == ["aclose"]
+        assert RedisCache._pool is None
 
     @pytest.mark.asyncio
     async def test_init_closes_existing_pool(self, monkeypatch) -> None:
@@ -1247,3 +1281,49 @@ class TestCacheDefaultBackend:
         assert ctx is not None
         monkeypatch.setattr(ctx, "_apps", {"bad": 42})
         assert CachedQuerySet._resolve_model("CacheThing") is None
+
+
+# ---------------------------------------------------------------------------
+# G24 — live Redis smoke test (docker-gated: redis-ext on 127.0.0.1:6380)
+# ---------------------------------------------------------------------------
+
+
+def _redis_available() -> bool:
+    """Quick probe — can we reach the docker redis-ext container?"""
+    try:
+        sock = socket.create_connection(("localhost", 6380), timeout=2)
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+_live_redis = pytest.mark.skipif(
+    not _redis_available(),
+    reason="Redis not available on localhost:6380 (docker compose up -d)",
+)
+
+
+class TestLiveRedis:
+    """Round-trip through the real redis-py driver (aclose() path, G24)."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_singleton(self):
+        RedisCache._instance = None
+        RedisCache._pool = None
+        yield
+        RedisCache._instance = None
+        RedisCache._pool = None
+
+    @_live_redis
+    @pytest.mark.asyncio
+    async def test_real_redis_round_trip(self) -> None:
+        """init → set/get/delete → close via real driver aclose()."""
+        await RedisCache.init(url="redis://localhost:6380/0")
+        backend = RedisCacheBackend(RedisCache.get_pool())
+        await backend.set("te:g24:key", "value-1", ttl=60)
+        assert await backend.get("te:g24:key") == "value-1"
+        assert await backend.delete("te:g24:key") == 1
+        assert await backend.get("te:g24:key") is None
+        await RedisCache.close()
+        assert RedisCache._pool is None

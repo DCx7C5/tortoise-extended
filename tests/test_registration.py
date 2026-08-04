@@ -153,6 +153,55 @@ class TestPgvectorCodecBranches:
         assert encoder([1.5]) == "[1.5]"
         assert decoder("[2.5]") == [2.5]
 
+    async def test_codec_init_resolves_non_public_schema(self) -> None:
+        """G18 — the codec is registered in the extension's actual schema."""
+
+        class _Conn:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, object, object, str]] = []
+
+            async def fetchval(self, query: str, *args: object) -> str | None:
+                assert "typname = 'vector'" in query
+                return "extensions"
+
+            async def set_type_codec(
+                self,
+                name: str,
+                *,
+                encoder: Callable[[object], object],
+                decoder: Callable[[object], object],
+                schema: str,
+            ) -> None:
+                self.calls.append((name, encoder, decoder, schema))
+
+        conn = _Conn()
+        await _pgvector_codec_init(conn)
+        assert conn.calls[0][3] == "extensions"
+
+    async def test_codec_init_falls_back_when_probe_fails(self) -> None:
+        """A failing schema probe falls back to public, not to a crash."""
+
+        class _Conn:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, object, object, str]] = []
+
+            async def fetchval(self, query: str, *args: object) -> str | None:
+                raise RuntimeError("probe failed")
+
+            async def set_type_codec(
+                self,
+                name: str,
+                *,
+                encoder: Callable[[object], object],
+                decoder: Callable[[object], object],
+                schema: str,
+            ) -> None:
+                self.calls.append((name, encoder, decoder, schema))
+
+        conn = _Conn()
+        await _pgvector_codec_init(conn)
+        assert conn.calls[0][3] == "public"
+
     async def test_combined_init_without_original(self) -> None:
         """The combined init runs the codec setup with no original callback."""
         await _combined_codec_init(object(), None)

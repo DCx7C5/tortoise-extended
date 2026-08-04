@@ -8,12 +8,6 @@
   - `ltree` — hierarchical path queries
   - [TimescaleDB](https://www.timescale.com/) — time-series optimization
 
-## Install via pip
-
-```bash
-pip install tortoise-extended
-```
-
 ## Install via uv
 
 ```bash

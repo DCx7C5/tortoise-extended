@@ -119,19 +119,38 @@ def _decode_vector(value: str) -> list[float]:
 async def _pgvector_codec_init(conn: object) -> None:
     """Set the pgvector type codec on a single connection.
 
-    Gracefully skips if the ``vector`` extension is not yet created in the
-    database (e.g. before ``CREATE EXTENSION vector``) or if the connection
-    does not support custom type codecs.
+    Resolves the schema of the ``vector`` type from the connection so the
+    codec is registered where the extension actually lives (G18) — not
+    hardcoded to ``public``. Gracefully skips if the ``vector`` extension is
+    not yet created in the database (e.g. before ``CREATE EXTENSION vector``)
+    or if the connection does not support custom type codecs.
     """
     set_codec = getattr(conn, "set_type_codec", None)
     if set_codec is None:
         return
+    schema = "public"
+    fetchval = getattr(conn, "fetchval", None)
+    if fetchval is not None:
+        try:
+            resolved = await fetchval(
+                "SELECT n.nspname FROM pg_type t "
+                "JOIN pg_namespace n ON n.oid = t.typnamespace "
+                "WHERE t.typname = 'vector'"
+            )
+            if resolved is not None:
+                schema = str(resolved)
+        except Exception:
+            # Probe failure (e.g. a non-asyncpg connection or a DB that
+            # cannot answer the catalog query): fall back to ``public`` and
+            # let ``set_type_codec`` decide — it raises ValueError when the
+            # type is absent, which is swallowed below.
+            pass
     try:
         await set_codec(
             "vector",
             encoder=_encode_vector,
             decoder=_decode_vector,
-            schema="public",
+            schema=schema,
         )
     except (ValueError, AttributeError):
         # ValueError: "unknown type: pgvector.vector" — extension not loaded

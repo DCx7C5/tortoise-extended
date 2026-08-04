@@ -16,13 +16,13 @@ The cache module provides:
 ## Installation
 
 ```bash
-pip install tortoise-extended[redis]
+uv add 'tortoise-extended[redis]'
 ```
 
 Or manually:
 
 ```bash
-pip install redis[hiredis]
+uv add 'redis[hiredis]'
 ```
 
 ## Quick Start
@@ -372,7 +372,7 @@ ImportError: redis package not installed
 
 **Fix:**
 ```bash
-pip install redis[hiredis]
+uv add 'redis[hiredis]'
 ```
 
 ### Cache Stampede

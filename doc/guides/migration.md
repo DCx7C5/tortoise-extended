@@ -5,7 +5,7 @@
 ### Step 1: Install Package
 
 ```bash
-pip install tortoise-extended
+uv add tortoise-extended
 ```
 
 ### Step 2: Import Before Tortoise
@@ -76,7 +76,7 @@ db_url = "postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
 ### Step 1: Remove tortoise-embeddings
 
 ```bash
-pip uninstall tortoise-embeddings
+uv remove tortoise-embeddings
 ```
 
 ### Step 2: Update Imports

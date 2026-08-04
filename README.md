@@ -43,10 +43,11 @@ entities = await Entity.filter(
 - **pgvector filters** — `__l2_distance`, `__cosine_distance`, `__inner_product` query filters
 - **`RecursiveCTE`** — builder for recursive Common Table Expressions
 - **`GraphTraversal` + pathfinding helpers** — ancestors, descendants, neighbors, shortest path, all paths, cycle detection
+- **`GraphVectorSearch`** — single-query graph + vector compositor with typed results
 - **`HybridSearch`** — weighted vector + full-text search scoring
 - **`GraphNode` / `GraphEdge` / `HierarchyModel`** — reusable graph model base classes
 - **`LTreeField` + ltree filters** — PostgreSQL `ltree` hierarchical column type
-- **TimescaleDB** — hypertable/compression/retention/continuous-aggregate managers + migration operations
+- **TimescaleDB** — hypertable/compression/retention/continuous-aggregate managers, `EventStreamMixin`, migration operations
 - **Redis caching** (optional `redis` extra) — `RedisCache`, `CacheableModel`, `CachedQuerySet`, `@cached`
 
 ## Architecture
@@ -64,6 +65,7 @@ src/tortoise_extended/
 │   ├── recursive_cte.py     # RecursiveCTE builder
 │   ├── graph_filters.py     # pgvector distance operators
 │   ├── graph_traversal.py   # GraphTraversal (ancestors/descendants/neighbors)
+│   ├── graph_vector_search.py  # GraphVectorSearch (graph + vector compositor)
 │   ├── pathfinding.py       # shortest_path, all_paths, find_cycles
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)
 │   └── ltree_filters.py     # ltree query operators
@@ -71,12 +73,11 @@ src/tortoise_extended/
 │   ├── node.py              # GraphNode base
 │   ├── edge.py              # GraphEdge base
 │   └── hierarchy_model.py   # HierarchyModel (ltree-path hierarchy)
-├── backends/                # (empty namespace package)
 ├── migrations/
 │   └── operations.py        # CreateHypertable, CreateContinuousAggregate
 ├── cache/                   # RedisCache, CacheableModel, CachedQuerySet, decorators
 ├── timescale/               # HypertableManager, CompressionManager, RetentionPolicy,
-│                            #   ContinuousAggregateManager
+│                            #   ContinuousAggregateManager, EventStreamMixin
 └── stubs/tortoise-stubs/    # local typing overlay for tortoise-orm
 ```
 
@@ -392,7 +393,7 @@ uv run basedpyright
 uv run pytest tests/ -v
 ```
 
-428 tests covering all modules (zero warnings — the suite runs with `filterwarnings = ["error"]`).
+719 tests covering all modules (zero warnings — the suite runs with `filterwarnings = ["error"]`).
 
 ## Design Decisions
 

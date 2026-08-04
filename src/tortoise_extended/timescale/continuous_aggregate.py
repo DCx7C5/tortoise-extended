@@ -58,6 +58,16 @@ class ContinuousAggregateManager:
             query: SQL query for the aggregate (must use time_bucket)
             with_data: Populate with existing data
 
+        .. warning::
+
+            ``query`` is interpolated verbatim into
+            ``CREATE MATERIALIZED VIEW ... AS ({query})``. It must be a
+            single bare ``SELECT`` (or ``WITH ... SELECT``) statement —
+            anything containing ``;`` or starting with another keyword
+            raises :class:`ValueError` (G23). Passing a full
+            ``CREATE MATERIALIZED VIEW`` statement is also accepted and
+            passed through unvalidated, so treat that input as trusted.
+
         Example::
 
             await ContinuousAggregateManager.create(
@@ -75,6 +85,14 @@ class ContinuousAggregateManager:
         # AGGREGATE` spelling is equivalent on TimescaleDB 2.x but relies on a
         # parser hook that is not registered in some 2.28.x builds.
         if "CREATE MATERIALIZED VIEW" not in query.upper():
+            inner = query.strip()
+            first_keyword = inner.upper().split(None, 1)[0] if inner else ""
+            if ";" in inner or first_keyword not in ("SELECT", "WITH"):
+                raise ValueError(
+                    "Continuous aggregate query must be a single bare "
+                    "SELECT (or WITH ... SELECT) statement without ';'; "
+                    f"got {first_keyword!r}..."
+                )
             data_clause = "DATA" if with_data else "NO DATA"
             query = f"""
                 CREATE MATERIALIZED VIEW {quote_ident(view_name)}

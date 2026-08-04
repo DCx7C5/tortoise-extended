@@ -229,6 +229,34 @@ class TestSqlHardening:
         assert "_timescaledb_config" not in sql
 
     @pytest.mark.asyncio
+    async def test_cagg_query_validated(self, monkeypatch) -> None:
+        """G23 — create() rejects non-SELECT / multi-statement queries."""
+        conn = self._recording_conn(monkeypatch)
+        with pytest.raises(ValueError, match="single bare SELECT"):
+            await ContinuousAggregateManager.create("v", "events", "DROP TABLE events")
+        with pytest.raises(ValueError, match="single bare SELECT"):
+            await ContinuousAggregateManager.create("v", "events", "SELECT 1; DROP TABLE x")
+        assert conn.sqls == []
+
+    @pytest.mark.asyncio
+    async def test_cagg_query_allows_cte_and_select(self, monkeypatch) -> None:
+        """CTEs and plain SELECTs are accepted and wrapped."""
+        conn = self._recording_conn(monkeypatch)
+        await ContinuousAggregateManager.create(
+            "v",
+            "events",
+            "WITH base AS (SELECT 1) SELECT time_bucket('1 day', created_at) FROM events",
+        )
+        await ContinuousAggregateManager.create(
+            "v2",
+            "events",
+            "SELECT time_bucket('1 day', created_at) FROM events",
+        )
+        assert len(conn.sqls) == 2
+        assert "CREATE MATERIALIZED VIEW" in conn.sqls[0]
+        assert "CREATE MATERIALIZED VIEW" in conn.sqls[1]
+
+    @pytest.mark.asyncio
     async def test_retention_set_quotes(self, monkeypatch) -> None:
         conn = self._recording_conn(monkeypatch)
         await RetentionPolicy.set_retention("events", drop_after="90 days")

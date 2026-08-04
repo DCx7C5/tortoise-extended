@@ -26,25 +26,11 @@ from uuid import UUID
 from tortoise import connections
 
 from tortoise_extended._types import RowMapping
+from tortoise_extended.expressions._edge_filter import et_clause as _et_clause
 
 if TYPE_CHECKING:
     from tortoise.models import Model
 
-
-def _et_clause(edge_type: str | None, param_index: int) -> tuple[str, list[str]]:
-    """Build a parameterized edge_type filter clause.
-
-    Args:
-        edge_type: Optional edge type to filter on.
-        param_index: Positional ``$N`` parameter number to use.
-
-    Returns:
-        Tuple of ``(sql_clause, params)`` where the clause is empty and
-        params is an empty list when *edge_type* is ``None``.
-    """
-    if edge_type is None:
-        return "", []
-    return f"AND e.edge_type = ${param_index}", [edge_type]
 
 
 class GraphTraversal:

@@ -256,17 +256,17 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
 | G15 | ✅ FIXED | `plan.md` §A/§F | Tier-1 premise wrong: `GraphNode` uses `UUIDField` (not BigInt); `GraphEdge` (UUID source/target) **cannot** link `HierarchyModel` (BigInt) nodes. §F/Tier-1b must first reconcile the pk split. | Pk strategy decided (2026-08-04): `GraphNode` stays UUID (uuid4→uuid7 in Tier-1b); `HierarchyModel` stays BigInt with `UUID7Field(pk=True)` opt-in per subclass; GraphEdge links GraphNode-family only — cross-family edges require the polymorphic `ref_id`+`ref_type` pair, not a shared edge type. Documented in §F |
 | G16 | ✅ FIXED | `fields/vector_field.py` | SQLite BLOB round-trip: `to_python_value(bytes)` → `list(bytes)` of ints (memoryview path OK). | `bytes` now decoded via the shared pgvector binary layout (`_decode_binary`), same as memoryview; +1 SQLite round-trip test (`struct.pack`ed header+floats decode to `[0.25, 0.75]`) |
 | G17 | ✅ FIXED | `fields/ltree_field.py` | Typed `Field[str]` but returns `list[str]`; `max_length`/`separator` unused in DDL. | Generic fixed to `Field[list[str]]`; `max_length` is now a real Python-side guard in `to_db_value` (ltree DDL has no length modifier — over-long paths raise `ValueError`); `separator` documented as used; +2 unit tests |
-| G18 | MED | `__init__.py` codec | `set_type_codec(..., schema="public")` — extension in a non-public schema silently skipped. | Resolve schema from connection/search_path |
+| G18 | ✅ FIXED | `__init__.py` codec | `set_type_codec(..., schema="public")` — extension in a non-public schema silently skipped. | `_pgvector_codec_init` probes `pg_type`/`pg_namespace` via `conn.fetchval` when available; falls back to `"public"` on probe failure; codec errors still swallowed. +2 unit tests (non-public schema resolution, probe-failure fallback) |
 | G19 | ✅ FIXED | `timescale/hypertable.py` | `get_stats` divides by `after_compression_total_bytes` (0 → DB error); `number_partitions` power-of-2 unvalidated. | Division guard folded into G7; partition validation still pending |
 | G20 | ✅ FIXED | `expressions/graph_filters.py` | Compound `[vector, threshold]` detection is an `isinstance(value[0], list)` heuristic; thresholds silently default (1.0/0.0). | `_parse_vector_threshold` validates the threshold slot: compound values whose second element is not a number (e.g. `[[v1], [v2]]` two-vector mistake, bools) raise `VectorFieldError` with the shape spelled out; plain vectors keep documented defaults; +5 unit tests |
-| G21 | LOW | `timescale/*.py` | 7 `print()` call sites in library code instead of logging. | `logger = logging.getLogger(__name__)` |
-| G22 | LOW | docs (5 files) | `pip install/uninstall` at 8 sites vs uv-only rule. | `uv add` / `uv remove` |
-| G23 | LOW | `timescale/continuous_aggregate.py` | `create(query=...)` interpolates caller SQL verbatim into `CREATE MATERIALIZED VIEW ... AS {query}` — documented but unvalidated. | Validate bare SELECT; loud docstring warning |
-| G24 | LOW | `cache/redis.py` | `pool.close()` vs redis-py ≥8 `aclose()`; real-Redis path untested (tests use mock). | `aclose()` with fallback; docker-gated Redis smoke test |
-| G25 | LOW | README | README says "428 tests" (actual 664), references deleted `.env.example`, and lists `backends/` package that doesn't exist. | Sync README with repo |
-| G26 | LOW | packaging | Wheel ships stray `stubs/aiodocker/` third-party `.pyi`; README feature list omits `GraphVectorSearch` + `EventStreamMixin`. | Exclude aiodocker stubs; update feature list |
-| G27 | LOW | `expressions/graph_traversal.py`, `pathfinding.py` | `_et_clause` helper duplicated verbatim. | Extract shared helper |
-| G28 | INFO | whole repo | `orjson`/`ciso8601`/`uvloop` auto-use claims have **zero** usage anywhere — remove claims (AGENTS.md lists them). | Delete claims |
+| G21 | ✅ FIXED | `timescale/*.py` | 7 `print()` call sites in library code instead of logging. | Resolved with no code change (2026-08-04): all `print()` sites live inside docstring `Example::` blocks — not executable code |
+| G22 | ✅ FIXED | docs (3 files) | `pip install/uninstall` at 8 sites vs uv-only rule. | All `pip install`/`pip uninstall` replaced with `uv add`/`uv remove` in `doc/guides/migration.md`, `doc/getting-started/installation.md`, `doc/api/cache.md` (pip-only install section dropped) |
+| G23 | ✅ FIXED | `timescale/continuous_aggregate.py` | `create(query=...)` interpolates caller SQL verbatim into `CREATE MATERIALIZED VIEW ... AS {query}` — documented but unvalidated. | `ContinuousAggregateManager.create` rejects bare `query` containing `;` or not starting with `SELECT`/`WITH` → `ValueError`; full `CREATE MATERIALIZED VIEW` passthrough unchanged; docstring warning. +3 unit tests |
+| G24 | ✅ FIXED | `cache/redis.py` | `pool.close()` vs redis-py ≥8 `aclose()`; real-Redis path untested (tests use mock). | `close()` prefers `aclose()`, falls back to deprecated `close()`; backend `set` uses modern `SET key value PX` (avoids deprecated `setex()` warning under `-W error`); +1 unit test (aclose preference), +1 docker-gated live-Redis smoke test on 6380 |
+| G25 | ✅ FIXED | README | README says "428 tests" (actual 664), references deleted `.env.example`, and lists `backends/` package that doesn't exist. | README test count synced (720); `.env.example` restored (still gitignore-whitelisted — dropped accidentally in `ac07176`); `backends/` removed from architecture tree; `graph_vector_search.py` + `stream.py` added to tree |
+| G26 | ✅ FIXED | packaging | Wheel ships stray `stubs/aiodocker/` third-party `.pyi`; README feature list omits `GraphVectorSearch` + `EventStreamMixin`. | `stubs/aiodocker/` deleted (css_mcp leftover, zero references in repo); README feature list adds `GraphVectorSearch` + `EventStreamMixin` |
+| G27 | ✅ FIXED | `expressions/graph_traversal.py`, `pathfinding.py` | `_et_clause` helper duplicated verbatim. | Shared `et_clause` extracted to `expressions/_edge_filter.py`; all three callers (`graph_traversal`, `pathfinding`, `graph_vector_search`) import it |
+| G28 | ✅ FIXED | whole repo | `orjson`/`ciso8601`/`uvloop` auto-use claims have **zero** usage anywhere — remove claims (AGENTS.md lists them). | Resolved with no code change (2026-08-04): zero claims in repo AGENTS.md and zero usage in `src/` — claims existed only in agent-prompt boilerplate |
 | G29 | INFO | roadmap | Python 3.14 offers `uuid.uuid7`, `asyncio.timeout`, `TaskGroup`; planned auth kit (`scrypt`/`pbkdf2_hmac`) must run in `asyncio.to_thread` (sync CPU-bound blocks the loop). | Fold into Tier 1b/4 implementation |
 | G30 | INFO | infra | Docker PG (5433)/Redis (6380) down during audit → `test_pg_integration.py` unrun; the 664-pass suite is SQLite-backed only. | Start docker stack; run PG suite before shipping |
 | DISPUTED | — | `doc/guides/migration.md:60` | One auditor claimed `=[[query_vec], 0.5]` is wrong. **Rejected:** tests (`test_pg_integration.py`) and runtime (`graph_filters.py:183` `isinstance(value[0], list)`) both require `[[vec], threshold]`. | No change |
@@ -331,6 +331,22 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
   verified live against docker TimescaleDB 2.28.3 (docker ARG already
   2.28.3 — no bump needed); +1 unit test (706 passed / 1 skipped, ruff
   clean, basedpyright 0/0/0).
+- **Fields fixes (G16, G17, G20): DONE 2026-08-04** — `VectorField`
+  `to_python_value` decodes `bytes`/`memoryview` via shared pgvector binary
+  layout (`_decode_binary`); `LTreeField` generic fixed to
+  `Field[list[str]]` with real `max_length` guard; `_parse_vector_threshold`
+  rejects non-number/bool thresholds; +8 tests (714 passed / 1 skipped,
+  ruff clean, basedpyright 0/0/0).
+- **Codec schema + cagg validation + redis hygiene (G18, G23, G24, G27) +
+  docs/README/AGENTS sweep (G21, G22, G25, G26, G28): DONE 2026-08-04** —
+  codec schema resolved via `pg_type`/`pg_namespace` probe with `"public"`
+  fallback; `ContinuousAggregateManager.create` validates bare SELECT/WITH
+  queries; `RedisCache.close` prefers `aclose()` and backend `set` uses
+  modern `SET key value PX` (no deprecated `setex`); shared `et_clause`
+  extracted to `expressions/_edge_filter.py`; docs uv-only, README synced
+  (720 tests, `.env.example` restored, feature list + tree updated), stray
+  `stubs/aiodocker/` deleted; +8 unit tests + 1 docker-gated live-Redis
+  smoke test (720 passed / 1 skipped, ruff clean, basedpyright 0/0/0).
 - New recommended order: roadmap Tiers.
 - plan.md itself is currently **untracked** in git — commit alongside first
   fix batch.
