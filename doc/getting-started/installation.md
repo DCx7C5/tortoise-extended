@@ -47,13 +47,16 @@ tortoise_extended.patch()  # explicitly apply the monkey-patches
 print("tortoise-extended installed and working")
 ```
 
-## Optional: Docker Image
+## Optional: Docker Database
 
-For development, use the provided Docker image with PostgreSQL + pgvector + TimescaleDB:
+For local development with the full PostgreSQL + pgvector + TimescaleDB
+database (plus Redis), use the provided Compose file:
 
 ```bash
-docker build -t tortoise-extended-pg .docker/postgres/
-docker run -p 5432:5432 tortoise-extended-pg
+cp .env.example .env   # configure POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+docker compose -f docker-compose.dev.yml up -d
 ```
 
-This gives you a PostgreSQL 18 instance with all extensions pre-installed.
+This starts `postgres-ext` on `127.0.0.1:5433` (with `vector`, `ltree`,
+`timescaledb`, `pg_trgm`, `uuid-ossp` extensions) and `redis-ext` on
+`127.0.0.1:6380`. See [Docker setup](../docker/setup.md).

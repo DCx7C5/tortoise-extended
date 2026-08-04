@@ -39,9 +39,9 @@ psycopg2.errors.UndefinedObject: type "vector" does not exist
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-Or use the Docker image which includes pgvector:
+Or use the dev database, which includes pgvector:
 ```bash
-docker run -p 5432:5432 tortoise-extended-pg
+docker compose -f docker-compose.dev.yml up -d
 ```
 
 ---
@@ -53,15 +53,15 @@ docker run -p 5432:5432 tortoise-extended-pg
 ConnectionRefusedError: [Errno 111] Connection refused
 ```
 
-**Cause:** PostgreSQL not running on port 5432.
+**Cause:** PostgreSQL not running on port 5433 (the dev database port).
 
 **Fix:**
 ```python
-# Use port 5432 if using Docker image
-db_url = "asyncpg://user:pass@localhost:5432/graphrag"
+# The dev database listens on 127.0.0.1:5433
+db_url = "postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
 
-# Or check if PostgreSQL is running
-sudo systemctl status postgresql
+# Start it with
+# docker compose -f docker-compose.dev.yml up -d
 ```
 
 ---
@@ -93,22 +93,36 @@ await Chunk.create(embedding=[0.1] * 1536)  # 1536 dimensions
 
 **Error:**
 ```
-psycopg2.errors.InvalidParameterValue: tablessample method "ivfflat" is not yet supported
+psycopg2.errors.InvalidParameterValue: tablesample method "ivfflat" is not yet supported
 ```
 
-**Cause:** IVFFlat index requires data to exist first.
+**Cause:** An `IVFFlatIndex` was declared on a table before any rows existed.
+pgvector's IVFFlat index has no support for empty tables — the underlying
+`CREATE INDEX` is rejected.
 
-**Fix:**
+**Fix:** create the table, load data, then create the index in a later step:
+
 ```python
 # Insert data first
 await Entity.bulk_create([...])
 
 # Then create index
 await connections.get("default").execute_query("""
-    CREATE INDEX ivfflat_entities_embedding 
-    ON entities USING ivfflat (embedding vector_cosine_ops) 
+    CREATE INDEX ivfflat_entities_embedding
+    ON entities USING ivfflat (embedding vector_cosine_ops)
     WITH (lists = 100);
 """)
+```
+
+If the index already exists and you still see this error, drop it first
+(`DROP INDEX IF EXISTS ivfflat_entities_embedding`), load the data, then
+re-create the index.
+
+**Search-time note:** IVFFlat recall improves by raising `ivfflat.probes`
+(analogous to `hnsw.ef_search`):
+
+```sql
+SET ivfflat.probes = 10;
 ```
 
 ---
@@ -126,7 +140,7 @@ asyncpg.exceptions.ConnectionPoolTimeoutError: Timed out while acquiring connect
 ```python
 # Increase pool size
 await Tortoise.init(
-    db_url="asyncpg://user:pass@localhost:5432/graphrag?min_size=10&max_size=50",
+    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended?min_size=10&max_size=50",
     modules={"models": ["myapp.models"]},
 )
 
@@ -154,15 +168,18 @@ asyncpg.exceptions.QueryCanceledError: query canceled due to user request
 ```python
 # Add LIMIT
 entities = await Entity.filter(
-    embedding__cosine_distance=([query_vec, 0.5])
+    embedding__cosine_distance=[[query_vec], 0.5]
 ).order_by("embedding__cosine_distance").limit(10)
 
 # Add index
 await connections.get("default").execute_query("""
-    CREATE INDEX hnsw_entities_embedding 
-    ON entities USING hnsw (embedding vector_cosine_ops) 
+    CREATE INDEX hnsw_entities_embedding
+    ON entities USING hnsw (embedding vector_cosine_ops)
     WITH (m = 32, ef_construction = 400);
 """)
+
+# Tune search-time parameters (per session)
+await connections.get("default").execute_query("SET hnsw.ef_search = 100")
 ```
 
 ---
@@ -182,13 +199,13 @@ MemoryError: Unable to allocate array
 async def paginated_search(query_vec, page: int = 1, page_size: int = 10):
     offset = (page - 1) * page_size
     return await Entity.filter(
-        embedding__cosine_distance=([query_vec, 0.5])
+        embedding__cosine_distance=[[query_vec], 0.5]
     ).order_by("embedding__cosine_distance").offset(offset).limit(page_size)
 
 # Or use streaming
 async def streaming_search(query_vec):
     async for entity in Entity.filter(
-        embedding__cosine_distance=([query_vec, 0.5])
+        embedding__cosine_distance=[[query_vec], 0.5]
     ).order_by("embedding__cosine_distance"):
         yield entity
 ```
@@ -221,6 +238,36 @@ metadata = json.dumps({"id": uuid_obj}, cls=UUIDEncoder)
 
 ---
 
+### Library Import Errors
+
+**Error:**
+```
+ModuleNotFoundError: No module named 'tortoise_extended.models'
+ModuleNotFoundError: No module named 'tortoise_extended.backends.client'
+ModuleNotFoundError: No module named 'tortoise_extended.expressions.graph_functions'
+```
+
+**Cause:** The README / earlier drafts referenced a module layout
+(`models.py`, `backends/client.py`, `expressions/graph_functions.py`) that
+does not exist. The current layout is:
+
+- `tortoise_extended.fields` — `VectorField`, `LTreeField`
+- `tortoise_extended.indexes` — `HNSWIndex`, `IVFFlatIndex`, `GiSTIndex`
+- `tortoise_extended.expressions` — `RecursiveCTE`, `GraphTraversal`,
+  `HybridSearch`, `shortest_path`, `all_paths`, `find_cycles`
+- `tortoise_extended.graph` — `GraphNode`, `GraphEdge`, `HierarchyModel`
+- `tortoise_extended.timescale` — `HypertableManager`, `EventStreamMixin`, ...
+- `tortoise_extended.cache` — `RedisCache`, `CacheableModel`, `CachedQuerySet`
+- `tortoise_extended.migrations.operations` — `CreateHypertable`, ...
+
+**Fix:** import from the actual modules, or use the top-level re-exports:
+
+```python
+from tortoise_extended import VectorField, HNSWIndex, HybridSearch, shortest_path
+```
+
+---
+
 ### Migration Error
 
 **Error:**
@@ -234,7 +281,7 @@ aerich.errors.SchemaError: Table 'entities' already exists
 ```python
 # Skip schema generation
 await Tortoise.init(
-    db_url="asyncpg://user:pass@localhost:5432/graphrag",
+    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended",
     modules={"models": ["myapp.models"]},
     generate_schemas=False,  # Don't create tables
 )
@@ -275,7 +322,7 @@ profiler.enable()
 
 # Your code here
 results = await Entity.filter(
-    embedding__cosine_distance=([query_vec, 0.5])
+    embedding__cosine_distance=[[query_vec], 0.5]
 ).order_by("embedding__cosine_distance").limit(10)
 
 profiler.disable()
@@ -349,7 +396,7 @@ print(f"Free connections: {pool.get_idle_size()}")
 2. **Increase pool size:**
    ```python
    await Tortoise.init(
-       db_url="asyncpg://user:pass@localhost:5432/graphrag?min_size=10&max_size=50",
+       db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended?min_size=10&max_size=50",
        modules={"models": ["myapp.models"]},
    )
    ```
@@ -357,7 +404,7 @@ print(f"Free connections: {pool.get_idle_size()}")
 3. **Add connection timeout:**
    ```python
    await Tortoise.init(
-       db_url="asyncpg://user:pass@localhost:5432/graphrag?timeout=30",
+       db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended?timeout=30",
        modules={"models": ["myapp.models"]},
    )
    ```

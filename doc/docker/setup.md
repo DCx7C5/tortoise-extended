@@ -46,7 +46,7 @@ import tortoise_extended
 from tortoise import Tortoise
 
 await Tortoise.init(
-    db_url="asyncpg://<user>:<password>@127.0.0.1:5433/<db>",
+    db_url="postgres://<user>:<password>@127.0.0.1:5433/<db>",
     modules={"models": ["myapp.models"]},
 )
 ```

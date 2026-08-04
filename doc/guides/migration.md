@@ -57,7 +57,7 @@ similar = sorted(chunks, key=lambda c: cosine_similarity(query_vec, c.embedding)
 
 # After (pgvector queries)
 chunks = await Chunk.filter(
-    embedding__cosine_distance=([query_vec, 0.5])
+    embedding__cosine_distance=[[query_vec], 0.5]
 ).order_by("embedding__cosine_distance").limit(10)
 ```
 
@@ -65,10 +65,10 @@ chunks = await Chunk.filter(
 
 ```python
 # Before
-db_url = "asyncpg://user:pass@localhost:5432/mydb"
+db_url = "postgres://user:pass@localhost:5432/mydb"
 
-# After (if using Docker image)
-db_url = "asyncpg://user:pass@localhost:5432/graphrag"
+# After (dev database from docker-compose.dev.yml)
+db_url = "postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
 ```
 
 ## From tortoise-embeddings
@@ -190,9 +190,9 @@ driver = GraphDatabase.driver(uri, auth=(user, password))
 with driver.session() as session:
     # Export nodes
     nodes = session.run("MATCH (n) RETURN n")
-    
+
     # Export relationships
-    rels = session.run("MATCH (r)-[r]->(b) RETURN a, r, b")
+    rels = session.run("MATCH (a)-[r]->(b) RETURN a, r, b")
 ```
 
 ### Step 2: Import to PostgreSQL
@@ -237,6 +237,12 @@ result = await connections.get("default").execute_query("""
 ```
 
 ## From Apache AGE
+
+> **Note:** tortoise-extended deliberately does **not** integrate Apache AGE —
+> the graph layer is built on plain PostgreSQL tables + recursive CTEs
+> (see `doc/architecture/design-decisions.md`). There is nothing to uninstall;
+> you simply keep using PostgreSQL and migrate your Cypher queries to the
+> QuerySet / `GraphTraversal` API.
 
 ### Step 1: Export from AGE
 
@@ -288,7 +294,7 @@ result = await connections.get("default").execute_query("""
 pip install aerich
 
 # Initialize
-aerich init --db-url asyncpg://user:pass@localhost:5432/graphrag
+aerich init --db-url postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended
 
 # Generate migration
 aerich migrate --name add_vector_fields
@@ -329,7 +335,7 @@ from myapp.models import Entity
 @pytest.fixture(autouse=True)
 async def setup_db():
     await Tortoise.init(
-        db_url="asyncpg://user:pass@localhost:5432/test",
+        db_url="postgres://user:pass@localhost:5432/test",
         modules={"models": ["myapp.models"]},
     )
     await Tortoise.generate_schemas()
@@ -400,9 +406,9 @@ CREATE EXTENSION IF NOT EXISTS vector;
 ### Port Conflict
 
 ```python
-# Error: Connection refused on port 5432
-# Use port 5432 if using Docker image
-db_url = "asyncpg://user:pass@localhost:5432/graphrag"
+# Error: Connection refused on port 5433
+# The dev database listens on 127.0.0.1:5433
+db_url = "postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
 ```
 
 ### Dimension Mismatch

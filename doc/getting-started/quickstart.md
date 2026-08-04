@@ -5,7 +5,8 @@ This guide walks you through setting up tortoise-extended and performing your fi
 ## 1. Start the Database
 
 ```bash
-docker run -d --name graphrag-db -p 5432:5432 tortoise-extended-pg
+cp .env.example .env   # configure POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+docker compose -f docker-compose.dev.yml up -d
 ```
 
 Or connect to an existing PostgreSQL instance with pgvector + ltree + TimescaleDB enabled.
@@ -24,7 +25,7 @@ from myapp.models import Entity, Relationship, TextUnit
 
 async def main():
     await Tortoise.init(
-        db_url="asyncpg://postgres:postgres@localhost:5432/graphrag",
+        db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended",
         modules={"models": ["myapp.models"]},
     )
     await Tortoise.generate_schemas()
@@ -53,12 +54,12 @@ async def vector_search():
 
     # Cosine similarity
     entities = await Entity.filter(
-        embedding__cosine_distance=([query_embedding, 0.5])
+        embedding__cosine_distance=[[query_embedding], 0.5]
     ).order_by("embedding__cosine_distance").limit(10)
 
     # L2 distance
     entities = await Entity.filter(
-        embedding__l2_distance=([query_embedding, 0.3])
+        embedding__l2_distance=[[query_embedding], 0.3]
     ).order_by("embedding__l2_distance").limit(10)
 
     return entities

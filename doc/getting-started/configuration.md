@@ -11,7 +11,7 @@ tortoise_extended.patch()  # Explicitly apply monkey-patches (idempotent)
 from tortoise import Tortoise
 
 await Tortoise.init(
-    db_url="asyncpg://user:pass@localhost:5432/graphrag",
+    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended",
     modules={"models": ["myapp.models"]},
 )
 ```
@@ -20,7 +20,7 @@ await Tortoise.init(
 
 ```python
 await Tortoise.init(
-    db_url="asyncpg://user:pass@localhost:5432/graphrag",
+    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended",
     modules={"models": ["myapp.models"]},
     # Optional: generate schemas (creates tables if they don't exist)
     # generate_schemas=True,
@@ -32,37 +32,40 @@ await Tortoise.init(
 The `db_url` parameter follows this format:
 
 ```
-asyncpg://username:password@host:port/database_name
+postgres://username:password@host:port/database_name
 ```
 
 ### Examples
 
 ```python
 # Local development (Docker)
-db_url = "asyncpg://postgres:postgres@localhost:5432/graphrag"
+db_url = "postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
 
 # Remote PostgreSQL
-db_url = "asyncpg://myuser:mypass@db.example.com:5432/graphrag"
+db_url = "postgres://myuser:mypass@db.example.com:5432/mydb"
 
 # With SSL
-db_url = "asyncpg://user:pass@host:5432/graphrag?ssl=require"
+db_url = "postgres://user:pass@host:5432/mydb?ssl=require"
 
 # With connection pool
-db_url = "asyncpg://user:pass@host:5432/graphrag?min_size=5&max_size=20"
+db_url = "postgres://user:pass@host:5432/mydb?min_size=5&max_size=20"
 ```
 
 ## Environment Variables
 
 ```bash
 # Database connection
-export GRAPHRAG_DB_URL="asyncpg://user:pass@localhost:5432/graphrag"
+export POSTGRES_USER="postgres"
+export POSTGRES_PASSWORD="postgres"
+export POSTGRES_DB="tortoise_extended"
+# Optional: full Tortoise DB URL (overrides the three vars above)
+export DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
 
-# Vector dimensions
-export GRAPHRAG_VECTOR_DIM=1536
+# Redis cache
+export REDIS_URL="redis://localhost:6379/0"
 
-# Search parameters
-export GRAPHRAG_DEFAULT_M=16
-export GRAPHRAG_DEFAULT_EF=200
+# Default vector dimension for quickstart models
+export PGVECTOR_SEARCH_DIM=1536
 ```
 
 ## Schema Generation
@@ -76,7 +79,7 @@ await Tortoise.generate_schemas()
 
 ```python
 await Tortoise.init(
-    db_url="asyncpg://user:pass@localhost:5432/graphrag?min_size=5&max_size=20",
+    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended?min_size=5&max_size=20",
     modules={"models": ["myapp.models"]},
 )
 ```

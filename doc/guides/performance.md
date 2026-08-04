@@ -23,13 +23,13 @@ entities = await Entity.all()
 
 # Good: LIMIT + vector filter
 entities = await Entity.filter(
-    embedding__cosine_distance=([query_vec, 0.5])
+    embedding__cosine_distance=[[query_vec], 0.5]
 ).order_by("embedding__cosine_distance").limit(10)
 
 # Better: Type filter + vector filter
 entities = await Entity.filter(
     type="TECHNOLOGY",
-    embedding__cosine_distance=([query_vec, 0.5])
+    embedding__cosine_distance=[[query_vec], 0.5]
 ).order_by("embedding__cosine_distance").limit(10)
 ```
 
@@ -115,15 +115,17 @@ REFRESH MATERIALIZED VIEW entity_neighbors;
 ### Query Patterns
 
 ```python
-# Bad: Multiple queries
+# Bad: Multiple queries per node
 entity = await Entity.get(title="Python")
-outgoing = await entity.outgoing.all()
-incoming = await entity.incoming.all()
+outgoing = await Relationship.outgoing(source_id=entity.id).all()
+incoming = await Relationship.incoming(target_id=entity.id).all()
 
-# Good: Single query with select_related
-entity = await Entity.get(title="Python")
-outgoing = await entity.outgoing.all().select_related("target")
-incoming = await entity.incoming.all().select_related("source")
+# Good: eager-load the related node in a single batch
+from tortoise.query_utils import Prefetch
+
+nodes = await Entity.all().prefetch_related(
+    Prefetch("relationships", queryset=Relationship.all().select_related("target"))
+)
 ```
 
 ## Connection Pool Tuning
@@ -141,7 +143,7 @@ incoming = await entity.incoming.all().select_related("source")
 
 ```python
 await Tortoise.init(
-    db_url="asyncpg://user:pass@localhost:5432/graphrag"
+    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
     "?min_size=5"
     "&max_size=20"
     "&timeout=60"
@@ -161,17 +163,17 @@ print(f"Free: {pool.get_idle_size()}")
 
 ## Query Optimization
 
-### Index Hints
+### Index Usage
 
 ```python
-# Force index usage
-sql = """
-    SELECT /*+ IndexScan(entities ix_entities_title) */
-        id, title, type
-    FROM entities
-    WHERE title ILIKE $1
-"""
+# Verify the planner uses the index instead of a sequential scan
+sql = "EXPLAIN ANALYZE SELECT * FROM entities WHERE type = 'TECHNOLOGY'"
+result = await connections.get("default").execute_query(sql, [])
+print(result[1])
 ```
+
+Indexes are declared on the model (`Meta.indexes`) or via raw DDL; PostgreSQL
+picks them automatically when the query shape matches.
 
 ### Query Analysis
 
@@ -188,37 +190,39 @@ LIMIT 10;
 ### Caching
 
 ```python
-# Use the Redis cache backend from tortoise-extended
-from tortoise_extended import RedisCache, CacheableModel, cached
+# Initialize Redis once at startup
+from tortoise import Tortoise, fields, models
+from tortoise_extended import RedisCache, cached
+from tortoise_extended.cache import CacheableModel, CachedQuerySet
 
-# Or use QueryCache model defined in your project
-import hashlib
+await RedisCache.init(url="redis://localhost:6379/0")
+await Tortoise.init(
+    db_url="postgres://user:pass@localhost:5432/db",
+    modules={"models": ["myapp.models"]},
+)
 
-async def cached_search(query: str, embedding: list[float]):
-    # Check cache
-    query_hash = hashlib.sha256(query.encode()).hexdigest()
-    from myapp.models import QueryCache
-    cached_entry = await QueryCache.filter(query_hash=query_hash).first()
-    
-    if cached_entry and cached_entry.hit_count > 0:
-        cached_entry.hit_count += 1
-        await cached.save()
-        return cached.response
-    
-    # Execute search
-    results = await execute_search(query, embedding)
-    
-    # Cache results
-    await QueryCache.create(
-        query_hash=query_hash,
-        query_text=query,
-        response=results,
-        embedding=embedding,
-        hit_count=1,
-    )
-    
-    return results
+# Model-level cache (CacheableModel) — auto-invalidated on save/delete
+class Entity(CacheableModel, models.Model):
+    _cache_ttl = 600
+    title = fields.CharField(max_length=512)
+
+    class Meta:
+        table = "entities"
+
+entity = await Entity.get_cached(id="uuid-here")
+
+# Query-level cache (CachedQuerySet — a drop-in QuerySet subclass)
+from tortoise_extended.cache import CachedQuerySet
+
+rows = await CachedQuerySet(Event).filter(kind="click").cache(ttl=300)
+
+# Function-level cache
+@cached(ttl=300)
+async def search(query: str):
+    return await execute_search(query)
 ```
+
+See [Cache (Redis)](../api/cache.md) for the full API.
 
 ## Batch Processing
 
@@ -242,7 +246,7 @@ import asyncio
 async def parallel_search(query_embeddings: list[list[float]]):
     async def search_single(embedding):
         return await Entity.filter(
-            embedding__cosine_distance=([embedding, 0.5])
+            embedding__cosine_distance=[[embedding], 0.5]
         ).order_by("embedding__cosine_distance").limit(10)
     
     # Execute in parallel
@@ -284,7 +288,7 @@ async def profile_search():
     
     # Execute search
     results = await Entity.filter(
-        embedding__cosine_distance=([query_vec, 0.5])
+        embedding__cosine_distance=[[query_vec], 0.5]
     ).order_by("embedding__cosine_distance").limit(10)
     
     profiler.disable()
@@ -337,7 +341,7 @@ class Chunk(models.Model):
 ```python
 # Increase pool size
 await Tortoise.init(
-    db_url="asyncpg://user:pass@localhost:5432/graphrag?min_size=10&max_size=50",
+    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended?min_size=10&max_size=50",
     modules={"models": ["myapp.models"]},
 )
 ```
