@@ -268,7 +268,7 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
 | G27 | ✅ FIXED | `expressions/graph_traversal.py`, `pathfinding.py` | `_et_clause` helper duplicated verbatim. | Shared `et_clause` extracted to `expressions/_edge_filter.py`; all three callers (`graph_traversal`, `pathfinding`, `graph_vector_search`) import it |
 | G28 | ✅ FIXED | whole repo | `orjson`/`ciso8601`/`uvloop` auto-use claims have **zero** usage anywhere — remove claims (AGENTS.md lists them). | Resolved with no code change (2026-08-04): zero claims in repo AGENTS.md and zero usage in `src/` — claims existed only in agent-prompt boilerplate |
 | G29 | INFO | roadmap | Python 3.14 offers `uuid.uuid7`, `asyncio.timeout`, `TaskGroup`; planned auth kit (`scrypt`/`pbkdf2_hmac`) must run in `asyncio.to_thread` (sync CPU-bound blocks the loop). | Fold into Tier 1b/4 implementation |
-| G30 | INFO | infra | Docker PG (5433)/Redis (6380) down during audit → `test_pg_integration.py` unrun; the 664-pass suite is SQLite-backed only. | Start docker stack; run PG suite before shipping |
+| G30 | ✅ FIXED | infra | Docker PG (5433)/Redis (6380) down during audit → `test_pg_integration.py` unrun; the 664-pass suite is SQLite-backed only. | Docker stack started; `tests/test_pg_integration.py` now runs and passes (40 tests) against live PG 18 + pgvector + TimescaleDB on 5433; live-Redis smoke test added and passing on 6380 (2026-08-04) |
 | DISPUTED | — | `doc/guides/migration.md:60` | One auditor claimed `=[[query_vec], 0.5]` is wrong. **Rejected:** tests (`test_pg_integration.py`) and runtime (`graph_filters.py:183` `isinstance(value[0], list)`) both require `[[vec], threshold]`. | No change |
 
 ### Roadmap impact
