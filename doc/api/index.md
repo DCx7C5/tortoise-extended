@@ -13,7 +13,7 @@ Complete API documentation for all tortoise-extended modules.
 - **[Graph Vector Search](graph-vector-search.md)** — single-query vector + graph compositor with typed results
 - **[Pathfinding](pathfinding.md)** — Shortest path, all paths, cycle detection
 - **[Hybrid Search](hybrid-search.md)** — Vector + FTS weighted scoring
-- **[Graph (Node/Edge/Mixin)](graph.md)** — GraphNode, GraphEdge, HierarchyMixin base classes
+- **[Graph (Node/Edge/Hierarchy)](graph.md)** — GraphNode, GraphEdge, HierarchyModel base classes
 - **[TimescaleDB](timescale.md)** — HypertableManager, CompressionManager, RetentionPolicy, ContinuousAggregateManager
 - **[Event Streams](event-streams.md)** — EventStreamMixin: multi-stream hypertables, COPY ingestion, typed rollups
 - **[Cache (Redis)](cache.md)** — RedisCache, CacheableModel, CachedQuerySet, decorators

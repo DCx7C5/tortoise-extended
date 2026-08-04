@@ -56,13 +56,15 @@ cte.union(query: PostgreSQLQuery) -> RecursiveCTE
 
 ### build()
 
-Build the final SQL string.
+Build the final query.
 
 ```python
-cte.build() -> RawSQL
+cte.build() -> QueryBuilder
 ```
 
-**Returns:** `RawSQL` containing the complete CTE
+**Returns:** a pypika `QueryBuilder` — wrap with `str()` to get the
+`WITH RECURSIVE <name> AS (...)` SQL, or pass it directly to a raw query.
+Raises `RecursiveCTEError` if no anchor query was set.
 
 ## Usage
 
@@ -176,10 +178,11 @@ cte = (
 # Filter to target
 sql = f"""
     SELECT * FROM ({str(cte)}) sub
-    WHERE sub.id = %s
+    WHERE sub.id = $1
     ORDER BY sub.depth
     LIMIT 1
 """
+results = await connections.get("default").execute_query(sql, [target_id])
 ```
 
 ### Weighted Traversal

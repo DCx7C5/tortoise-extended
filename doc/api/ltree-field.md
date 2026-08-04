@@ -51,15 +51,17 @@ class Category(models.Model):
 ### Query with ltree Operators
 
 ```python
-# Find descendants (path <@ given path)
-ancestors = await Category.filter(
+# Descendants: paths that live under a given path (path <@ given path)
+descendants = await Category.filter(
     path__descendant_of="electronics.laptops"
 )
+# => rows whose path is a descendant of electronics.laptops, e.g. electronics.laptops.macbook
 
-# Find ancestors (path @> given path)
-descendants = await Category.filter(
-    path__ancestor_of="electronics"
+# Ancestors: paths that contain a given path (path @> given path)
+ancestors = await Category.filter(
+    path__ancestor_of="electronics.laptops.macbook"
 )
+# => rows whose path is an ancestor of electronics.laptops.macbook, e.g. electronics
 
 # Pattern match (path ~ lquery)
 matches = await Category.filter(

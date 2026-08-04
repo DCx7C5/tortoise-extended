@@ -5,7 +5,7 @@ Combined vector similarity + full-text search with weighted scoring.
 ## Import
 
 ```python
-from tortoise_extended.expressions.hybrid_search import HybridSearch
+from tortoise_extended import HybridSearch
 ```
 
 ## Constructor
@@ -42,10 +42,10 @@ await search.search(
     query_text: str | None = None,
     max_results: int = 20,
     min_distance: float | None = None,
-) -> list[dict]
+) -> list[RowMapping]
 ```
 
-Execute hybrid search. Returns list of dicts with model fields + score metadata.
+Execute hybrid search. Returns list of row dicts with model fields + score metadata.
 
 **Return fields:** All model columns + `distance`, `text_score`, `combined_score`.
 
@@ -53,7 +53,7 @@ Execute hybrid search. Returns list of dicts with model fields + score metadata.
 
 ```python
 from myapp.models import Entity
-from tortoise_extended.expressions.hybrid_search import HybridSearch
+from tortoise_extended import HybridSearch
 
 search = HybridSearch(
     model=Entity,

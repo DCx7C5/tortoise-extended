@@ -5,7 +5,7 @@ BFS-based shortest path, all paths, and cycle detection via recursive CTE.
 ## Import
 
 ```python
-from tortoise_extended.expressions.pathfinding import shortest_path, all_paths, find_cycles
+from tortoise_extended import shortest_path, all_paths, find_cycles
 ```
 
 ---
@@ -20,10 +20,10 @@ await shortest_path(
     to_id: Any,
     max_hops: int = 6,
     edge_type: str | None = None,
-) -> list[dict] | None
+) -> list[RowMapping] | None
 ```
 
-Find shortest path between two nodes. Returns list of node dicts or None.
+Find shortest path between two nodes. Returns list of row dicts or None.
 
 ```python
 path = await shortest_path(
@@ -47,7 +47,7 @@ await all_paths(
     max_hops: int = 6,
     max_paths: int = 10,
     edge_type: str | None = None,
-) -> list[list[dict]]
+) -> list[list[RowMapping]]
 ```
 
 Find all paths between two nodes (up to `max_paths`). Ordered by length.
@@ -74,10 +74,10 @@ await find_cycles(
     edge_model: type,
     max_depth: int = 10,
     edge_type: str | None = None,
-) -> list[list[dict]]
+) -> list[list[RowMapping]]
 ```
 
-Detect cycles in the graph. Returns list of cycles (each a list of node dicts).
+Detect cycles in the graph. Returns list of cycles (each a list of row dicts).
 
 ```python
 cycles = await find_cycles(Entity, Relationship, max_depth=5)

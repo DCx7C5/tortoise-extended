@@ -8,7 +8,7 @@ builtin exceptions. Every error derives from a single base type,
 from tortoise_extended import TortoiseExtendedError
 
 try:
-    await CachedQuerySet(...).aall()
+    entity = await Entity.get(id=42)
 except TortoiseExtendedError as exc:
     logger.warning("Extension error: %s", exc)
 ```

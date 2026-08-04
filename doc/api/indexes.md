@@ -185,8 +185,9 @@ WITH (lists = 100);
 ### Requirements
 
 - Data must exist before index creation
-- If table is empty, index creation will fail
-- Use `CREATE INDEX ... AFTER` pattern for new tables
+- If the table is empty, index creation will fail
+- Create the table, load data, then create the IVFFlat index (via a later
+  migration or a startup `CREATE INDEX IF NOT EXISTS` statement)
 
 ### Performance
 
@@ -194,6 +195,57 @@ WITH (lists = 100);
 - **Query time:** O(n/lists + lists)
 - **Memory:** O(n × sizeof(float))
 - **Recall:** 90-95% with proper lists
+
+---
+
+## GiSTIndex
+
+GiST (Generalized Search Tree) index for PostgreSQL `ltree` columns. This is
+the index required for the ltree operators (`@>`, `<@`, `~`, `?@>`, `?<@`) —
+without it, ancestor/descendant path queries fall back to sequential scans.
+
+### Import
+
+```python
+from tortoise_extended import GiSTIndex
+```
+
+### Constructor
+
+```python
+GiSTIndex(
+    fields: tuple[str, ...],
+    name: str | None = None,
+)
+```
+
+### Usage
+
+```python
+from tortoise import fields, models
+from tortoise_extended import LTreeField, GiSTIndex
+
+class Category(models.Model):
+    name = fields.CharField(max_length=100)
+    path = LTreeField(max_length=1024)
+
+    class Meta:
+        table = "categories"
+        indexes = [GiSTIndex(fields=("path",))]
+```
+
+### Generated DDL
+
+```sql
+CREATE INDEX "gist_categories_path" ON categories USING gist (path);
+```
+
+`HierarchyModel` already declares `GiSTIndex(fields=("path",))` on its
+abstract `Meta` — subclass it instead of re-declaring the index.
+
+### Requirements
+
+- PostgreSQL + `CREATE EXTENSION IF NOT EXISTS ltree;`
 
 ---
 

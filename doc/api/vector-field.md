@@ -13,7 +13,7 @@ from tortoise_extended import VectorField
 ```python
 VectorField(
     dimensions: int | None = None,
-    null: bool = True,
+    null: bool = False,
     default: Any = None,
     description: str | None = None,
 )
@@ -24,7 +24,7 @@ VectorField(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `dimensions` | `int \| None` | `None` | Number of vector dimensions |
-| `null` | `bool` | `True` | Allow NULL values |
+| `null` | `bool` | `False` | Allow NULL values |
 | `default` | `Any` | `None` | Default value |
 | `description` | `str \| None` | `None` | Column comment |
 
@@ -98,12 +98,12 @@ query_vec = [0.1, 0.2, 0.3, ...]
 
 # Cosine similarity
 chunks = await Chunk.filter(
-    embedding__cosine_distance=([query_vec, 0.5])
+    embedding__cosine_distance=[[query_vec], 0.5]
 ).order_by("embedding__cosine_distance").limit(10)
 
 # L2 distance
 chunks = await Chunk.filter(
-    embedding__l2_distance=([query_vec, 0.3])
+    embedding__l2_distance=[[query_vec], 0.3]
 ).order_by("embedding__l2_distance").limit(10)
 ```
 
@@ -136,7 +136,7 @@ embedding = chunk.embedding  # list[float], decoded from memoryview
 When stored in PostgreSQL, vectors use pgvector's binary format:
 
 ```
-Bytes 0-3:   Header (0x00000000)
+Bytes 0-3:   Dimension count (uint32 little-endian)
 Bytes 4-7:   Float32 dimension 0
 Bytes 8-11:  Float32 dimension 1
 ...
@@ -181,6 +181,6 @@ except Exception as e:
 
 - Vectors are stored as NULL if not provided
 - Empty vectors (`[]`) are not allowed
-- Maximum dimensions depends on pgvector version (8192 for pgvector 0.5+)
+- Maximum dimensions depends on pgvector version (16000 for 0.7+; 8192 for 0.5/0.6)
 - HNSW index creation requires `vector_cosine_ops` or similar operator class
 - IVFFlat requires data to exist before index creation

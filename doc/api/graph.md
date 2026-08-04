@@ -129,50 +129,64 @@ any_edge = await Relationship.between_any(node1.id)
 
 ---
 
-## HierarchyMixin
+## HierarchyModel
 
-Mixin providing tree operations for models with `LTreeField` path.
+Abstract base class providing tree operations over a PostgreSQL `LTreeField`
+materialized path. It extends `Model` directly and declares **all** of its own
+fields — subclass it and add only your extra columns.
 
-### Requirements
+### Declared Fields
 
-- Model must have `path: LTreeField` field
-- Model must have `name: CharField` field
-- Model must have `parent_id` and `depth` fields (from `GraphNode` or manual)
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `BigIntField` | Primary key |
+| `path` | `LTreeField(1024)` | Materialized path (`"root.parent.child"`) |
+| `name` | `CharField(255)` | Node name (must equal the last path component) |
+| `parent_id` | `BigIntField(null=True, index=True)` | Parent node id (NULL for roots) |
+| `depth` | `IntField(default=0)` | Denormalized depth (root=0) |
+| `namespace` | `CharField(100, default="default", index=True)` | Multi-tenant partition key |
+| `created_at` | `DatetimeField(auto_now_add=True)` | Created timestamp |
+| `updated_at` | `DatetimeField(auto_now=True)` | Updated timestamp |
+
+The abstract `Meta` also adds `GiSTIndex(path)` and the composite
+`(namespace, depth)` / `(parent_id, depth)` indexes.
 
 ### Methods
 
+QuerySet-returning helpers are **sync** and Tortoise QuerySets are awaitable,
+so `await node.get_ancestors()` executes the query:
+
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `get_ancestors(include_self?)` | `QuerySet` | All ancestors via ltree |
-| `get_descendants(include_self?)` | `QuerySet` | All descendants via ltree |
+| `get_ancestors(include_self=False)` | `QuerySet` | All ancestors via ltree |
+| `get_descendants(include_self=False)` | `QuerySet` | All descendants via ltree |
 | `get_children()` | `QuerySet` | Direct children (one level) |
-| `get_siblings(include_self?)` | `QuerySet` | Siblings (same parent) |
-| `get_root()` | `Model \| None` | Root node of this tree |
-| `get_path_to_root()` | `list` | Nodes from root to this node |
-| `move_to(new_parent)` | `None` | Move subtree to new parent |
-| `validate_hierarchy()` | `list[str]` | Integrity check (errors list) |
+| `get_siblings(include_self=False)` | `QuerySet` | Siblings (same parent) |
+| `get_root()` | `Model \| None` | Root node of this tree (async) |
+| `get_path_to_root()` | `list` | Nodes from root to this node (async) |
+| `move_to(new_parent)` | `None` | Move subtree to new parent (async, atomic) |
+| `validate_hierarchy()` | `list[str]` | Integrity check — list of errors (async) |
 
 ### Usage
 
 ```python
 from tortoise import fields, models
-from tortoise_extended import LTreeField, HierarchyModel, GraphNode
+from tortoise_extended import HierarchyModel
 
 
-class Category(HierarchyModel, GraphNode, models.Model):
-    path = LTreeField(max_length=1024)
+class Category(HierarchyModel):
     description = fields.TextField(default="")
 
     class Meta:
         table = "categories"
 
 
-# Create hierarchy
-root = await Category.create(name="Electronics", path="electronics", is_root=True, depth=0)
-laptops = await Category.create(name="Laptops", path="electronics.laptops", parent_id=root.id, depth=1)
-macbook = await Category.create(name="MacBook", path="electronics.laptops.macbook", parent_id=laptops.id, depth=2)
+# Create hierarchy (fields are inherited — no manual path/name/depth setup)
+root = await Category.create(name="Electronics", path="electronics")
+laptops = await Category.create(name="Laptops", path="electronics.laptops", parent_id=root.id)
+macbook = await Category.create(name="MacBook", path="electronics.laptops.macbook", parent_id=laptops.id)
 
-# Query ancestors
+# Query ancestors (awaitable QuerySet)
 ancestors = await macbook.get_ancestors()
 # => [root, laptops]
 
@@ -181,7 +195,7 @@ descendants = await root.get_descendants()
 # => [laptops, macbook]
 
 # Move subtree
-phones = await Category.create(name="Phones", path="electronics.phones", parent_id=root.id, depth=1)
+phones = await Category.create(name="Phones", path="electronics.phones", parent_id=root.id)
 await macbook.move_to(phones)
 # macbook.path = "electronics.phones.macbook"
 
@@ -193,5 +207,5 @@ errors = await root.validate_hierarchy()
 
 - `GraphNode` and `GraphEdge` are abstract — subclass them for concrete models
 - QuerySet-returning methods on `GraphEdge` are sync (not async) — they return lazy QuerySets
-- `HierarchyMixin.move_to()` updates all descendant paths atomically
+- `HierarchyModel.move_to()` updates all descendant paths atomically
 - Use `namespace` field for multi-tenant graph isolation
