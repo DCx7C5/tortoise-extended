@@ -13,6 +13,7 @@ from collections.abc import AsyncGenerator
 
 import pytest
 from tortoise import Tortoise, fields
+from tortoise.exceptions import OperationalError
 from tortoise.models import Model
 
 import tortoise_extended  # noqa: F401 — apply patches
@@ -114,6 +115,31 @@ class StreamEvent(EventStreamMixin):
         table = "test_stream_events"
 
 
+class AutoStreamEvent(EventStreamMixin):
+    """G9 — stream model with ``auto_now_add`` and a ``db_default``-only field."""
+
+    id = fields.BigIntField(primary_key=True)
+    created_at = fields.DatetimeField(auto_now_add=True, use_tz=True)
+    stream_id = fields.IntField()
+    value = fields.FloatField()
+    kind = fields.CharField(max_length=20, db_default="event")
+
+    class Meta:
+        table = "test_auto_stream_events"
+
+
+AUTO_STREAM_DDL = """
+    CREATE TABLE test_auto_stream_events (
+        id BIGINT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        stream_id INT NOT NULL,
+        value DOUBLE PRECISION NOT NULL,
+        kind VARCHAR(20) NOT NULL DEFAULT 'event',
+        PRIMARY KEY (id, created_at, stream_id)
+    )
+"""
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -132,6 +158,7 @@ async def _init_db():
     await conn.execute_query("DROP TABLE IF EXISTS test_events CASCADE")
     await conn.execute_query("DROP TABLE IF EXISTS test_timescale_probe CASCADE")
     await conn.execute_query("DROP TABLE IF EXISTS test_stream_events CASCADE")
+    await conn.execute_query("DROP TABLE IF EXISTS test_auto_stream_events CASCADE")
     await Tortoise.close_connections()
 
 
@@ -627,3 +654,56 @@ class TestEventStream:
             stream_ids=[1],
         ).all()
         assert [e.id for e in rows] == [1]
+
+
+# ---------------------------------------------------------------------------
+# 5b. G9 — bulk_insert default population (auto_now_add / db_default)
+# ---------------------------------------------------------------------------
+
+
+class TestBulkInsertDefaults:
+    """G9 — COPY must populate auto_now_add and omit unset db_default columns."""
+
+    @pytest.fixture(autouse=True)
+    async def _fresh(self) -> AsyncGenerator[None, None]:
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query("DROP TABLE IF EXISTS test_auto_stream_events CASCADE")
+        await conn.execute_query(AUTO_STREAM_DDL)
+        yield
+
+    @pytest.mark.asyncio
+    async def test_bulk_insert_populates_auto_now_add_and_db_default(self) -> None:
+        inserted = await AutoStreamEvent.bulk_insert(
+            [
+                AutoStreamEvent(id=1, stream_id=1, value=1.0),
+                AutoStreamEvent(id=2, stream_id=1, value=2.0),
+            ]
+        )
+        assert inserted == 2
+        rows = await AutoStreamEvent.all().order_by("id")
+        assert len(rows) == 2
+        for row in rows:
+            assert row.created_at is not None  # auto_now_add populated by COPY
+            assert row.kind == "event"  # db_default applied by the server
+
+    @pytest.mark.asyncio
+    async def test_bulk_insert_explicit_db_default_value(self) -> None:
+        inserted = await AutoStreamEvent.bulk_insert(
+            [
+                AutoStreamEvent(id=1, stream_id=1, value=1.0, kind="custom"),
+                AutoStreamEvent(id=2, stream_id=1, value=2.0, kind="custom"),
+            ]
+        )
+        assert inserted == 2
+        rows = await AutoStreamEvent.all().order_by("id")
+        assert {r.kind for r in rows} == {"custom"}
+
+    @pytest.mark.asyncio
+    async def test_bulk_insert_mixed_db_default_raises(self) -> None:
+        with pytest.raises(OperationalError, match="db_default"):
+            await AutoStreamEvent.bulk_insert(
+                [
+                    AutoStreamEvent(id=1, stream_id=1, value=1.0),
+                    AutoStreamEvent(id=2, stream_id=1, value=2.0, kind="custom"),
+                ]
+            )

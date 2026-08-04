@@ -76,7 +76,10 @@ from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast, override
 
 import msgspec
 from tortoise import connections, fields
+from tortoise.exceptions import OperationalError
+from tortoise.fields.base import DatabaseDefault
 from tortoise.models import Model
+from tortoise_extended._quote import quote_ident
 from tortoise_extended._types import LibraryAny, RowMapping
 
 from tortoise_extended.timescale.compression import CompressionManager
@@ -267,8 +270,9 @@ class EventStreamMixin(Model):
 
         index_name = f"{table}_{cls.stream_field}_{cls.time_field}_idx"
         await conn.execute_query(
-            f"CREATE INDEX IF NOT EXISTS {index_name} "
-            f"ON {table} ({cls.stream_field}, {cls.time_field} DESC)"
+            f"CREATE INDEX IF NOT EXISTS {quote_ident(index_name)} "
+            f"ON {quote_ident(table)} "
+            f"({quote_ident(cls.stream_field)}, {quote_ident(cls.time_field)} DESC)"
         )
 
         if cls.compress_after is not None:
@@ -316,6 +320,18 @@ class EventStreamMixin(Model):
         use identity/serial defaults. Use plain ``bulk_create`` when IDs are
         database-generated.
 
+        Field defaults are handled the same way as Tortoise's
+        ``bulk_create``:
+
+        * ``auto_now`` / ``auto_now_add`` — populated from
+          ``DatetimeField.to_db_value`` (the instance is passed through, so a
+          missing timestamp becomes ``now``).
+        * ``db_default``-only fields — a column is **omitted from COPY** when
+          *every* instance leaves it unset (the database applies its
+          default); an :class:`~tortoise.exceptions.OperationalError` is
+          raised when usage is mixed (some instances set, some not) because a
+          single COPY statement cannot represent both.
+
         Args:
             instances: Model instances to insert.
 
@@ -324,6 +340,8 @@ class EventStreamMixin(Model):
 
         Raises:
             ValueError: If any instance lacks a primary key.
+            OperationalError: If a ``db_default`` field is set on some
+                instances but not others.
         """
         if not instances:
             return 0
@@ -349,6 +367,36 @@ class EventStreamMixin(Model):
             for name in fields_map
             if name in cls._meta.db_fields and name not in skip
         ]
+
+        # Mirror Tortoise bulk_create: omit db_default columns that are unset
+        # on every instance (COPY must not bind the DatabaseDefault sentinel),
+        # and refuse mixed usage within a single COPY statement.
+        db_default_fields = [
+            name for name in db_fields if fields_map[name].has_db_default()
+        ]
+        omit_fields: set[str] = set()
+        if db_default_fields:
+            for field_name in db_default_fields:
+                has_default = False
+                has_value = False
+                for inst in instances:
+                    if isinstance(getattr(inst, field_name), DatabaseDefault):
+                        has_default = True
+                    else:
+                        has_value = True
+                    if has_default and has_value:
+                        raise OperationalError(
+                            f"Cannot use bulk_insert() when field {field_name!r} "
+                            f"has db_default and some instances provide explicit "
+                            f"values while others rely on the database default. "
+                            f"Either: (a) set the value explicitly on ALL "
+                            f"instances, (b) omit it from ALL instances to use "
+                            f"the database default, or (c) split into separate "
+                            f"bulk_insert() calls."
+                        )
+                if has_default and not has_value:
+                    omit_fields.add(field_name)
+        db_fields = [name for name in db_fields if name not in omit_fields]
         columns = [_field_db_column(fields_map[name], name) for name in db_fields]
 
         records: list[list[object]] = []
@@ -420,6 +468,10 @@ class EventStreamMixin(Model):
         _ = _table_field(cls, cls.time_field, what="time")
         _ = _table_field(cls, cls.stream_field, what="stream")
 
+        stream_col = quote_ident(cls.stream_field)
+        time_col = quote_ident(cls.time_field)
+        table = quote_ident(cls._meta.db_table)
+
         placeholders: list[object] = []
         where: list[str] = []
         if stream_ids is not None:
@@ -428,20 +480,18 @@ class EventStreamMixin(Model):
             pos = len(placeholders)
             placeholders.extend(stream_ids)
             where.append(
-                f"s.{cls.stream_field} IN ("
+                f"s.{stream_col} IN ("
                 + ", ".join(f"${i + 1}" for i in range(pos, len(placeholders)))
                 + ")"
             )
         if after is not None:
             placeholders.append(after)
-            where.append(f"s.{cls.time_field} >= ${len(placeholders)}")
+            where.append(f"s.{time_col} >= ${len(placeholders)}")
 
-        sql = f"SELECT DISTINCT ON (s.{cls.stream_field}) s.* FROM {cls._meta.db_table} s"
+        sql = f"SELECT DISTINCT ON (s.{stream_col}) s.* FROM {table} s"
         if where:
             sql += " WHERE " + " AND ".join(where)
-        sql += (
-            f" ORDER BY s.{cls.stream_field}, s.{cls.time_field} DESC"
-        )
+        sql += f" ORDER BY s.{stream_col}, s.{time_col} DESC"
         if limit is not None:
             sql += f" LIMIT {int(limit)}"
 
@@ -489,14 +539,19 @@ class EventStreamMixin(Model):
                 )
             _ = _table_field(cls, field, what="aggregate")
 
+        stream_col = quote_ident(cls.stream_field)
+        time_col = quote_ident(cls.time_field)
+        table = quote_ident(cls._meta.db_table)
+        value_col = quote_ident(field) if field is not None else None
+
         placeholders: list[object] = [
             _bucket_to_timedelta(bucket),
             start,
             end,
         ]
         where = [
-            f"s.{cls.time_field} >= $2",
-            f"s.{cls.time_field} < $3",
+            f"s.{time_col} >= $2",
+            f"s.{time_col} < $3",
         ]
         if stream_ids is not None:
             if not stream_ids:
@@ -504,7 +559,7 @@ class EventStreamMixin(Model):
             pos = len(placeholders)
             placeholders.extend(stream_ids)
             where.append(
-                f"s.{cls.stream_field} IN ("
+                f"s.{stream_col} IN ("
                 + ", ".join(f"${i + 1}" for i in range(pos, len(placeholders)))
                 + ")"
             )
@@ -513,21 +568,21 @@ class EventStreamMixin(Model):
             value_sql = "COUNT(*) AS value"
         elif aggregate in ("first", "last"):
             value_sql = (
-                f"{aggregate}(s.{field}, s.{cls.time_field}) AS value"
+                f"{aggregate}(s.{value_col}, s.{time_col}) AS value"
             )
         else:
-            value_sql = f"{aggregate}(s.{field}) AS value"
+            value_sql = f"{aggregate}(s.{value_col}) AS value"
 
         sql = f"""
             SELECT
-                time_bucket($1::interval, s.{cls.time_field}) AS bucket,
-                s.{cls.stream_field} AS stream_id,
+                time_bucket($1::interval, s.{time_col}) AS bucket,
+                s.{stream_col} AS stream_id,
                 {value_sql},
                 COUNT(*) AS count
-            FROM {cls._meta.db_table} s
+            FROM {table} s
             WHERE {" AND ".join(where)}
-            GROUP BY bucket, s.{cls.stream_field}
-            ORDER BY s.{cls.stream_field}, bucket
+            GROUP BY bucket, s.{stream_col}
+            ORDER BY s.{stream_col}, bucket
         """
 
         rows = await _fetch_rows(sql, placeholders)

@@ -60,6 +60,14 @@ class Field(Generic[VALUE]):
     db_default: Any
     pk: bool
 
+    def has_db_default(self) -> bool:
+        """True when the field declares a database-level default."""
+        ...
+
+    def get_db_default_value(self) -> DatabaseDefault:
+        """Return the ``DatabaseDefault`` sentinel for unset db_default fields."""
+        ...
+
     @property
     def constraints(self) -> Mapping[str, object]:
         """DB-level column constraints (covariant Mapping so subclass
