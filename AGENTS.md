@@ -68,19 +68,25 @@ uv build
 ```
 src/tortoise_extended/
 ├── __init__.py              # Public API + monkey-patch application (_apply_patches)
+├── _quote.py                # shared SQL identifier/literal quoting (timescale + migrations)
+├── _types.py                # LibraryAny + shared type aliases
+├── exceptions.py            # exception hierarchy (VectorFieldError, GraphTraversalError, ...)
 ├── fields/
 │   ├── vector_field.py      # VectorField (pgvector vector type, 3 input formats)
 │   └── ltree_field.py       # LTreeField (PostgreSQL ltree type)
 ├── indexes/
 │   ├── hnsw_index.py        # HNSWIndex, IVFFlatIndex (pgvector index DDL)
-│   └── ltree_index.py       # GiSTIndex
+│   ├── ltree_index.py       # GiSTIndex
+│   └── _dialect.py          # shared PostgreSQL-dialect guard for index DDL
 ├── expressions/
 │   ├── recursive_cte.py     # RecursiveCTE builder
 │   ├── graph_filters.py     # L2/Cosine/InnerProduct/Hamming/Jaccard distance operators
 │   ├── graph_traversal.py   # GraphTraversal (ancestors / descendants / neighbors)
+│   ├── graph_vector_search.py  # GraphVectorSearch (graph + vector compositor)
 │   ├── pathfinding.py       # shortest_path, all_paths, find_cycles
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)
-│   └── ltree_filters.py     # ltree query operators
+│   ├── ltree_filters.py     # ltree query operators
+│   └── _edge_filter.py      # shared edge-table filter clause (et_clause)
 ├── graph/
 │   ├── node.py              # GraphNode base
 │   ├── edge.py              # GraphEdge base
@@ -96,6 +102,7 @@ src/tortoise_extended/
 │   └── decorators.py        # cached, cached_method, invalidate
 ├── timescale/
 │   ├── hypertable.py        # HypertableManager
+│   ├── stream.py            # EventStreamMixin, TimeBucketRow (COPY ingestion, rollups)
 │   ├── continuous_aggregate.py  # ContinuousAggregateManager
 │   ├── compression.py       # CompressionManager
 │   └── retention.py         # RetentionPolicy
