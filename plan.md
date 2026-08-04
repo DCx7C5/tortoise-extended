@@ -11,6 +11,9 @@
 1. **Base-model family** (user picks per model, nothing forced):
    - **`BaseModel`** — abstract, `id = BigIntField(primary_key=True)` only.
      Default for internal-only tables (JOIN-fast ints, no extra index).
+     (Tortoise auto-creates `id = IntField(primary_key=True)` when no pk is
+     declared — manual declaration is only needed for a non-default pk
+     type, which is exactly what BigInt pk requires.)
    - **`UnifiedIdModel(BaseModel)`** — adds
      `uid = UUID7Field(unique=True, index=True)`. For models that
      participate in cross-table refs, external lookups, cache keys, or

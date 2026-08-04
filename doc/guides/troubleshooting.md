@@ -247,9 +247,10 @@ ModuleNotFoundError: No module named 'tortoise_extended.backends.client'
 ModuleNotFoundError: No module named 'tortoise_extended.expressions.graph_functions'
 ```
 
-**Cause:** The README / earlier drafts referenced a module layout
-(`models.py`, `backends/client.py`, `expressions/graph_functions.py`) that
-does not exist. The current layout is:
+**Cause:** Those module paths come from earlier drafts and do not exist in
+the current code (the public surface is `tortoise_extended` top-level
+re-exports plus the real submodules below). Importing the old paths raises
+`ModuleNotFoundError`. The current layout is:
 
 - `tortoise_extended.fields` — `VectorField`, `LTreeField`
 - `tortoise_extended.indexes` — `HNSWIndex`, `IVFFlatIndex`, `GiSTIndex`

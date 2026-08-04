@@ -106,9 +106,8 @@ docker/                      # PostgreSQL 18 + pgvector + TimescaleDB, Redis
 doc/                         # user documentation (getting-started, architecture, api, guides, docker)
 ```
 
-> **⚠️ Documentation drift:** `README.md` describes a module layout (`models.py`, `expressions/graph_functions.py`,
-> `backends/client.py`, `backends/schema_generator.py`) that does **not** match the current code.
-> The `src/` tree above is authoritative. When editing docs, align them with the actual modules.
+> **Note:** The `src/` tree above is authoritative and README is kept in
+> sync with it. When editing docs, align them with the actual modules.
 
 ## Code Conventions
 
