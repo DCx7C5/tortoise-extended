@@ -194,6 +194,8 @@ other model.
 - Collision-free across all tables, no shared-sequence coordination.
 
 **G15 reconciliation — unified id is a FIELD on an opt-in base (2026-08-04):**
+- **Pre-1.0, zero users → no migration-compat burden.** Clean breaks are
+  free; design for uniformity, not backward compatibility.
 - **Base-model family, user picks per model** (nothing forced on everyone):
   ```python
   class BaseModel(models.Model):
@@ -214,15 +216,14 @@ other model.
   - `UnifiedIdModel` — models referenced cross-table / externally:
     `uid` is the unified id (graph edges, polymorphic refs, cache keys,
     cross-table lookups; path = alias, not identity).
-- **`GraphNode`/`GraphEdge` keep their UUID pk — it IS the unified id.**
-  No BigInt forced on graph nodes, no breaking migration. `GraphEdge`
-  `source_id`/`target_id` reference the *unified id of the target family*:
-  UUID pk for graph nodes, `uid` for `UnifiedIdModel` rows. Edges therefore
-  link any family (`GraphNode`, `UnifiedIdModel`, `HierarchyModel` opting
-  in) regardless of pk type.
-- **`HierarchyModel` stays `BigIntField`** (internal trees); opt into the
-  shared ID space by deriving `UnifiedIdModel` when cross-tree refs are
-  needed.
+- **`GraphNode(UnifiedIdModel)` / `GraphEdge(UnifiedIdModel)`** — BigInt pk
+  **plus** `uid`; the old UUID pk column becomes `uid`. Edges are uniform:
+  **`source_id`/`target_id` always reference `uid`** (UUID7) — no
+  "depends on target family" polymorphism, and graph nodes gain faster
+  BigInt JOINs consistent with `HierarchyModel`. One-time repo-internal
+  code change only (no shipped data to migrate).
+- **`HierarchyModel(BaseModel)`** stays BigInt pk (internal trees); derive
+  `UnifiedIdModel` when cross-tree refs are needed.
 - **Polymorphic refs** (audit/notifications "on any object"):
   `ref_uid: UUID7Field` + `ref_type: CharField` pair — natural on
   `UnifiedIdModel` rows.
@@ -234,9 +235,9 @@ class UUID7Field(fields.UUIDField):
         # PG18: db_default=SqlDefault("uuidv7()") on postgres backend
 ```
 
-**Upgrades:** no graph-data migration — graph nodes keep UUID pks. Tier-1b
-adds `UUID7Field` + `UnifiedIdModel`; `FileNode` (§B) derives
-`UnifiedIdModel` so `FileLink` edges reference its `uid`.
+**Upgrades:** no shipped data → no migration. Tier-1b adds `UUID7Field` +
+`UnifiedIdModel`, re-points `GraphNode`/`GraphEdge` (UUID pk → uid, BigInt
+pk) and `FileNode` (§B) at it in one repo-internal change.
 
 **Boundaries:**
 - `uid` is opt-in — forcing it on every model is the anti-pattern (extra
