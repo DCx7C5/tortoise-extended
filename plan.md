@@ -225,7 +225,7 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
 | G1 | ✅ FIXED | `cache/decorators.py:42` | `@cached` key collision for plain functions: `args[1:]` drops the first positional arg → `foo(1)`/`foo(2)` share a key, wrong cached data served. Bound methods safe by accident. Tests only cover methods. | Key on full `args`; regression tests `TestCachedKeyCollision` (2 cases) added |
 | G2 | ✅ FIXED | `cache/model.py` | `CacheableModel` invalidation hardcodes `id=str(self.pk)` while `get_cached(**kwargs)` keys on caller kwargs → stale cache for any model whose pk isn't named `id`. Also `get_cached`/`filter_cached`/`delete_cached` share one key space and `filter_cached` ignores order/limit. | Key from `model._meta.pk_attr`; namespace by op (`get:`/`filter:`) + order/limit in filter keys |
 | G3 | ✅ FIXED | `graph/hierarchy_model.py`, `graph/edge.py` | Abstract `Meta.indexes` do **not** propagate to concrete subclasses (empirically confirmed `Child._meta.indexes == ()`) → `HierarchyModel` GiST(path) and `GraphEdge` composite indexes are never created; ltree + edge queries lose indexes. | `__init_subclass__` guard raises `NotImplementedError` at import time unless concrete subclasses redeclare `Meta.indexes` (explicit `indexes = ()` opts out); abstract subclasses exempt; test subclasses + docs redeclared; 5 unit tests added |
-| G4 | HIGH | `expressions/graph_filters.py` | Bare `filter(embedding=<vec>)` maps to `IS NULL` via `get_vector_filters` → silent wrong results for non-None values. | Raise `VectorFieldError` for non-None bare values |
+| G4 | ✅ FIXED | `expressions/graph_filters.py` | Bare `filter(embedding=<vec>)` maps to `IS NULL` via `get_vector_filters` → silent wrong results for non-None values. | `_vector_eq_guard` raises `VectorFieldError` for any non-None bare value (Tortoise redirects `None` → `__isnull` first); +8 regression tests (2 unit, 3 SQLite BLOB integration, 3 live-PG) |
 | G5 | ✅ FIXED | `graph/hierarchy_model.py` | `get_ancestors`/`get_descendants` omit the `namespace` filter (unlike `get_path_to_root`/`get_root`) → cross-tenant data leak in multi-tenant trees. | Added `namespace: str \| None = None` param (defaults to instance namespace) to both; 3 PG regression tests added |
 | G6 | ✅ FIXED | `graph/hierarchy_model.py` | `move_to` is non-atomic (row-by-row UPDATEs, no `in_transaction`), N+1, and self-move (`new_parent=self`) bypasses the cycle guard → partial-tree corruption on mid-cascade failure. | Wrapped in `in_transaction()`; descendant cascade is one bulk UPDATE (`_PrefixReplace` prefix-only rewrite + `F("depth") + delta`, namespace-scoped); self-move guard; 3 PG regression tests added |
 | G7 | MED | `timescale/hypertable.py`, `compression.py`, `retention.py`, `continuous_aggregate.py` | Table/interval names interpolated into SQL at 24+ sites, unquoted/unescaped; internal `_timescaledb_catalog`/`_timescaledb_config` tables queried instead of public `timescaledb_information` views. | Shared `_quote_ident`/`_quote_literal` helpers (extract from `migrations/operations.py`); bind values; use public views |
@@ -268,7 +268,11 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
   work (abstract-index propagation itself is now resolved via G3).
 - **Timescale 2.18 API drift (G13)** and **built-in migrations (G14)** change
   §B/C/D and migration docs before implementation.
-- New recommended order: G4 (vector filter bare-value guard) next, then
-  G7/G8/G9/G10 (hardening), then roadmap Tiers.
+- **Vector bare-value guard (G4): DONE 2026-08-04** — bare non-None
+  `filter(embedding=<vec>)` now raises `VectorFieldError` instead of
+  silently compiling to `IS NULL`; +8 regression tests (unit + SQLite BLOB
+  integration + live-PG), full gate green (687 passed / 1 skipped, ruff
+  clean, basedpyright 0/0/0).
+- New recommended order: G7/G8/G9/G10 (hardening) next, then roadmap Tiers.
 - plan.md itself is currently **untracked** in git — commit alongside first
   fix batch.

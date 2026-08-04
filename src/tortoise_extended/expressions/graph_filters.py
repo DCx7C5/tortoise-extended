@@ -11,6 +11,7 @@ from pypika_tortoise.terms import BasicCriterion, Field, Term, ValueWrapper
 from tortoise.filters import is_null as _is_null
 from tortoise.filters import not_null as _not_null
 from tortoise_extended._types import LibraryAny
+from tortoise_extended.exceptions import VectorFieldError
 
 if TYPE_CHECKING:
     from tortoise.models import Model
@@ -128,12 +129,38 @@ def _vector_value_passthrough(
 
 # Filter definitions for VectorField
 
+def _vector_eq_guard(_field: Term, _value: bool) -> BasicCriterion:
+    """Reject bare equality filters on vector columns.
+
+    pgvector has no ``=`` operator for vectors.  ``filter(embedding=<vec>)``
+    with a non-None value previously compiled to ``IS NULL`` — the
+    ``bool_encoder`` coerced the vector to ``True`` — silently returning the
+    wrong rows.  Tortoise redirects ``None`` to the ``__isnull`` filter
+    before this operator runs, so any value reaching here is non-None and is
+    an error.
+
+    Args:
+        _field: The vector column term (unused — always raises).
+        _value: The ``bool_encoder``-encoded filter value (unused).
+
+    Raises:
+        VectorFieldError: Always, with guidance to the supported operators.
+    """
+    raise VectorFieldError(
+        "Bare equality filters are not supported on VectorField columns. "
+        "Use None (IS NULL), embedding__isnull, embedding__not_isnull, or "
+        "the similarity operators (__l2_distance, __cosine_distance, "
+        "__inner_product)."
+    )
+
+
 def get_vector_filters(field_name: str, source_field: str) -> dict[str, LibraryAny]:  # pyright: ignore[reportExplicitAny]
     """Return filter definitions for a VectorField.
 
     pgvector does not support ``=`` on vector columns, so the base filter
     only allows ``isnull`` checks.  Use the distance operators for
-    similarity queries.
+    similarity queries.  A bare non-None value raises :class:`VectorFieldError`
+    instead of silently compiling to ``IS NULL``.
     """
     from tortoise.filters import bool_encoder
 
@@ -141,7 +168,7 @@ def get_vector_filters(field_name: str, source_field: str) -> dict[str, LibraryA
         field_name: {
             "field": field_name,
             "source_field": source_field,
-            "operator": _is_null,
+            "operator": _vector_eq_guard,
             "value_encoder": bool_encoder,
         },
         f"{field_name}__isnull": {

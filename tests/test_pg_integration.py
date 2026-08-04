@@ -24,6 +24,7 @@ from tortoise_extended import (
     L2Distance,
     VectorField,
 )
+from tortoise_extended.exceptions import VectorFieldError
 from tortoise_extended.expressions.graph_filters import vector_encoder
 
 # ---------------------------------------------------------------------------
@@ -450,9 +451,44 @@ class TestVectorSimilarityQueries:
 
 
 # ---------------------------------------------------------------------------
-# 6. Relational join + vector filter — cross-feature regression
+# 5b. Bare equality guard (G4) — regression on real PG vectors
 # ---------------------------------------------------------------------------
 
+
+class TestBareEqualityGuard:
+    """G4 — a bare non-None value on VectorField must raise, not compile to IS NULL."""
+
+    @pytest.fixture(autouse=True)
+    async def _seed_data(self) -> None:
+        # Chunk.embedding is non-nullable; Article.body_embedding is nullable.
+        await Chunk.all().delete()
+        await Article.all().delete()
+        await Chunk.create(text="alpha", embedding=[1.0, 0.0, 0.0])
+        await Article.create(title="nullvec", body_embedding=None)
+        await Article.create(title="vec", body_embedding=[1.0, 0.0, 0.0])
+
+    @pytest.mark.asyncio
+    async def test_bare_non_none_raises(self) -> None:
+        """Previously returned rows silently via IS NULL; now raises."""
+        with pytest.raises(VectorFieldError, match="Bare equality filters are not supported"):
+            await Chunk.filter(embedding=[1.0, 0.0, 0.0]).all()
+        with pytest.raises(VectorFieldError, match="Bare equality filters are not supported"):
+            await Article.filter(body_embedding=[1.0, 0.0, 0.0]).all()
+
+    @pytest.mark.asyncio
+    async def test_bare_none_is_null(self) -> None:
+        rows = await Article.filter(body_embedding=None)
+        assert [r.title for r in rows] == ["nullvec"]
+
+    @pytest.mark.asyncio
+    async def test_isnull_and_not_isnull_unchanged(self) -> None:
+        assert [r.title for r in await Article.filter(body_embedding__isnull=True)] == ["nullvec"]
+        assert [r.title for r in await Article.filter(body_embedding__not_isnull=True)] == ["vec"]
+
+
+# ---------------------------------------------------------------------------
+# 6. Relational join + vector filter — cross-feature regression
+# ---------------------------------------------------------------------------
 
 class TestRelationalVectorFilter:
     """Vector filters must work through Tortoise relational joins (``parent__embedding__l2_distance``)."""

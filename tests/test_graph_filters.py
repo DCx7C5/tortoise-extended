@@ -1,12 +1,20 @@
 """Tests for graph filters (pgvector similarity operators)."""
 
+import pytest
+from tortoise import Tortoise, fields
+from tortoise.models import Model
+
+import tortoise_extended  # noqa: F401 — apply patches
+from tortoise_extended.exceptions import VectorFieldError
 from tortoise_extended.expressions.graph_filters import (
     CosineDistance,
     InnerProduct,
     L2Distance,
+    _vector_eq_guard,
     get_vector_filters,
     vector_encoder,
 )
+from tortoise_extended.fields.vector_field import VectorField
 
 
 class TestVectorEncoder:
@@ -95,3 +103,81 @@ class TestFilterPatchIdempotent:
         importlib.reload(__import__("tortoise_extended"))
         after = f.get_filters_for_field
         assert before is after
+
+
+class TestBareEqualityGuard:
+    """G4 regression — a bare non-None value on a VectorField must raise."""
+
+    def test_guard_raises_for_non_none(self) -> None:
+        from pypika_tortoise.terms import Field
+
+        with pytest.raises(VectorFieldError, match="Bare equality filters are not supported"):
+            _vector_eq_guard(Field("embedding"), True)
+
+    def test_bare_filter_registered_with_guard(self) -> None:
+        filters = get_vector_filters("embedding", "embedding")
+        assert filters["embedding"]["operator"] is _vector_eq_guard
+
+
+class _VecDoc(Model):
+    """SQLite-compatible VectorField model (BLOB fallback) for filter tests."""
+
+    id = fields.IntField(primary_key=True)
+    name = fields.CharField(max_length=50)
+    embedding = VectorField(dimensions=2, null=True)
+
+    class Meta:
+        table = "g4_vec_docs"
+
+
+@pytest.fixture(scope="module", autouse=True)
+async def _init_db():
+    """Initialize Tortoise with a shared in-memory SQLite DB."""
+    await Tortoise.init(
+        db_url="sqlite://:memory:",
+        modules={"models": ["tests.test_graph_filters"]},
+    )
+    await Tortoise.generate_schemas()
+    yield
+    await Tortoise.close_connections()
+
+
+@pytest.fixture(autouse=True)
+async def _clean_table():
+    await _VecDoc.all().delete()
+
+
+class TestBareEqualityFilterIntegration:
+    """G4 — end-to-end filter resolution through Tortoise on SQLite.
+
+    SQLite stores VectorField as BLOB, so non-NULL rows are seeded with raw
+    bytes (list binding is PG-only via the asyncpg codec).  The G4 guard
+    fires during query build, before SQL generation, so it is dialect-free.
+    """
+
+    async def _seed(self, name: str, blob: bytes | None) -> None:
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query(
+            "INSERT INTO g4_vec_docs (name, embedding) VALUES (?, ?)",
+            [name, blob],
+        )
+
+    @pytest.mark.asyncio
+    async def test_bare_non_none_raises(self) -> None:
+        await self._seed("a", b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+        with pytest.raises(VectorFieldError, match="Bare equality filters are not supported"):
+            await _VecDoc.filter(embedding=[0.1, 0.2]).all()
+
+    @pytest.mark.asyncio
+    async def test_bare_none_is_null(self) -> None:
+        await self._seed("has_vec", b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+        await self._seed("no_vec", None)
+        rows = await _VecDoc.filter(embedding=None)
+        assert [r.name for r in rows] == ["no_vec"]
+
+    @pytest.mark.asyncio
+    async def test_isnull_and_not_isnull_unchanged(self) -> None:
+        await self._seed("has_vec", b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+        await self._seed("no_vec", None)
+        assert [r.name for r in await _VecDoc.filter(embedding__isnull=True)] == ["no_vec"]
+        assert [r.name for r in await _VecDoc.filter(embedding__not_isnull=True)] == ["has_vec"]
