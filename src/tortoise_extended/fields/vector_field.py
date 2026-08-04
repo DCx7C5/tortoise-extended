@@ -80,8 +80,11 @@ class VectorField(Field[list[float]]):
         # asyncpg returns a string like "[0.1,0.2,0.3]"
         if isinstance(value, str):
             return [float(x) for x in value.strip("[]").split(",") if x]
-        if isinstance(value, memoryview):
-            return self._decode_binary(value.tobytes())
+        if isinstance(value, (bytes, memoryview)):
+            # SQLite BLOB fallback and asyncpg binary codec share the
+            # pgvector binary layout: 4-byte header + N * 4-byte floats.
+            raw = value.tobytes() if isinstance(value, memoryview) else value
+            return self._decode_binary(raw)
         return list(value)
 
     @staticmethod

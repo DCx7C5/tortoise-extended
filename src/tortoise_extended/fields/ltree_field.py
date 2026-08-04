@@ -32,13 +32,16 @@ from tortoise.fields.base import Field
 from tortoise_extended._types import LibraryAny
 
 
-class LTreeField(Field[str]):
+class LTreeField(Field[list[str]]):
     """PostgreSQL ltree column for hierarchical data.
 
     Stores materialized paths like "root.parent.child".
     Requires: CREATE EXTENSION IF NOT EXISTS ltree;
 
-    :param max_length: Maximum path length (default: 256)
+    :param max_length: Maximum path length in characters (default: 256).
+        PostgreSQL's ``ltree`` type has no column length modifier, so this
+        is enforced as a Python-side guard in :meth:`to_db_value` (paths
+        longer than the limit raise ``ValueError``).
     :param separator: Path separator (default: ".")
     :param null: Allow NULL values
     :param default: Default path value
@@ -113,7 +116,13 @@ class LTreeField(Field[str]):
             return None
         if isinstance(value, str):
             return value
-        return self.separator.join(str(v) for v in value)
+        path = self.separator.join(str(v) for v in value)
+        if self.max_length and len(path) > self.max_length:
+            raise ValueError(
+                f"ltree path exceeds max_length={self.max_length}: "
+                f"{path[: self.max_length]}... ({len(path)} chars)"
+            )
+        return path
 
     @override
     def __repr__(self) -> str:

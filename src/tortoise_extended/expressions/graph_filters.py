@@ -4,7 +4,7 @@ Custom Criterion subclasses for pgvector distance operators:
 <-> L2 distance, <#> inner product, <=> cosine distance
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pypika_tortoise.enums import Comparator
 from pypika_tortoise.terms import BasicCriterion, Field, Term, ValueWrapper
@@ -204,26 +204,51 @@ def get_vector_filters(field_name: str, source_field: str) -> dict[str, LibraryA
     }
 
 
+def _parse_vector_threshold(
+    value: object,
+    default_threshold: float,
+    operator: str,
+) -> tuple[object, float]:
+    """Parse a similarity-filter value into ``(query_vector, threshold)``.
+
+    Supports two documented shapes:
+
+    - plain vector: ``[0.1, 0.2, ...]`` → default threshold
+    - compound: ``[[0.1, 0.2, ...], 0.5]`` → explicit threshold
+
+    A compound-looking value whose second element is not a number (e.g. a
+    flat ``[[v1], [v2]]`` where the caller meant two vectors) raises
+    :class:`VectorFieldError` instead of silently producing invalid SQL
+    (G20).
+    """
+    if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], list):  # pyright: ignore[reportUnknownArgumentType]
+        compound = cast(list[object] | tuple[object, object], value)
+        query_vector = compound[0]
+        threshold = compound[1]
+        if (
+            isinstance(threshold, bool)
+            or not isinstance(threshold, (int, float))
+        ):
+            raise VectorFieldError(
+                f"{operator} compound value must be [query_vector, threshold]; "
+                f"threshold must be a number, got {threshold!r}"
+            )
+        return query_vector, float(threshold)
+    # Re-broaden: the failed compound check narrows ``value`` to a partially
+    # unknown union; cast back to the declared ``object`` for a clean return.
+    return cast(object, value), default_threshold
+
+
 def _l2_distance_lte(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
     """Filter: L2 distance <= threshold."""
-    if isinstance(value, (list, tuple)):
-        if len(value) == 2 and isinstance(value[0], list):  # pyright: ignore[reportUnknownArgumentType]
-            query_vector, threshold = value  # pyright: ignore[reportUnknownVariableType]
-        else:
-            query_vector, threshold = value, 1.0  # pyright: ignore[reportUnknownVariableType]
-        return L2Distance(field, ValueWrapper(query_vector)).lte(threshold)
-    return L2Distance(field, ValueWrapper(value)).lte(1.0)
+    query_vector, threshold = _parse_vector_threshold(value, 1.0, "__l2_distance")
+    return L2Distance(field, ValueWrapper(query_vector)).lte(threshold)
 
 
 def _cosine_distance_lte(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
     """Filter: cosine distance <= threshold."""
-    if isinstance(value, (list, tuple)):
-        if len(value) == 2 and isinstance(value[0], list):  # pyright: ignore[reportUnknownArgumentType]
-            query_vector, threshold = value  # pyright: ignore[reportUnknownVariableType]
-        else:
-            query_vector, threshold = value, 1.0  # pyright: ignore[reportUnknownVariableType]
-        return CosineDistance(field, ValueWrapper(query_vector)).lte(threshold)
-    return CosineDistance(field, ValueWrapper(value)).lte(1.0)
+    query_vector, threshold = _parse_vector_threshold(value, 1.0, "__cosine_distance")
+    return CosineDistance(field, ValueWrapper(query_vector)).lte(threshold)
 
 
 def _inner_product_gte(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
@@ -232,10 +257,5 @@ def _inner_product_gte(field: Term, value: LibraryAny) -> BasicCriterion:  # pyr
     pgvector's ``<#>`` operator returns the **negative** inner product, so
     ``inner_product >= threshold`` translates to ``<#> <= -threshold``.
     """
-    if isinstance(value, (list, tuple)):
-        if len(value) == 2 and isinstance(value[0], list):  # pyright: ignore[reportUnknownArgumentType]
-            query_vector, threshold = value  # pyright: ignore[reportUnknownVariableType]
-        else:
-            query_vector, threshold = value, 0.0  # pyright: ignore[reportUnknownVariableType]
-        return InnerProduct(field, ValueWrapper(query_vector)).lte(-threshold)
-    return InnerProduct(field, ValueWrapper(value)).lte(0.0)
+    query_vector, threshold = _parse_vector_threshold(value, 0.0, "__inner_product")
+    return InnerProduct(field, ValueWrapper(query_vector)).lte(-threshold)

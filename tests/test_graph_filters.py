@@ -10,6 +10,10 @@ from tortoise_extended.expressions.graph_filters import (
     CosineDistance,
     InnerProduct,
     L2Distance,
+    _cosine_distance_lte,
+    _inner_product_gte,
+    _l2_distance_lte,
+    _parse_vector_threshold,
     _vector_eq_guard,
     get_vector_filters,
     vector_encoder,
@@ -114,6 +118,40 @@ class TestBareEqualityGuard:
         with pytest.raises(VectorFieldError, match="Bare equality filters are not supported"):
             _vector_eq_guard(Field("embedding"), True)
 
+
+class TestParseVectorThreshold:
+    """G20 — compound value validation."""
+
+    def test_plain_vector_uses_default(self) -> None:
+        query_vector, threshold = _parse_vector_threshold([0.1, 0.2], 1.0, "__cosine_distance")
+        assert query_vector == [0.1, 0.2]
+        assert threshold == 1.0
+
+    def test_compound_vector_uses_threshold(self) -> None:
+        query_vector, threshold = _parse_vector_threshold([[0.1, 0.2], 0.5], 1.0, "__cosine_distance")
+        assert query_vector == [0.1, 0.2]
+        assert threshold == 0.5
+
+    def test_nested_vectors_raise(self) -> None:
+        """[[v1], [v2]] — two vectors misread as compound — must raise."""
+        with pytest.raises(VectorFieldError, match="threshold must be a number"):
+            _parse_vector_threshold([[0.1, 0.2], [0.3, 0.4]], 1.0, "__cosine_distance")
+
+    def test_boolean_threshold_raises(self) -> None:
+        with pytest.raises(VectorFieldError, match="threshold must be a number"):
+            _parse_vector_threshold([[0.1, 0.2], True], 1.0, "__cosine_distance")
+
+    def test_distance_operators_reject_nested_vectors(self) -> None:
+        """End-to-end through the operator wrappers."""
+        from pypika_tortoise.terms import Field
+
+        with pytest.raises(VectorFieldError):
+            _l2_distance_lte(Field("embedding"), [[0.1], [0.2]])
+        with pytest.raises(VectorFieldError):
+            _cosine_distance_lte(Field("embedding"), [[0.1], [0.2]])
+        with pytest.raises(VectorFieldError):
+            _inner_product_gte(Field("embedding"), [[0.1], [0.2]])
+
     def test_bare_filter_registered_with_guard(self) -> None:
         filters = get_vector_filters("embedding", "embedding")
         assert filters["embedding"]["operator"] is _vector_eq_guard
@@ -181,3 +219,13 @@ class TestBareEqualityFilterIntegration:
         await self._seed("no_vec", None)
         assert [r.name for r in await _VecDoc.filter(embedding__isnull=True)] == ["no_vec"]
         assert [r.name for r in await _VecDoc.filter(embedding__not_isnull=True)] == ["has_vec"]
+
+    @pytest.mark.asyncio
+    async def test_sqlite_blob_roundtrip_decodes_floats(self) -> None:
+        """G16 — reading a SQLite BLOB must yield floats, not byte ints."""
+        import struct
+
+        blob = struct.pack(">HH2f", 0, 2, 0.25, 0.75)  # pgvector binary format
+        await self._seed("vec", blob)
+        row = await _VecDoc.get(name="vec")
+        assert row.embedding == [0.25, 0.75]

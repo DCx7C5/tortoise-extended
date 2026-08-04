@@ -3,6 +3,8 @@
 Tests field serialization, filter generation, and query operators.
 """
 
+import pytest
+
 from tortoise_extended.expressions.ltree_filters import (
     LTreeAncestorOf,
     LTreeDescendantOf,
@@ -81,6 +83,17 @@ class TestLTreeField:
         field = LTreeField()
         result = field.to_db_value([1, 2, 3], None)
         assert result == "1.2.3"
+
+    def test_to_db_value_enforces_max_length(self) -> None:
+        """G17 — max_length is a real guard: over-long paths raise."""
+        field = LTreeField(max_length=10)
+        with pytest.raises(ValueError, match="exceeds max_length=10"):
+            field.to_db_value(["root", "child", "grandchild"], None)
+
+    def test_to_db_value_respects_max_length_boundary(self) -> None:
+        """Paths exactly at max_length are accepted."""
+        field = LTreeField(max_length=7)
+        assert field.to_db_value(["a.b.c"], None) == "a.b.c"
 
     def test_repr(self) -> None:
         """Repr should show field parameters."""
