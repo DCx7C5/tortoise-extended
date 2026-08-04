@@ -766,7 +766,7 @@ class TestCacheableModel:
         hit = await cls.get_cached(id=thing.pk)
         assert hit is not None
         assert hit.title == "alpha"
-        assert await self.backend.exists(cls._cache_key_for(id=str(thing.pk)))
+        assert await self.backend.exists(cls._cache_key_for("get", id=str(thing.pk)))
 
     @pytest.mark.asyncio
     async def test_get_cached_disabled(self) -> None:
@@ -790,7 +790,7 @@ class TestCacheableModel:
         and falls back to the database."""
         cls = self._model()
         thing = await cls.create(title="bad")
-        await self.backend.set(cls._cache_key_for(id=str(thing.pk)), "not-a-dict")
+        await self.backend.set(cls._cache_key_for("get", id=str(thing.pk)), "not-a-dict")
         cached = await cls.get_cached(id=thing.pk)
         assert cached is not None
         assert cached.title == "bad"
@@ -853,7 +853,7 @@ class TestCacheableModel:
         """Non-list cached data is caught by CacheError and falls back to DB."""
         cls = self._model()
         await cls.create(title="x1")
-        await self.backend.set(cls._cache_key_for(title="x1"), "not-a-list")
+        await self.backend.set(cls._cache_key_for("filter", title="x1"), "not-a-list")
         results = await cls.filter_cached(title="x1")
         assert len(results) == 1
 
@@ -875,7 +875,7 @@ class TestCacheableModel:
     async def test_cache_key_for_sorted_kwargs(self) -> None:
         """Cache keys are deterministic regardless of kwarg order."""
         cls = self._model()
-        assert cls._cache_key_for(a="1", b="2") == cls._cache_key_for(b="2", a="1")
+        assert cls._cache_key_for("get", a="1", b="2") == cls._cache_key_for("get", b="2", a="1")
 
     @pytest.mark.asyncio
     async def test_to_cache_datetime_and_pk(self) -> None:
@@ -916,7 +916,7 @@ class TestCacheableModel:
     async def test_save_invalidates_cache(self) -> None:
         cls = self._model()
         thing = await cls.create(title="before")
-        key = cls._cache_key_for(id=str(thing.pk))
+        key = cls._cache_key_for("get", id=str(thing.pk))
         await self.backend.set(key, "stale")
         thing.title = "after"
         await thing.save()
@@ -926,7 +926,7 @@ class TestCacheableModel:
     async def test_delete_invalidates_cache(self) -> None:
         cls = self._model()
         thing = await cls.create(title="del")
-        key = cls._cache_key_for(id=str(thing.pk))
+        key = cls._cache_key_for("get", id=str(thing.pk))
         await self.backend.set(key, "stale")
         await thing.delete()
         assert await self.backend.get(key) is None
@@ -935,7 +935,7 @@ class TestCacheableModel:
     async def test_refresh_from_db_updates_cache(self) -> None:
         cls = self._model()
         thing = await cls.create(title="refresh")
-        key = cls._cache_key_for(id=str(thing.pk))
+        key = cls._cache_key_for("get", id=str(thing.pk))
         assert await self.backend.get(key) is None
         await thing.refresh_from_db()
         data = await self.backend.get(key)

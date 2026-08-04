@@ -79,9 +79,13 @@ class CacheableModel(models.Model):
         )
 
     @classmethod
-    def _cache_key_for(cls, **kwargs: LibraryAny) -> str:  # pyright: ignore[reportExplicitAny]
-        """Build cache key from lookup kwargs."""
-        key = CacheKey(cls.__name__)
+    def _cache_key_for(cls, op: str, **kwargs: LibraryAny) -> str:  # pyright: ignore[reportExplicitAny]
+        """Build cache key from lookup kwargs.
+
+        ``op`` namespaces the operation ("get" vs "filter") so the single
+        instance cache and the list cache never collide on the same kwargs.
+        """
+        key = CacheKey(cls.__name__).add(op)
         for k, v in sorted(kwargs.items()):
             _ = key.add(k, str(v))
         return key.build()
@@ -98,7 +102,7 @@ class CacheableModel(models.Model):
             return await cls.get(**cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
 
         backend = cls._get_backend()
-        cache_key = cls._cache_key_for(**cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
+        cache_key = cls._cache_key_for("get", **cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
 
         # Try cache
         try:
@@ -134,7 +138,7 @@ class CacheableModel(models.Model):
             return await cls.filter(**cast(dict[str, LibraryAny], kwargs)).all()  # pyright: ignore[reportExplicitAny]
 
         backend = cls._get_backend()
-        cache_key = cls._cache_key_for(**cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
+        cache_key = cls._cache_key_for("filter", **cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
 
         # Try cache
         try:
@@ -211,8 +215,9 @@ class CacheableModel(models.Model):
 
         backend = self._get_backend()
 
-        # Invalidate by PK
-        pk_key = self._cache_key_for(id=str(self.pk))
+        # Invalidate by PK — key the lookup on the actual pk field name
+        pk_attr = self._meta.pk_attr or "id"
+        pk_key = self._cache_key_for("get", **{pk_attr: str(self.pk)})
         _ = await backend.delete(pk_key)
 
     @override
@@ -248,7 +253,8 @@ class CacheableModel(models.Model):
         await super().refresh_from_db(fields=fields, using_db=using_db)
         if self._cache_ttl > 0:
             backend = self._get_backend()
-            cache_key = self._cache_key_for(id=str(self.pk))
+            pk_attr = self._meta.pk_attr or "id"
+            cache_key = self._cache_key_for("get", **{pk_attr: str(self.pk)})
             with contextlib.suppress(CacheError):
                 await backend.set(
                     cache_key,

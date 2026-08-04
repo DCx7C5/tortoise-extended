@@ -39,7 +39,7 @@ def _build_cache_key(
     key = CacheKey(prefix)
     _ = key.add(
         CacheKey.hash(
-            json.dumps({"args": str(args[1:]), "kwargs": str(kwargs)}, default=str)
+            json.dumps({"args": str(args), "kwargs": str(kwargs)}, default=str)
         )
     )
     return key.build()

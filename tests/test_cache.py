@@ -22,6 +22,7 @@ from tortoise_extended.cache.decorators import (
     cached_method,
     invalidate,
 )
+from tortoise_extended.cache.model import CacheableModel
 from tortoise_extended.exceptions import CacheError
 
 # Concrete subclasses with the ABC machinery disabled so the *abstract*
@@ -617,3 +618,63 @@ class TestBuildCacheKey:
 
         key = _build_cache_key(dummy, (None,), {}, prefix="custom")
         assert key.startswith("custom")
+
+
+class TestCachedKeyCollision:
+    """Regression: first positional arg must be part of the plain-function key.
+
+    The old implementation keyed on ``args[1:]`` for *all* callables, so
+    ``f(1, "a")`` and ``f(2, "a")`` produced the same key and the second call
+    returned stale data for the wrong argument.
+    """
+
+    @pytest.mark.asyncio
+    async def test_distinct_first_args_do_not_collide(self):
+        call_count = 0
+        backend = MockRedisBackend(default_ttl=300)
+
+        @cached(ttl=60, backend=backend)
+        async def func(x: int, y: str) -> list[int | str]:
+            nonlocal call_count
+            call_count += 1
+            return [x, y]
+
+        r1 = await func(1, "a")
+        assert r1 == [1, "a"]
+        assert call_count == 1
+
+        r2 = await func(2, "a")  # same second arg, different first arg
+        assert r2 == [2, "a"]  # must NOT return [1, "a"] from cache
+        assert call_count == 2
+
+        r3 = await func(1, "a")
+        assert r3 == [1, "a"]
+        assert call_count == 2  # cached
+
+    def test_build_cache_key_distinct(self):
+        async def dummy():
+            pass
+
+        k1 = _build_cache_key(dummy, (1, "a"), {})
+        k2 = _build_cache_key(dummy, (2, "a"), {})
+        k3 = _build_cache_key(dummy, (1, "a"), {})
+        assert k1 != k2
+        assert k1 == k3
+
+
+class TestCacheableModelKeyNamespace:
+    """Regression: get_cached/filter_cached must not share a key space, and
+    invalidation must key on the real pk field name."""
+
+    def test_get_and_filter_keys_are_distinct(self):
+        key_get = CacheableModel._cache_key_for("get", id="1")
+        key_filter = CacheableModel._cache_key_for("filter", id="1")
+        assert key_get != key_filter
+        assert key_get == "CacheableModel:get:id:1"
+        assert key_filter == "CacheableModel:filter:id:1"
+
+    def test_key_uses_given_pk_field_name(self):
+        # Invalidation now passes the model's pk_attr instead of hardcoded "id"
+        key = CacheableModel._cache_key_for("get", uid="abc")
+        assert key == "CacheableModel:get:uid:abc"
+        assert key != CacheableModel._cache_key_for("get", id="abc")
