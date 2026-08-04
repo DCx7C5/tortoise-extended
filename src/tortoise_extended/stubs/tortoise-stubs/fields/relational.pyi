@@ -91,10 +91,16 @@ class RelationalField(Field[_MODEL]):
         **kwargs: Any,
     ) -> None: ...
 
+    # noinspection PyMethodOverriding
+    # NOTE: PyCharm's builtin checker flags these descriptor overloads as
+    # signature-incompatible with Field.__get__; the identical pattern at
+    # runtime (tortoise/fields/relational.py:283) is clean only because
+    # site-packages files get reduced inspections. basedpyright accepts it.
     @overload
     def __get__(
         self, instance: None, owner: type[Model]
     ) -> RelationalField[_MODEL]: ...
+    # noinspection PyMethodOverriding
     @overload
     def __get__(
         self, instance: Model, owner: type[Model]
