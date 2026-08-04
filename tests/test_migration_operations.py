@@ -371,3 +371,14 @@ class TestFormatOperationPatch:
         writer = self._writer()
         with pytest.raises(MigrationOperationError, match="has no deconstruct"):
             writer._format_operation(NoDeconstructOp(), ImportManager(), indent="    ")  # type: ignore[arg-type]
+
+    def test_render_error_not_masked(self) -> None:
+        """A ValueError raised while rendering a *known* operation must
+        propagate — it is a real serialization error, not the stock writer's
+        "unsupported operation type" signal for the fallback path (G10)."""
+        from tortoise.migrations.operations import SQLOperation
+
+        writer = self._writer()
+        op = SQLOperation(query="SELECT 1", values=[(lambda: 1,)])
+        with pytest.raises(ValueError, match="serialize lambda"):
+            writer._format_operation(op, ImportManager(), indent="    ")

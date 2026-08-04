@@ -48,8 +48,13 @@ def _patch_format_operation() -> None:
     ) -> list[str]:
         try:
             return _original(self, operation, imports, indent=indent)
-        except ValueError:
-            pass
+        except ValueError as exc:
+            # Only the stock writer's terminal "unsupported operation type"
+            # ValueError routes to the generic deconstruct-based serializer.
+            # Any other ValueError (e.g. from a field/index deconstruct or a
+            # render helper) is a real error and must propagate unmasked.
+            if "Unsupported operation type" not in str(exc):
+                raise
 
         if not hasattr(operation, "deconstruct"):
             raise MigrationOperationError(

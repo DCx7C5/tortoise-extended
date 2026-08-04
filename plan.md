@@ -231,7 +231,7 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
 | G7 | ✅ FIXED | `timescale/hypertable.py`, `compression.py`, `retention.py`, `continuous_aggregate.py` | Table/interval names interpolated into SQL at 24+ sites, unquoted/unescaped; internal `_timescaledb_catalog`/`_timescaledb_config` tables queried instead of public `timescaledb_information` views. | Shared `_quote.py` helpers (`quote_ident`/`quote_literal`) extracted from `migrations/operations.py`; all interpolated names quoted/escaped; `is_hypertable` → `timescaledb_information.hypertables`, `get_stats` → `timescaledb_information.chunks` (`is_compressed`), `list_policies` → `timescaledb_information.jobs`; +9 unit tests, live-PG suite green. Also folded in the G19 division-by-zero guard |
 | G8 | ✅ FIXED | `indexes/hnsw_index.py`, `ltree_index.py` | HNSW/IVFFlat/GiST emit PG DDL on **any** backend → SQLite `generate_schemas` breaks; no dialect guard. | `indexes/_dialect.py` `assert_postgres_dialect` checks `schema_generator.DIALECT` and raises `IndexDefinitionError` on non-PG (getattr default `"postgres"` keeps test fakes working); +5 unit tests |
 | G9 | ✅ FIXED | `timescale/stream.py` | `bulk_insert` (COPY) does not populate `auto_now_add` fields; unquoted identifiers in DDL; only the PK caveat is documented. | `auto_now_add`/`auto_now` confirmed populated via `DatetimeField.to_db_value` (instance passed through) and documented + regression-tested; `db_default`-only columns now omitted from COPY when unset on all instances (mixed usage → `OperationalError`, mirroring `bulk_create`); identifiers quoted via `_quote.py` in `setup()` DDL and `latest_per_stream`/`time_series`; stub overlay gained `has_db_default`/`get_db_default_value`; +3 live-PG tests |
-| G10 | MED | `__init__.py` migration patch | `_patch_format_operation` swallows ALL `ValueError`s from the original formatter → masks real errors as `MigrationOperationError`. | Re-raise non-serialization errors; only catch expected cases |
+| G10 | ✅ FIXED | `migrations/operations.py` | `_patch_format_operation` swallows ALL `ValueError`s from the original formatter → masks real errors as `MigrationOperationError`. | Re-raise non-serialization errors — only the stock writer's terminal `"Unsupported operation type"` ValueError routes to the fallback serializer; render-helper ValueErrors (e.g. unserializable lambda in `SQLOperation`) propagate; +1 unit test |
 | G11 | MED | `AGENTS.md`, `doc/architecture/overview.md`, `design-decisions.md` | Docs claim `OperationGenerator.generate` is patched — **it is not** (only `MigrationWriter._format_operation`). | Correct docs to match actual patch surface |
 | G12 | MED | README + `doc/architecture/design-decisions.md`, `graph-traversal.md`, `recursive-cte.md`, `api/cache.md` | Benchmark claims (22,581 RPS, 290x, 4ms, 100K-sec) have no benchmark harness/evidence in repo. | Add `benchmarks/` script or mark numbers as illustrative |
 | G13 | MED | `timescale/compression.py` | `add_compression_policy`/`compress_chunk`/`decompress_chunk` deprecated since TimescaleDB 2.18 (→ `add_columnstore_policy`/`convert_to_columnstore`/`convert_to_rowstore`). | Migrate to 2.18+ API; bump docker ARG to latest 2.x and verify |
@@ -289,7 +289,12 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
   instances (mixed → `OperationalError`, mirroring `bulk_create`); all DDL
   and query-helper identifiers quoted via `_quote.py`; +3 live-PG tests
   (704 passed / 1 skipped, ruff clean, basedpyright 0/0/0).
-- New recommended order: G10 (migration exception masking), then roadmap
-  Tiers.
+- **Migration writer exception masking (G10): DONE 2026-08-04** —
+  `_patch_format_operation` no longer swallows every `ValueError`; only the
+  stock writer's terminal `"Unsupported operation type"` error routes to the
+  generic deconstruct serializer. Real render errors (e.g. unserializable
+  lambda in `SQLOperation.values`) propagate; +1 unit test (705 passed /
+  1 skipped, ruff clean, basedpyright 0/0/0).
+- New recommended order: roadmap Tiers.
 - plan.md itself is currently **untracked** in git — commit alongside first
   fix batch.
