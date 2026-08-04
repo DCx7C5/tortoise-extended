@@ -287,21 +287,28 @@ result = await connections.get("default").execute_query("""
 
 ## Database Schema Migration
 
-### Using Aerich
+### Using Tortoise's built-in migration system
+
+The package patches `tortoise.migrations.writer.MigrationWriter` so the
+custom operations serialize through Tortoise's vendored migration system —
+no separate tool (e.g. Aerich) is needed.
 
 ```bash
-# Install aerich
-pip install aerich
+# Initialize migrations package for your app
+python -m tortoise init models
 
-# Initialize
-aerich init --db-url postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended
+# Generate migration from model changes
+python -m tortoise makemigrations models --name add_vector_fields
 
-# Generate migration
-aerich migrate --name add_vector_fields
+# Preview SQL (optional)
+python -m tortoise sqlmigrate models <migration_name>
 
 # Apply migration
-aerich upgrade
+python -m tortoise migrate
 ```
+
+Pass your Tortoise config with `-c` if it isn't the default:
+`python -m tortoise -c settings.TORTOISE_ORM migrate`.
 
 ### Manual Migration
 

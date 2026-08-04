@@ -9,8 +9,8 @@
 - `get_filters_for_field` — We need `__l2_distance`, `__cosine_distance`, `__inner_product`
 - `MetaInfo.add_field` — We need `HNSWIndex` validation
 - `Tortoise.init` — We need pgvector codec registration
-- `OperationGenerator.generate` — We need `CreateHypertable`
-- `MigrationWriter._format_operation` — We need custom operation imports
+- `MigrationWriter._format_operation` — We need custom operation imports and
+  generic serialization of `CreateHypertable` / `CreateContinuousAggregate`
 
 Only one monkey-patch can win per function. Using `tortoise-embeddings` would break our features.
 

@@ -398,7 +398,7 @@ uv run pytest tests/ -v
 
 ### Why self-contained VectorField?
 
-`tortoise-embeddings` monkey-patches the same functions we patch (`get_filters_for_field`, `MetaInfo.add_field`, `Tortoise.init`, `OperationGenerator.generate`, `MigrationWriter._format_operation`). Only one monkey-patch can win per function. Our ~50-line `VectorField` avoids the conflict entirely.
+`tortoise-embeddings` monkey-patches functions we also patch (`get_filters_for_field`, `MetaInfo.add_field`, `Tortoise.init`, `MigrationWriter._format_operation`). Only one monkey-patch can win per function. Our ~50-line `VectorField` avoids the conflict entirely.
 
 ### Why raw SQL for graph helpers?
 

@@ -189,6 +189,35 @@ class TestSqlHardening:
         assert "timescaledb_information.chunks" in sql
         assert "_timescaledb_catalog" not in sql
         assert "after_compression_total_bytes > 0" in sql
+        assert "hypertable_columnstore_stats" in sql
+        assert "hypertable_compression_stats" not in sql
+
+    @pytest.mark.asyncio
+    async def test_compression_uses_2_18_columnstore_api(self, monkeypatch) -> None:
+        """G13: all deprecated pre-2.18 compression functions are gone."""
+        conn = self._recording_conn(monkeypatch)
+        await CompressionManager.enable_compression("events")
+        await CompressionManager.disable_compression("events")
+        await CompressionManager.add_compression_policy("events", "1 day")
+        await CompressionManager.remove_compression_policy("events")
+        await CompressionManager.compress_chunk("_timescaledb_internal._c")
+        await CompressionManager.decompress_chunk("_timescaledb_internal._c")
+        joined = "\n".join(conn.sqls)
+        assert "timescaledb.enable_columnstore" in joined
+        assert "CALL add_columnstore_policy(" in joined
+        assert "hypertable => 'events'" in joined
+        assert "after => INTERVAL '1 day'" in joined
+        assert "CALL remove_columnstore_policy('events')" in joined
+        assert "CALL convert_to_columnstore(" in joined
+        assert "CALL convert_to_rowstore(" in joined
+        for legacy in (
+            "timescaledb.compress",
+            "add_compression_policy",
+            "remove_compression_policy",
+            "compress_chunk(",
+            "decompress_chunk(",
+        ):
+            assert legacy not in joined, f"legacy API still present: {legacy}"
 
     @pytest.mark.asyncio
     async def test_retention_list_uses_public_view(self, monkeypatch) -> None:

@@ -9,9 +9,10 @@ The migrations module provides two custom operations for Tortoise ORM's migratio
 1. **CreateHypertable** — Convert tables to TimescaleDB hypertables
 2. **CreateContinuousAggregate** — Create continuous aggregate views
 
-Both serialize through Tortoise's normal migration writer (a monkey-patch
-handles their `deconstruct()` output generically), so `aerich` can generate
-and apply them like any built-in operation.
+Both serialize through Tortoise's built-in migration writer (a monkey-patch
+handles their `deconstruct()` output generically), so the vendored migration
+system — `python -m tortoise` — can generate and apply them like any
+built-in operation.
 
 ## Operations
 
@@ -139,13 +140,29 @@ operations = [
 
 ## Running Migrations
 
-```bash
-# Generate migration
-aerich migrate --name add_events
+Tortoise ships a vendored migration system (experimental) exposed through the
+CLI. The custom operations round-trip through the built-in writer, so no
+separate tool (e.g. Aerich) is required.
 
-# Apply migration
-aerich upgrade
+```bash
+# One-time setup: create the migrations package for each app
+python -m tortoise init models
+
+# Generate a migration from model changes
+python -m tortoise makemigrations models --name add_events
+
+# Preview the SQL without applying it
+python -m tortoise sqlmigrate models <migration_name>
+
+# Apply migrations
+python -m tortoise migrate
+
+# Roll back (migrate --fake, downgrade, history, heads are also available)
+python -m tortoise downgrade
 ```
+
+The CLI reads the same `TORTOISE_ORM` config used by `Tortoise.init` — pass
+it with `-c` (e.g. `python -m tortoise -c settings.TORTOISE_ORM migrate`).
 
 ## Notes
 

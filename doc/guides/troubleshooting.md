@@ -272,7 +272,7 @@ from tortoise_extended import VectorField, HNSWIndex, HybridSearch, shortest_pat
 
 **Error:**
 ```
-aerich.errors.SchemaError: Table 'entities' already exists
+ValueError: Table 'entities' already exists
 ```
 
 **Cause:** Table already exists.

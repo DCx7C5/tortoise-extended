@@ -1,7 +1,10 @@
 """TimescaleDB compression manager.
 
 Provides compression for TimescaleDB hypertables to reduce storage.
-Requires: TimescaleDB extension
+Requires: TimescaleDB extension (>= 2.18 — uses the columnstore API:
+``add_columnstore_policy`` / ``convert_to_columnstore`` /
+``convert_to_rowstore``; the legacy ``add_compression_policy`` /
+``compress_chunk`` / ``decompress_chunk`` are deprecated since 2.18).
 
 Usage::
 
@@ -37,6 +40,11 @@ class CompressionManager:
 
     Compression reduces storage requirements and can improve query performance
     for time-series data by compressing older chunks.
+
+    Since TimescaleDB 2.18 the underlying API is the *columnstore*:
+    this manager's method names are kept stable, but they call
+    ``add_columnstore_policy``, ``convert_to_columnstore`` and
+    ``convert_to_rowstore`` internally.
     """
 
     @staticmethod
@@ -53,12 +61,15 @@ class CompressionManager:
         To compress chunks after a delay, add a compression policy with
         :meth:`add_compression_policy` (``compress_after`` is not a valid
         TimescaleDB reloption — it only exists on policies).
+
+        Uses the 2.18+ ``timescaledb.enable_columnstore`` reloption
+        (``timescaledb.compress`` is deprecated since 2.18).
         """
         conn = connections.get("default")
 
         sql = f"""
             ALTER TABLE {quote_ident(table_name)}
-            SET (timescaledb.compress)
+            SET (timescaledb.enable_columnstore)
         """
 
         await conn.execute_query(sql)
@@ -78,7 +89,7 @@ class CompressionManager:
 
         sql = f"""
             ALTER TABLE {quote_ident(table_name)}
-            SET (timescaledb.compress = false)
+            SET (timescaledb.enable_columnstore = false)
         """
 
         await conn.execute_query(sql)
@@ -102,13 +113,16 @@ class CompressionManager:
                 "events",
                 compress_after="7 days",
             )
+
+        Calls ``add_columnstore_policy`` (2.18+; the legacy
+        ``add_compression_policy`` is deprecated since 2.18).
         """
         conn = connections.get("default")
 
         sql = (
-            "SELECT add_compression_policy("
-            f"{quote_literal(table_name)}, "
-            f"INTERVAL {quote_literal(compress_after)}, "
+            "CALL add_columnstore_policy("
+            f"hypertable => {quote_literal(table_name)}, "
+            f"after => INTERVAL {quote_literal(compress_after)}, "
             f"if_not_exists => {str(if_not_exists).lower()}"
             ")"
         )
@@ -125,10 +139,13 @@ class CompressionManager:
         Example::
 
             await CompressionManager.remove_compression_policy("events")
+
+        Calls ``remove_columnstore_policy`` (2.18+; the legacy
+        ``remove_compression_policy`` is deprecated since 2.18).
         """
         conn = connections.get("default")
 
-        sql = f"SELECT remove_compression_policy({quote_literal(table_name)})"
+        sql = f"CALL remove_columnstore_policy({quote_literal(table_name)})"
 
         await conn.execute_query(sql)
 
@@ -144,10 +161,13 @@ class CompressionManager:
             await CompressionManager.compress_chunk(
                 "_timescaledb_internal._hyper_1_1_chunk",
             )
+
+        Calls ``convert_to_columnstore`` (2.18+; the legacy
+        ``compress_chunk`` is deprecated since 2.18).
         """
         conn = connections.get("default")
 
-        sql = f"SELECT compress_chunk({quote_literal(chunk_name)})"
+        sql = f"CALL convert_to_columnstore({quote_literal(chunk_name)})"
 
         await conn.execute_query(sql)
 
@@ -163,10 +183,13 @@ class CompressionManager:
             await CompressionManager.decompress_chunk(
                 "_timescaledb_internal._hyper_1_1_chunk",
             )
+
+        Calls ``convert_to_rowstore`` (2.18+; the legacy
+        ``decompress_chunk`` is deprecated since 2.18).
         """
         conn = connections.get("default")
 
-        sql = f"SELECT decompress_chunk({quote_literal(chunk_name)})"
+        sql = f"CALL convert_to_rowstore({quote_literal(chunk_name)})"
 
         await conn.execute_query(sql)
 
@@ -186,6 +209,9 @@ class CompressionManager:
             print(f"Compression ratio: {stats['compression_ratio']}")
             print(f"Uncompressed chunks: {stats['uncompressed_chunks']}")
             print(f"Compressed chunks: {stats['compressed_chunks']}")
+
+        Uses ``hypertable_columnstore_stats`` (2.18+; the legacy
+        ``hypertable_compression_stats`` is deprecated since 2.18).
         """
         conn = connections.get("default")
 
@@ -209,7 +235,7 @@ class CompressionManager:
                 (SELECT COUNT(*) FROM timescaledb_information.chunks c
                  WHERE c.hypertable_name = {quote_literal(table_name)}
                  AND c.is_compressed = TRUE) AS compressed_chunks
-            FROM hypertable_compression_stats({quote_literal(table_name)})
+            FROM hypertable_columnstore_stats({quote_literal(table_name)})
             LIMIT 1
         """
 

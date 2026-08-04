@@ -110,7 +110,7 @@ The package applies monkey-patches at import time:
 2. **`HNSWIndex` / `IVFFlatIndex` / `GiSTIndex` registration** — Adds the index types to `tortoise.indexes`
 3. **`get_filters_for_field`** — Adds the pgvector (`__l2_distance`, `__cosine_distance`, `__inner_product`) and ltree (`__ancestor_of`, `__descendant_of`, `__match`, ...) filters (patches both `tortoise.filters` and `tortoise.models`)
 4. **pgvector codec** — Injects `set_type_codec("vector", ...)` into every asyncpg connection via the pool init callback
-5. **Migration serialization** — Patches `OperationGenerator.generate` and `MigrationWriter._format_operation` so `CreateHypertable` / `CreateContinuousAggregate` round-trip through Aerich
+5. **Migration serialization** — Patches `MigrationWriter._format_operation` so `CreateHypertable` / `CreateContinuousAggregate` round-trip through the built-in `tortoise.migrations` writer (generic deconstruct-based fallback for custom operations)
 
 These patches are applied once when `import tortoise_extended` executes, and can also be applied explicitly via the public `tortoise_extended.patch()` function (idempotent, safe to call repeatedly). They are safe because they extend existing functions without modifying core behavior.
 

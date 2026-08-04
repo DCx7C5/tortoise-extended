@@ -179,6 +179,23 @@ other model.
   (UUID4's random order is the classic objection — avoided).
 - Collision-free across all tables, no shared-sequence coordination.
 
+**G15 reconciliation — pk strategy decided (2026-08-04):**
+- **`GraphNode` stays `UUIDField` (uuid4, upgraded to `UUID7Field` in
+  Tier-1b).** Graph edges are long-lived cross-table references; UUID is the
+  unified ID space for the graph subsystem.
+- **`HierarchyModel` stays `BigIntField`.** Tree nodes are internal to one
+  table; BigInt FKs JOIN faster and `EventStreamMixin` keeps its composite
+  pk. `HierarchyModel` nodes may opt into the shared ID space by declaring
+  `id = UUID7Field(pk=True)` in the concrete subclass.
+- **Constraint (documented): `GraphEdge.source_id`/`target_id` are UUID and
+  therefore only link `GraphNode`-family nodes.** They cannot directly
+  reference a BigInt-pk `HierarchyModel`. If an edge table must span both
+  families, use `UUID7Field(pk=True)` on the hierarchy subclass (or a
+  polymorphic `ref_id: UUID7Field` + `ref_type: CharField` pair), not a
+  shared edge type.
+- Tier-1b (`UUID7Field` + `GraphNode`/`GraphEdge` uuid4→uuid7 upgrade) is
+  therefore unblocked; §B `FileNode` uses `UUID7Field(pk=True)`.
+
 ```python
 class UUID7Field(fields.UUIDField):
     def __init__(self, **kw) -> None:
@@ -234,9 +251,9 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
 | G10 | ✅ FIXED | `migrations/operations.py` | `_patch_format_operation` swallows ALL `ValueError`s from the original formatter → masks real errors as `MigrationOperationError`. | Re-raise non-serialization errors — only the stock writer's terminal `"Unsupported operation type"` ValueError routes to the fallback serializer; render-helper ValueErrors (e.g. unserializable lambda in `SQLOperation`) propagate; +1 unit test |
 | G11 | MED | `AGENTS.md`, `doc/architecture/overview.md`, `design-decisions.md` | Docs claim `OperationGenerator.generate` is patched — **it is not** (only `MigrationWriter._format_operation`). | Correct docs to match actual patch surface |
 | G12 | MED | README + `doc/architecture/design-decisions.md`, `graph-traversal.md`, `recursive-cte.md`, `api/cache.md` | Benchmark claims (22,581 RPS, 290x, 4ms, 100K-sec) have no benchmark harness/evidence in repo. | Add `benchmarks/` script or mark numbers as illustrative |
-| G13 | MED | `timescale/compression.py` | `add_compression_policy`/`compress_chunk`/`decompress_chunk` deprecated since TimescaleDB 2.18 (→ `add_columnstore_policy`/`convert_to_columnstore`/`convert_to_rowstore`). | Migrate to 2.18+ API; bump docker ARG to latest 2.x and verify |
+| G13 | ✅ FIXED | `timescale/compression.py` | `add_compression_policy`/`compress_chunk`/`decompress_chunk` deprecated since TimescaleDB 2.18 (→ `add_columnstore_policy`/`convert_to_columnstore`/`convert_to_rowstore`). | Migrated to 2.18+ columnstore API: `timescaledb.enable_columnstore` reloption, `CALL add_columnstore_policy(hypertable, after => INTERVAL, if_not_exists)`, `CALL remove_columnstore_policy`, `CALL convert_to_columnstore`/`convert_to_rowstore`, `hypertable_columnstore_stats` for `get_stats`; method names kept stable; verified live against docker TimescaleDB 2.28.3; +1 unit test (deprecation-free SQL assertions) |
 | G14 | MED | `doc/guides/migration.md` | Guide steers to aerich, but code patches built-in `tortoise.migrations` writer (aerich = legacy). | Rewrite migration docs around the built-in system |
-| G15 | MED | `plan.md` §A/§F | Tier-1 premise wrong: `GraphNode` uses `UUIDField` (not BigInt); `GraphEdge` (UUID source/target) **cannot** link `HierarchyModel` (BigInt) nodes. §F/Tier-1b must first reconcile the pk split. | Decide pk strategy before §F work; document GraphEdge↔HierarchyModel constraint |
+| G15 | ✅ FIXED | `plan.md` §A/§F | Tier-1 premise wrong: `GraphNode` uses `UUIDField` (not BigInt); `GraphEdge` (UUID source/target) **cannot** link `HierarchyModel` (BigInt) nodes. §F/Tier-1b must first reconcile the pk split. | Pk strategy decided (2026-08-04): `GraphNode` stays UUID (uuid4→uuid7 in Tier-1b); `HierarchyModel` stays BigInt with `UUID7Field(pk=True)` opt-in per subclass; GraphEdge links GraphNode-family only — cross-family edges require the polymorphic `ref_id`+`ref_type` pair, not a shared edge type. Documented in §F |
 | G16 | LOW | `fields/vector_field.py` | SQLite BLOB round-trip: `to_python_value(bytes)` → `list(bytes)` of ints (memoryview path OK). | Handle `bytes` → `struct.unpack` on SQLite |
 | G17 | LOW | `fields/ltree_field.py` | Typed `Field[str]` but returns `list[str]`; `max_length`/`separator` unused in DDL. | Fix type annotation; drop or implement unused params |
 | G18 | LOW | `__init__.py` codec | `set_type_codec(..., schema="public")` — extension in a non-public schema silently skipped. | Resolve schema from connection/search_path |
@@ -263,9 +280,11 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
   index-redeclaration guard, namespace-scoped ancestor/descendant queries,
   atomic single-UPDATE `move_to`; +11 regression tests, full gate green
   including live-PG hierarchy suite (docker up).
-- **§F/Tier-1b still blocked by G15**: the GraphNode(UUID) vs
-  HierarchyModel(BigInt) pk split must be reconciled before any unified-ID
-  work (abstract-index propagation itself is now resolved via G3).
+- **§F/Tier-1b unblocked by G15 (2026-08-04)**: pk strategy decided —
+  GraphNode stays UUID (uuid4→uuid7 in Tier-1b), HierarchyModel stays BigInt
+  with per-subclass `UUID7Field(pk=True)` opt-in; GraphEdge only links
+  GraphNode-family nodes (cross-family edges use polymorphic
+  `ref_id`+`ref_type`).
 - **Timescale 2.18 API drift (G13)** and **built-in migrations (G14)** change
   §B/C/D and migration docs before implementation.
 - **Vector bare-value guard (G4): DONE 2026-08-04** — bare non-None
@@ -295,6 +314,23 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
   generic deconstruct serializer. Real render errors (e.g. unserializable
   lambda in `SQLOperation.values`) propagate; +1 unit test (705 passed /
   1 skipped, ruff clean, basedpyright 0/0/0).
+- **Docs patch-surface (G11) + built-in migrations (G14) + pk split
+  (G15): DONE 2026-08-04** — removed the false `OperationGenerator.generate`
+  patch claim (design-decisions.md, overview.md, README); rewrote migration
+  guides/api around the built-in `python -m tortoise` CLI (`init`,
+  `makemigrations`, `sqlmigrate`, `migrate`, `downgrade`) and dropped Aerich
+  references; §F pk strategy decided — GraphNode stays UUID
+  (uuid4→uuid7 in Tier-1b), HierarchyModel stays BigInt with per-subclass
+  `UUID7Field(pk=True)` opt-in, GraphEdge links GraphNode-family only.
+- **Timescale 2.18 columnstore API (G13): DONE 2026-08-04** —
+  `CompressionManager` migrated off every deprecated pre-2.18 function:
+  `timescaledb.enable_columnstore` reloption, `CALL
+  add_columnstore_policy`/`remove_columnstore_policy`/
+  `convert_to_columnstore`/`convert_to_rowstore`, and
+  `hypertable_columnstore_stats` for `get_stats`; method names kept stable;
+  verified live against docker TimescaleDB 2.28.3 (docker ARG already
+  2.28.3 — no bump needed); +1 unit test (706 passed / 1 skipped, ruff
+  clean, basedpyright 0/0/0).
 - New recommended order: roadmap Tiers.
 - plan.md itself is currently **untracked** in git — commit alongside first
   fix batch.

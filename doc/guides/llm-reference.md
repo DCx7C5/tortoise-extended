@@ -82,7 +82,7 @@ materialized paths (`HierarchyModel`) for trees you query by subtree,
 | `CompressionManager` | `from tortoise_extended.timescale import CompressionManager` | Chunk compression |
 | `RetentionPolicy` | `from tortoise_extended.timescale import RetentionPolicy` | Auto-delete old data |
 | `ContinuousAggregateManager` | `from tortoise_extended.timescale import ContinuousAggregateManager` | Auto-refresh aggregations |
-| `CreateHypertable` | `from tortoise_extended.migrations.operations import CreateHypertable` | Hypertable via aerich migration |
+| `CreateHypertable` | `from tortoise_extended.migrations.operations import CreateHypertable` | Hypertable via built-in migration writer |
 
 ## Filter Syntax Cheat Sheet
 
