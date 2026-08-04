@@ -31,6 +31,7 @@ from typing import cast
 
 from tortoise import connections
 
+from tortoise_extended._quote import quote_ident, quote_literal
 from tortoise_extended._types import LibraryAny, RowMapping
 
 
@@ -76,7 +77,7 @@ class ContinuousAggregateManager:
         if "CREATE MATERIALIZED VIEW" not in query.upper():
             data_clause = "DATA" if with_data else "NO DATA"
             query = f"""
-                CREATE MATERIALIZED VIEW {view_name}
+                CREATE MATERIALIZED VIEW {quote_ident(view_name)}
                 WITH (timescaledb.continuous)
                 AS ({query})
                 WITH {data_clause}
@@ -104,7 +105,7 @@ class ContinuousAggregateManager:
         sql = f"""
             DROP MATERIALIZED VIEW
             {"IF EXISTS" if if_exists else ""}
-            {view_name}
+            {quote_ident(view_name)}
         """
 
         await conn.execute_query(sql)
@@ -137,22 +138,19 @@ class ContinuousAggregateManager:
         conn = connections.get("default")
 
         if start_time and end_time:
-            sql = f"""
-                CALL refresh_continuous_aggregate(
-                    '{view_name}',
-                    TIMESTAMPTZ '{start_time}',
-                    TIMESTAMPTZ '{end_time}'
-                )
-            """
+            sql = (
+                "CALL refresh_continuous_aggregate("
+                f"{quote_literal(view_name)}, "
+                f"TIMESTAMPTZ {quote_literal(start_time)}, "
+                f"TIMESTAMPTZ {quote_literal(end_time)}"
+                ")"
+            )
         else:
             # Refresh everything
-            sql = f"""
-                CALL refresh_continuous_aggregate(
-                    '{view_name}',
-                    NULL,
-                    NULL
-                )
-            """
+            sql = (
+                "CALL refresh_continuous_aggregate("
+                f"{quote_literal(view_name)}, NULL, NULL)"
+            )
 
         await conn.execute_query(sql)
 
@@ -187,14 +185,14 @@ class ContinuousAggregateManager:
         """
         conn = connections.get("default")
 
-        sql = f"""
-            SELECT add_continuous_aggregate_policy(
-                '{view_name}',
-                start_offset => INTERVAL '{start_offset}',
-                end_offset => INTERVAL '{end_offset}',
-                schedule_interval => INTERVAL '{schedule_interval}'
-            )
-        """
+        sql = (
+            "SELECT add_continuous_aggregate_policy("
+            f"{quote_literal(view_name)}, "
+            f"start_offset => INTERVAL {quote_literal(start_offset)}, "
+            f"end_offset => INTERVAL {quote_literal(end_offset)}, "
+            f"schedule_interval => INTERVAL {quote_literal(schedule_interval)}"
+            ")"
+        )
 
         await conn.execute_query(sql)
 
@@ -211,9 +209,7 @@ class ContinuousAggregateManager:
         """
         conn = connections.get("default")
 
-        sql = f"""
-            SELECT remove_continuous_aggregate_policy('{view_name}')
-        """
+        sql = f"SELECT remove_continuous_aggregate_policy({quote_literal(view_name)})"
 
         await conn.execute_query(sql)
 
@@ -231,7 +227,7 @@ class ContinuousAggregateManager:
         conn = connections.get("default")
 
         sql = f"""
-            ALTER MATERIALIZED VIEW {view_name}
+            ALTER MATERIALIZED VIEW {quote_ident(view_name)}
             SET (timescaledb.materialized_only = false)
         """
 

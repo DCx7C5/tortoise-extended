@@ -228,7 +228,7 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
 | G4 | ✅ FIXED | `expressions/graph_filters.py` | Bare `filter(embedding=<vec>)` maps to `IS NULL` via `get_vector_filters` → silent wrong results for non-None values. | `_vector_eq_guard` raises `VectorFieldError` for any non-None bare value (Tortoise redirects `None` → `__isnull` first); +8 regression tests (2 unit, 3 SQLite BLOB integration, 3 live-PG) |
 | G5 | ✅ FIXED | `graph/hierarchy_model.py` | `get_ancestors`/`get_descendants` omit the `namespace` filter (unlike `get_path_to_root`/`get_root`) → cross-tenant data leak in multi-tenant trees. | Added `namespace: str \| None = None` param (defaults to instance namespace) to both; 3 PG regression tests added |
 | G6 | ✅ FIXED | `graph/hierarchy_model.py` | `move_to` is non-atomic (row-by-row UPDATEs, no `in_transaction`), N+1, and self-move (`new_parent=self`) bypasses the cycle guard → partial-tree corruption on mid-cascade failure. | Wrapped in `in_transaction()`; descendant cascade is one bulk UPDATE (`_PrefixReplace` prefix-only rewrite + `F("depth") + delta`, namespace-scoped); self-move guard; 3 PG regression tests added |
-| G7 | MED | `timescale/hypertable.py`, `compression.py`, `retention.py`, `continuous_aggregate.py` | Table/interval names interpolated into SQL at 24+ sites, unquoted/unescaped; internal `_timescaledb_catalog`/`_timescaledb_config` tables queried instead of public `timescaledb_information` views. | Shared `_quote_ident`/`_quote_literal` helpers (extract from `migrations/operations.py`); bind values; use public views |
+| G7 | ✅ FIXED | `timescale/hypertable.py`, `compression.py`, `retention.py`, `continuous_aggregate.py` | Table/interval names interpolated into SQL at 24+ sites, unquoted/unescaped; internal `_timescaledb_catalog`/`_timescaledb_config` tables queried instead of public `timescaledb_information` views. | Shared `_quote.py` helpers (`quote_ident`/`quote_literal`) extracted from `migrations/operations.py`; all interpolated names quoted/escaped; `is_hypertable` → `timescaledb_information.hypertables`, `get_stats` → `timescaledb_information.chunks` (`is_compressed`), `list_policies` → `timescaledb_information.jobs`; +9 unit tests, live-PG suite green. Also folded in the G19 division-by-zero guard |
 | G8 | MED | `indexes/hnsw_index.py`, `ltree_index.py` | HNSW/IVFFlat/GiST emit PG DDL on **any** backend → SQLite `generate_schemas` breaks; no dialect guard. | Backend guard in `get_sql` (skip or raise on non-PG) |
 | G9 | MED | `timescale/stream.py` | `bulk_insert` (COPY) does not populate `auto_now_add` fields; unquoted identifiers in DDL; only the PK caveat is documented. | Populate server-side defaults explicitly; quote identifiers; document |
 | G10 | MED | `__init__.py` migration patch | `_patch_format_operation` swallows ALL `ValueError`s from the original formatter → masks real errors as `MigrationOperationError`. | Re-raise non-serialization errors; only catch expected cases |
@@ -273,6 +273,13 @@ auditors. One auditor finding rejected (bracket syntax — see DISPUTED).
   silently compiling to `IS NULL`; +8 regression tests (unit + SQLite BLOB
   integration + live-PG), full gate green (687 passed / 1 skipped, ruff
   clean, basedpyright 0/0/0).
-- New recommended order: G7/G8/G9/G10 (hardening) next, then roadmap Tiers.
+- **Timescale SQL hardening (G7): DONE 2026-08-04** — shared
+  `_quote.py` quoting helpers; every timescale manager SQL site now quotes
+  identifiers/escapes literals; private catalog queries replaced with
+  `timescaledb_information` public views (`hypertables`, `chunks`, `jobs`);
+  G19 division guard folded in; +9 unit tests, live-Timescale suite green
+  (696 passed / 1 skipped, ruff clean, basedpyright 0/0/0).
+- New recommended order: G8 (index dialect guard) next, then G9/G10, then
+  roadmap Tiers.
 - plan.md itself is currently **untracked** in git — commit alongside first
   fix batch.

@@ -24,6 +24,7 @@ from typing import cast
 
 from tortoise import connections
 
+from tortoise_extended._quote import quote_literal
 from tortoise_extended._types import LibraryAny, RowMapping
 
 
@@ -57,13 +58,13 @@ class RetentionPolicy:
         """
         conn = connections.get("default")
 
-        sql = f"""
-            SELECT add_retention_policy(
-                '{table_name}',
-                INTERVAL '{drop_after}',
-                if_not_exists => {str(if_not_exists).lower()}
-            )
-        """
+        sql = (
+            "SELECT add_retention_policy("
+            f"{quote_literal(table_name)}, "
+            f"INTERVAL {quote_literal(drop_after)}, "
+            f"if_not_exists => {str(if_not_exists).lower()}"
+            ")"
+        )
 
         await conn.execute_query(sql)
 
@@ -80,9 +81,7 @@ class RetentionPolicy:
         """
         conn = connections.get("default")
 
-        sql = f"""
-            SELECT remove_retention_policy('{table_name}')
-        """
+        sql = f"SELECT remove_retention_policy({quote_literal(table_name)})"
 
         await conn.execute_query(sql)
 
@@ -103,16 +102,14 @@ class RetentionPolicy:
 
         sql = """
             SELECT
-                h.table_name,
-                p.config AS drop_after,
-                p.schedule_interval,
-                p.initial_start,
-                p.scheduled
-            FROM _timescaledb_config.bgw_job p
-            JOIN _timescaledb_catalog.hypertable h
-            ON p.hypertable_id = h.id
-            WHERE p.proc_name = 'policy_retention'
-            ORDER BY h.table_name
+                hypertable_name AS table_name,
+                config AS drop_after,
+                schedule_interval,
+                initial_start,
+                scheduled
+            FROM timescaledb_information.jobs
+            WHERE proc_name = 'policy_retention'
+            ORDER BY hypertable_name
         """
 
         result = await conn.execute_query(sql)
@@ -148,8 +145,8 @@ class RetentionPolicy:
             SELECT
                 show_chunks AS chunk_name
             FROM show_chunks(
-                '{table_name}',
-                older_than => INTERVAL '{older_than}'
+                {quote_literal(table_name)},
+                older_than => INTERVAL {quote_literal(older_than)}
             )
             ORDER BY chunk_name
         """

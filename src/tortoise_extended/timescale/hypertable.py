@@ -22,6 +22,7 @@ from typing import cast
 
 from tortoise import connections
 
+from tortoise_extended._quote import quote_ident, quote_literal
 from tortoise_extended._types import LibraryAny, RowMapping
 
 
@@ -63,15 +64,15 @@ class HypertableManager:
         """
         conn = connections.get("default")
 
-        sql = f"""
-            SELECT create_hypertable(
-                '{table_name}',
-                '{time_column}',
-                chunk_time_interval => INTERVAL '{chunk_time_interval}',
-                if_not_exists => {str(if_not_exists).lower()},
-                migrate_data => {str(migrate_data).lower()}
-            )
-        """
+        sql = (
+            "SELECT create_hypertable("
+            f"{quote_literal(table_name)}, "
+            f"{quote_literal(time_column)}, "
+            f"chunk_time_interval => INTERVAL {quote_literal(chunk_time_interval)}, "
+            f"if_not_exists => {str(if_not_exists).lower()}, "
+            f"migrate_data => {str(migrate_data).lower()}"
+            ")"
+        )
 
         await conn.execute_query(sql)
 
@@ -95,7 +96,7 @@ class HypertableManager:
         sql = f"""
             DROP TABLE
             {"IF EXISTS" if if_exists else ""}
-            {table_name}
+            {quote_ident(table_name)}
             CASCADE
         """
 
@@ -121,8 +122,8 @@ class HypertableManager:
 
         sql = f"""
             SELECT EXISTS(
-                SELECT 1 FROM _timescaledb_catalog.hypertable
-                WHERE table_name = '{table_name}'
+                SELECT 1 FROM timescaledb_information.hypertables
+                WHERE hypertable_name = {quote_literal(table_name)}
             ) AS is_hypertable
         """
 
@@ -204,21 +205,21 @@ class HypertableManager:
         conn = connections.get("default")
 
         if chunk_time_interval:
-            sql = f"""
-                SELECT add_dimension(
-                    '{table_name}',
-                    '{column_name}',
-                    chunk_time_interval => INTERVAL '{chunk_time_interval}'
-                )
-            """
+            sql = (
+                "SELECT add_dimension("
+                f"{quote_literal(table_name)}, "
+                f"{quote_literal(column_name)}, "
+                f"chunk_time_interval => INTERVAL {quote_literal(chunk_time_interval)}"
+                ")"
+            )
         elif number_partitions is not None:
-            sql = f"""
-                SELECT add_dimension(
-                    '{table_name}',
-                    '{column_name}',
-                    number_partitions => {number_partitions}
-                )
-            """
+            sql = (
+                "SELECT add_dimension("
+                f"{quote_literal(table_name)}, "
+                f"{quote_literal(column_name)}, "
+                f"number_partitions => {number_partitions}"
+                ")"
+            )
         else:
             raise ValueError(
                 "add_dimension requires chunk_time_interval or "
@@ -256,24 +257,22 @@ class HypertableManager:
         conn = connections.get("default")
 
         if start_time and end_time:
-            sql = f"""
-                SELECT show_chunks(
-                    '{table_name}',
-                    newer_than => TIMESTAMPTZ '{start_time}',
-                    older_than => TIMESTAMPTZ '{end_time}'
-                )
-            """
+            sql = (
+                "SELECT show_chunks("
+                f"{quote_literal(table_name)}, "
+                f"newer_than => TIMESTAMPTZ {quote_literal(start_time)}, "
+                f"older_than => TIMESTAMPTZ {quote_literal(end_time)}"
+                ")"
+            )
         elif start_time:
-            sql = f"""
-                SELECT show_chunks(
-                    '{table_name}',
-                    newer_than => TIMESTAMPTZ '{start_time}'
-                )
-            """
+            sql = (
+                "SELECT show_chunks("
+                f"{quote_literal(table_name)}, "
+                f"newer_than => TIMESTAMPTZ {quote_literal(start_time)}"
+                ")"
+            )
         else:
-            sql = f"""
-                SELECT show_chunks('{table_name}')
-            """
+            sql = f"SELECT show_chunks({quote_literal(table_name)})"
 
         result = await conn.execute_query(sql)
         rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]

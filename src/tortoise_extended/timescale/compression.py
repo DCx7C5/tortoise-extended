@@ -28,6 +28,7 @@ Usage::
 
 from tortoise import connections
 
+from tortoise_extended._quote import quote_ident, quote_literal
 from tortoise_extended._types import LibraryAny
 
 
@@ -56,7 +57,7 @@ class CompressionManager:
         conn = connections.get("default")
 
         sql = f"""
-            ALTER TABLE {table_name}
+            ALTER TABLE {quote_ident(table_name)}
             SET (timescaledb.compress)
         """
 
@@ -76,7 +77,7 @@ class CompressionManager:
         conn = connections.get("default")
 
         sql = f"""
-            ALTER TABLE {table_name}
+            ALTER TABLE {quote_ident(table_name)}
             SET (timescaledb.compress = false)
         """
 
@@ -104,13 +105,13 @@ class CompressionManager:
         """
         conn = connections.get("default")
 
-        sql = f"""
-            SELECT add_compression_policy(
-                '{table_name}',
-                INTERVAL '{compress_after}',
-                if_not_exists => {str(if_not_exists).lower()}
-            )
-        """
+        sql = (
+            "SELECT add_compression_policy("
+            f"{quote_literal(table_name)}, "
+            f"INTERVAL {quote_literal(compress_after)}, "
+            f"if_not_exists => {str(if_not_exists).lower()}"
+            ")"
+        )
 
         await conn.execute_query(sql)
 
@@ -127,9 +128,7 @@ class CompressionManager:
         """
         conn = connections.get("default")
 
-        sql = f"""
-            SELECT remove_compression_policy('{table_name}')
-        """
+        sql = f"SELECT remove_compression_policy({quote_literal(table_name)})"
 
         await conn.execute_query(sql)
 
@@ -148,9 +147,7 @@ class CompressionManager:
         """
         conn = connections.get("default")
 
-        sql = f"""
-            SELECT compress_chunk('{chunk_name}')
-        """
+        sql = f"SELECT compress_chunk({quote_literal(chunk_name)})"
 
         await conn.execute_query(sql)
 
@@ -169,9 +166,7 @@ class CompressionManager:
         """
         conn = connections.get("default")
 
-        sql = f"""
-            SELECT decompress_chunk('{chunk_name}')
-        """
+        sql = f"SELECT decompress_chunk({quote_literal(chunk_name)})"
 
         await conn.execute_query(sql)
 
@@ -200,6 +195,7 @@ class CompressionManager:
                 pg_size_pretty(after_compression_total_bytes) AS compressed_size,
                 CASE
                     WHEN before_compression_total_bytes > 0
+                     AND after_compression_total_bytes > 0
                     THEN ROUND(
                         before_compression_total_bytes::numeric /
                         after_compression_total_bytes,
@@ -207,17 +203,13 @@ class CompressionManager:
                     )
                     ELSE 1
                 END AS compression_ratio,
-                (SELECT COUNT(*) FROM _timescaledb_catalog.chunk c
-                 JOIN _timescaledb_catalog.hypertable h
-                 ON c.hypertable_id = h.id
-                 WHERE h.table_name = '{table_name}'
-                 AND c.compressed_chunk_id IS NULL) AS uncompressed_chunks,
-                (SELECT COUNT(*) FROM _timescaledb_catalog.chunk c
-                 JOIN _timescaledb_catalog.hypertable h
-                 ON c.hypertable_id = h.id
-                 WHERE h.table_name = '{table_name}'
-                 AND c.compressed_chunk_id IS NOT NULL) AS compressed_chunks
-            FROM hypertable_compression_stats('{table_name}')
+                (SELECT COUNT(*) FROM timescaledb_information.chunks c
+                 WHERE c.hypertable_name = {quote_literal(table_name)}
+                 AND c.is_compressed = FALSE) AS uncompressed_chunks,
+                (SELECT COUNT(*) FROM timescaledb_information.chunks c
+                 WHERE c.hypertable_name = {quote_literal(table_name)}
+                 AND c.is_compressed = TRUE) AS compressed_chunks
+            FROM hypertable_compression_stats({quote_literal(table_name)})
             LIMIT 1
         """
 

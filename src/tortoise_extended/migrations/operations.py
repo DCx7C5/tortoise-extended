@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, cast, override
 
 from tortoise.migrations.operations import Operation
 from tortoise.migrations.writer import MigrationWriter
+from tortoise_extended._quote import quote_ident as _quote_ident
+from tortoise_extended._quote import quote_literal as _quote_literal
 from tortoise_extended._types import Deconstructable
 from tortoise_extended.exceptions import MigrationOperationError
 
@@ -27,16 +29,6 @@ async def _run_sql(editor: object, sql: str) -> None:
     """
     run_sql = cast(Callable[..., Awaitable[None]], getattr(editor, "_run_sql"))
     await run_sql(sql)
-
-
-def _quote_ident(name: str) -> str:
-    """Double-quote a PostgreSQL identifier, escaping embedded double quotes."""
-    return '"' + name.replace('"', '""') + '"'
-
-
-def _quote_literal(value: str) -> str:
-    """Single-quote a PostgreSQL string literal, escaping embedded quotes."""
-    return "'" + value.replace("'", "''") + "'"
 
 
 def _patch_format_operation() -> None:
