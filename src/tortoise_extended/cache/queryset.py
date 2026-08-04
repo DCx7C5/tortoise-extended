@@ -27,16 +27,19 @@ class CachedQuerySet(QuerySet[Model]):
     Usage:
 
         # Cache query results for 5 minutes
-        entities = await Entity.filter(type="TECHNOLOGY").cache(ttl=300)
+        entities = await CachedQuerySet(Entity).filter(
+            type="TECHNOLOGY"
+        ).cache(ttl=300)
 
         # Cache with custom key
-        entities = await Entity.filter(type="TECHNOLOGY").cache(
-            key="tech_entities",
-            ttl=600,
-        )
+        entities = await CachedQuerySet(Entity).filter(
+            type="TECHNOLOGY"
+        ).cache(key="tech_entities", ttl=600)
 
         # Invalidate cache
-        await Entity.filter(type="TECHNOLOGY").invalidate_cache()
+        await CachedQuerySet(Entity).filter(
+            type="TECHNOLOGY"
+        ).cache().invalidate_cache()
     """
 
     _cache_ttl: int = 0

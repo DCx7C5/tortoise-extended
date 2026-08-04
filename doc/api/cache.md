@@ -29,7 +29,7 @@ pip install redis[hiredis]
 
 ```python
 import tortoise_extended  # noqa: F401 — apply patches
-from tortoise import Tortoise
+from tortoise import Tortoise, fields, models
 from tortoise_extended.cache import RedisCache, CacheableModel, cached
 
 # Initialize Redis
@@ -37,7 +37,7 @@ await RedisCache.init(url="redis://localhost:6379/0")
 
 # Initialize Tortoise
 await Tortoise.init(
-    db_url="asyncpg://user:pass@localhost:5432/graphrag",
+    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended",
     modules={"models": ["myapp.models"]},
 )
 
@@ -121,7 +121,7 @@ from tortoise_extended.cache import CacheableModel
 
 class Entity(CacheableModel, models.Model):
     _cache_ttl = 600
-    _cache_fields = ["title", "type"]
+    _cache_fields = ["title", "entity_type"]
 
     title = fields.CharField(max_length=512)
     entity_type = fields.CharField(max_length=100)
@@ -174,24 +174,28 @@ QuerySet with automatic caching.
 from tortoise_extended.cache import CachedQuerySet
 
 # Basic caching
-entities = await Entity.filter(type="TECHNOLOGY").cache(ttl=300)
+entities = await CachedQuerySet(Entity).filter(type="TECHNOLOGY").cache(ttl=300)
 
 # Custom key
-entities = await Entity.filter(type="TECHNOLOGY").cache(
+entities = await CachedQuerySet(Entity).filter(type="TECHNOLOGY").cache(
     key="tech_entities",
     ttl=600,
 )
 
 # Invalidate specific query
-await Entity.filter(type="TECHNOLOGY").cache().invalidate_cache()
+await CachedQuerySet(Entity).filter(type="TECHNOLOGY").cache().invalidate_cache()
 ```
+
+`CachedQuerySet(Model)` is a drop-in `QuerySet` subclass — construct it
+directly (as above) or expose it through a custom manager. Query chaining
+(`.filter()`, `.order_by()`, ...) works exactly like a normal QuerySet.
 
 ### Methods
 
 #### cache()
 
 ```python
-qs = qs.cache(
+qs = qs.cache(  # qs is a CachedQuerySet
     ttl=300,           # TTL in seconds
     key="custom_key",  # Custom cache key (optional)
     backend=None,      # Custom backend (optional)
@@ -351,7 +355,8 @@ key = ns.key("get", "123")
 ### Redis Not Connected
 
 ```
-RuntimeError: Redis cache not initialized
+tortoise_extended.exceptions.CacheBackendNotInitializedError:
+Redis cache not initialized
 ```
 
 **Fix:**
