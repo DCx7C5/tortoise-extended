@@ -56,6 +56,8 @@ class MetaInfo:
     fields: set[str]
     db_fields: set[str]
     fk_fields: set[str]
+    m2m_fields: dict[str, Any]
+    backward_fk_fields: set[str]
     fields_map: dict[str, Field[Any]]
     filters: dict[str, object]
     manager: Manager

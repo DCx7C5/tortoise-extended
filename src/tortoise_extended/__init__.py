@@ -92,6 +92,7 @@ from tortoise_extended.migrations.operations import (
     CreateContinuousAggregate,
     CreateHypertable,
 )
+from tortoise_extended.timescale import EventStreamMixin, TimeBucketRow
 
 # ---------------------------------------------------------------------------
 # pgvector codec helpers (module-level so every branch is unit-testable)
@@ -260,6 +261,7 @@ __all__ = [
     "CosineDistance",
     "CreateContinuousAggregate",
     "CreateHypertable",
+    "EventStreamMixin",
     "FieldDefinitionError",
     "GiSTIndex",
     "GraphEdge",
@@ -290,6 +292,7 @@ __all__ = [
     "TortoiseExtendedError",
     "VectorField",
     "VectorFieldError",
+    "TimeBucketRow",
     "all_paths",
     "cached",
     "cached_method",

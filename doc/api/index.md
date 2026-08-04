@@ -15,6 +15,7 @@ Complete API documentation for all tortoise-extended modules.
 - **[Hybrid Search](hybrid-search.md)** — Vector + FTS weighted scoring
 - **[Graph (Node/Edge/Mixin)](graph.md)** — GraphNode, GraphEdge, HierarchyMixin base classes
 - **[TimescaleDB](timescale.md)** — HypertableManager, CompressionManager, RetentionPolicy, ContinuousAggregateManager
+- **[Event Streams](event-streams.md)** — EventStreamMixin: multi-stream hypertables, COPY ingestion, typed rollups
 - **[Cache (Redis)](cache.md)** — RedisCache, CacheableModel, CachedQuerySet, decorators
 - **[Exceptions](exceptions.md)** — domain error hierarchy (all derive from `TortoiseExtendedError`)
 - **[Migrations](migrations.md)** — CreateHypertable, CreateContinuousAggregate migration operations
@@ -53,6 +54,7 @@ from tortoise_extended.timescale import (
     RetentionPolicy,
     ContinuousAggregateManager,
 )
+from tortoise_extended import EventStreamMixin, TimeBucketRow
 ```
 
 ### Cache

@@ -1,0 +1,556 @@
+"""TimescaleDB event-stream mixin with typed, ORM-style query helpers.
+
+Turns any Tortoise model into a multi-stream time-series table:
+
+* **DDL** — :meth:`EventStreamMixin.setup` idempotently creates the
+  hypertable, adds a space dimension on the stream column, installs the
+  composite ``(stream, time DESC)`` index, and optionally wires compression
+  and retention policies.
+* **Ingestion** — :meth:`EventStreamMixin.bulk_insert` loads model
+  instances through asyncpg ``COPY`` (3-10x faster than ``bulk_create`` for
+  high-rate streams).
+* **Queries** — the ORM-style helpers wrap the raw SQL that Tortoise cannot
+  express (``DISTINCT ON``, ``time_bucket``, ``first``/``last``):
+
+  - :meth:`EventStreamMixin.latest_per_stream` — newest event per stream.
+  - :meth:`EventStreamMixin.time_series` — typed per-stream rollups.
+  - :meth:`EventStreamMixin.in_range` — pure-ORM time/stream filter.
+
+Requires: TimescaleDB extension
+
+Note:
+    TimescaleDB requires every unique index / primary key to include all
+    partitioning columns (time **and** space). Tortoise models only support
+    single-column pks, so stream tables must be created with a composite
+    primary key via raw DDL / migrations before calling :meth:`setup`::
+
+        CREATE TABLE events (
+            id BIGINT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL,
+            stream_id INT NOT NULL,
+            value DOUBLE PRECISION NOT NULL,
+            PRIMARY KEY (id, created_at, stream_id)
+        )
+
+Usage::
+
+    import tortoise_extended  # noqa: F401 — apply patches
+    from tortoise import fields
+    from tortoise_extended.timescale import EventStreamMixin
+
+    class Event(EventStreamMixin):
+        id = fields.BigIntField(primary_key=True)
+        created_at = fields.DatetimeField(auto_now_add=True, use_tz=True)
+        stream_id = fields.IntField()
+        value = fields.FloatField()
+        token_count = fields.IntField(default=0)
+
+        class Meta:
+            table = "events"
+
+    # One-time idempotent DDL after Tortoise.init()
+    await Event.setup()
+
+    # High-throughput ingestion (explicit IDs required — COPY cannot use
+    # identity defaults)
+    await Event.bulk_insert(
+        [Event(id=i, stream_id=s, value=0.5) for i, s in ...]
+    )
+
+    # Latest event per stream (DISTINCT ON)
+    await Event.latest_per_stream(stream_ids=[1, 2])
+
+    # Per-stream hourly averages
+    await Event.time_series(
+        "1 hour", aggregate="avg", field="value",
+        start=now - timedelta(days=1), end=now,
+    )
+
+    # Pure-ORM time/stream range
+    await Event.in_range(now - timedelta(hours=1), now, stream_ids=[1]).all()
+"""
+
+from collections.abc import Callable, Sequence
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast, override
+
+import msgspec
+from tortoise import connections, fields
+from tortoise.models import Model
+from tortoise_extended._types import LibraryAny, RowMapping
+
+from tortoise_extended.timescale.compression import CompressionManager
+from tortoise_extended.timescale.hypertable import HypertableManager
+from tortoise_extended.timescale.retention import RetentionPolicy
+
+if TYPE_CHECKING:
+    from tortoise.queryset import QuerySet
+
+# ── Typed result containers ────────────────────────────────────────────────
+
+Aggregate = Literal["count", "avg", "sum", "min", "max", "first", "last"]
+
+_BUCKET_UNITS: dict[str, Callable[[int], timedelta]] = {
+    "microsecond": lambda n: timedelta(microseconds=n),
+    "millisecond": lambda n: timedelta(milliseconds=n),
+    "second": lambda n: timedelta(seconds=n),
+    "minute": lambda n: timedelta(minutes=n),
+    "hour": lambda n: timedelta(hours=n),
+    "day": lambda n: timedelta(days=n),
+    "week": lambda n: timedelta(weeks=n),
+}
+
+
+def _bucket_to_timedelta(bucket: str) -> timedelta:
+    """Parse a ``time_bucket`` width like ``"1 hour"`` into a fixed interval.
+
+    TimescaleDB also accepts ``"1 month"`` / ``"1 year"``, but those are
+    variable-length so asyncpg cannot bind them as a fixed interval —
+    they are rejected with a clear error.
+    """
+    parts = bucket.strip().split()
+    if len(parts) != 2:
+        raise ValueError(
+            f"Invalid bucket {bucket!r}; expected '<count> <unit>' e.g. '1 hour'"
+        )
+    try:
+        count = int(parts[0])
+    except ValueError:
+        raise ValueError(
+            f"Invalid bucket {bucket!r}; count must be an integer"
+        ) from None
+    unit = parts[1].rstrip("s")
+    converter = _BUCKET_UNITS.get(unit)
+    if converter is None:
+        raise ValueError(
+            f"Unsupported bucket unit {parts[1]!r}; supported units: "
+            + ", ".join(sorted(_BUCKET_UNITS))
+        )
+    return converter(count)
+
+
+class TimeBucketRow(msgspec.Struct):
+    """One per-stream time bucket returned by :meth:`EventStreamMixin.time_series`.
+
+    Attributes:
+        stream_id: The stream partition value.
+        bucket: Bucket start time (``time_bucket`` truncates to the width).
+        value: Aggregated value — ``count`` returns the row count, all other
+            aggregates operate on *field*. ``None`` for empty buckets.
+        count: Number of raw rows in this bucket.
+    """
+
+    stream_id: int | str
+    bucket: datetime
+    value: float | None
+    count: int
+
+
+# ── Internal helpers ───────────────────────────────────────────────────────
+
+
+def _field_db_column(field: fields.Field[object], fallback: str) -> str:
+    """Resolve a field's physical DB column name."""
+    return field.source_field or fallback
+
+
+def _table_field(cls: type[Model], field_name: str, *, what: str) -> str:
+    """Validate that *field_name* exists on the model and return it."""
+    if field_name not in cls._meta.fields_map:
+        raise ValueError(
+            f"{what} field {field_name!r} is not declared on "
+            f"{cls.__name__}; available: {', '.join(sorted(cls._meta.fields_map))}"
+        )
+    return field_name
+
+
+def _row_to_model_kwargs(
+    cls: type[Model],
+    row: RowMapping,
+) -> dict[str, object]:
+    """Map raw DB columns to model-field kwargs (mirrors ``_init_from_db``)."""
+    kwargs: dict[str, object] = {}
+    for field_name, field in cls._meta.fields_map.items():
+        db_column = _field_db_column(field, field_name)
+        if db_column in row:
+            kwargs[field_name] = row[db_column]
+    return kwargs
+
+
+def _init_from_db(cls: type[Model], kwargs: dict[str, object]) -> Model:
+    init = cast(Callable[..., Model], getattr(cls, "_init_from_db"))
+    return init(**kwargs)
+
+
+async def _fetch_rows(
+    sql: str,
+    values: Sequence[object] | None = None,
+) -> list[RowMapping]:
+    """Run raw SQL and return rows as mappings."""
+    conn = connections.get("default")
+    result = await conn.execute_query(sql, list(values) if values else None)
+    rows = result[1]
+    return [cast(RowMapping, dict(row)) for row in rows]
+
+
+# ── Mixin ──────────────────────────────────────────────────────────────────
+
+
+class EventStreamMixin(Model):
+    """Abstract base for multi-stream time-series tables.
+
+    Subclasses declare their own fields and **must** set
+    ``class Meta: table = "..."``. Configuration is class-level:
+
+    * ``time_field`` — time partition column (default ``"created_at"``).
+    * ``stream_field`` — stream/tenant/device partition column (default
+      ``"stream_id"``).
+    * ``chunk_time_interval`` — hypertable chunk width (default ``"1 day"``).
+    * ``number_partitions`` — space dimension partition count on the stream
+      column (power of two; default 4; ``None`` disables the dimension).
+    * ``compress_after`` — optional compression policy delay (e.g. ``"7
+      days"``); ``None`` disables.
+    * ``drop_after`` — optional retention policy (e.g. ``"90 days"``);
+      ``None`` disables.
+
+    Note:
+        The hypertable partition column must be ``NOT NULL`` (Tortoise
+        ``DatetimeField(auto_now_add=True)`` already is).
+    """
+
+    time_field: ClassVar[str] = "created_at"
+    stream_field: ClassVar[str] = "stream_id"
+    chunk_time_interval: ClassVar[str] = "1 day"
+    number_partitions: ClassVar[int | None] = 4
+    compress_after: ClassVar[str | None] = None
+    drop_after: ClassVar[str | None] = None
+
+    class Meta:
+        abstract = True
+
+    @override
+    def __str__(self) -> str:
+        return f"<{self.__class__.__name__} {self._meta.db_table}>"
+
+    # ── DDL ───────────────────────────────────────────────────────────────
+
+    @classmethod
+    async def setup(cls) -> None:
+        """Apply idempotent DDL for this stream table.
+
+        Creates the hypertable (if missing), adds the space dimension on the
+        stream column (unless already present), installs the composite
+        ``(stream, time DESC)`` index, and applies the configured compression
+        and retention policies. Safe to call on every application start.
+
+        The table must already exist with a primary key covering the time and
+        stream partition columns (see the module docstring) — otherwise
+        TimescaleDB rejects the hypertable conversion.
+        """
+        _ = _table_field(cls, cls.time_field, what="time")
+        _ = _table_field(cls, cls.stream_field, what="stream")
+        conn = connections.get("default")
+        table = cls._meta.db_table
+
+        await HypertableManager.create_hypertable(
+            table,
+            time_column=cls.time_field,
+            chunk_time_interval=cls.chunk_time_interval,
+        )
+
+        if cls.number_partitions is not None and not await cls._has_dimension():
+            await HypertableManager.add_dimension(
+                table,
+                column_name=cls.stream_field,
+                number_partitions=cls.number_partitions,
+            )
+
+        index_name = f"{table}_{cls.stream_field}_{cls.time_field}_idx"
+        await conn.execute_query(
+            f"CREATE INDEX IF NOT EXISTS {index_name} "
+            f"ON {table} ({cls.stream_field}, {cls.time_field} DESC)"
+        )
+
+        if cls.compress_after is not None:
+            if not await cls._is_compression_enabled():
+                await CompressionManager.enable_compression(table)
+            await CompressionManager.add_compression_policy(
+                table,
+                compress_after=cls.compress_after,
+            )
+
+        if cls.drop_after is not None:
+            await RetentionPolicy.set_retention(
+                table,
+                drop_after=cls.drop_after,
+            )
+
+    @classmethod
+    async def _has_dimension(cls) -> bool:
+        rows = await _fetch_rows(
+            "SELECT 1 FROM timescaledb_information.dimensions "
+            "WHERE hypertable_name = $1 AND column_name = $2",
+            [cls._meta.db_table, cls.stream_field],
+        )
+        return bool(rows)
+
+    @classmethod
+    async def _is_compression_enabled(cls) -> bool:
+        rows = await _fetch_rows(
+            "SELECT compression_enabled FROM timescaledb_information.hypertables "
+            "WHERE hypertable_name = $1",
+            [cls._meta.db_table],
+        )
+        if not rows:
+            return False
+        value = rows[0].get("compression_enabled")
+        return isinstance(value, bool) and value
+
+    # ── Ingestion ─────────────────────────────────────────────────────────
+
+    @classmethod
+    async def bulk_insert(cls, instances: Sequence[Self]) -> int:
+        """Insert *instances* via a single asyncpg ``COPY`` statement.
+
+        Every instance must have an explicit primary key — ``COPY`` cannot
+        use identity/serial defaults. Use plain ``bulk_create`` when IDs are
+        database-generated.
+
+        Args:
+            instances: Model instances to insert.
+
+        Returns:
+            Number of rows inserted.
+
+        Raises:
+            ValueError: If any instance lacks a primary key.
+        """
+        if not instances:
+            return 0
+
+        pk_attr = cls._meta.pk_attr
+        for inst in instances:
+            if getattr(inst, pk_attr) is None:
+                raise ValueError(
+                    "bulk_insert requires explicit primary keys on every "
+                    "instance (asyncpg COPY cannot use identity defaults); "
+                    "assign ids before calling"
+                )
+
+        fields_map = cls._meta.fields_map
+        skip = (
+            set(cls._meta.fk_fields)
+            | set(cls._meta.m2m_fields)
+            | cls._meta.backward_fk_fields
+        )
+        # Deterministic declaration order — fields_map is insertion-ordered.
+        db_fields = [
+            name
+            for name in fields_map
+            if name in cls._meta.db_fields and name not in skip
+        ]
+        columns = [_field_db_column(fields_map[name], name) for name in db_fields]
+
+        records: list[list[object]] = []
+        for inst in instances:
+            values: list[object] = [
+                fields_map[name].to_db_value(getattr(inst, name), inst)
+                for name in db_fields
+            ]
+            records.append(values)
+
+        conn = connections.get("default")
+        async with conn.acquire_connection() as raw:
+            _ = await raw.copy_records_to_table(
+                cls._meta.db_table,
+                columns=columns,
+                records=records,
+            )
+        return len(instances)
+
+    # ── Queries ───────────────────────────────────────────────────────────
+
+    @classmethod
+    def in_range(
+        cls,
+        start: datetime,
+        end: datetime,
+        *,
+        stream_ids: Sequence[object] | None = None,
+    ) -> QuerySet[Self]:
+        """Return a lazy QuerySet for the time range (pure ORM, no raw SQL).
+
+        Args:
+            start: Inclusive lower bound on the time column.
+            end: Exclusive upper bound on the time column.
+            stream_ids: Optional stream partition filter.
+        """
+        _ = _table_field(cls, cls.time_field, what="time")
+        _ = _table_field(cls, cls.stream_field, what="stream")
+        filters: dict[str, LibraryAny] = {  # pyright: ignore[reportExplicitAny]
+            f"{cls.time_field}__gte": start,
+            f"{cls.time_field}__lt": end,
+        }
+        q = cls.filter(**filters)
+        if stream_ids is not None:
+            stream_filters: dict[str, LibraryAny] = {  # pyright: ignore[reportExplicitAny]
+                f"{cls.stream_field}__in": list(stream_ids),
+            }
+            q = q.filter(**stream_filters)
+        return q.order_by(f"-{cls.time_field}")
+
+    @classmethod
+    async def latest_per_stream(
+        cls,
+        *,
+        stream_ids: Sequence[object] | None = None,
+        after: datetime | None = None,
+        limit: int | None = None,
+    ) -> list[Self]:
+        """Return the newest event per stream via ``DISTINCT ON``.
+
+        Args:
+            stream_ids: Restrict to these streams (all streams when ``None``).
+            after: Only events at or after this time.
+            limit: Maximum number of rows (applied after ``DISTINCT ON``).
+
+        Returns:
+            Model instances — one per stream, newest first.
+        """
+        _ = _table_field(cls, cls.time_field, what="time")
+        _ = _table_field(cls, cls.stream_field, what="stream")
+
+        placeholders: list[object] = []
+        where: list[str] = []
+        if stream_ids is not None:
+            if not stream_ids:
+                return []
+            pos = len(placeholders)
+            placeholders.extend(stream_ids)
+            where.append(
+                f"s.{cls.stream_field} IN ("
+                + ", ".join(f"${i + 1}" for i in range(pos, len(placeholders)))
+                + ")"
+            )
+        if after is not None:
+            placeholders.append(after)
+            where.append(f"s.{cls.time_field} >= ${len(placeholders)}")
+
+        sql = f"SELECT DISTINCT ON (s.{cls.stream_field}) s.* FROM {cls._meta.db_table} s"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += (
+            f" ORDER BY s.{cls.stream_field}, s.{cls.time_field} DESC"
+        )
+        if limit is not None:
+            sql += f" LIMIT {int(limit)}"
+
+        rows = await _fetch_rows(sql, placeholders)
+        return [
+            cast(Self, _init_from_db(cls, _row_to_model_kwargs(cls, row)))
+            for row in rows
+        ]
+
+    @classmethod
+    async def time_series(
+        cls,
+        bucket: str,
+        *,
+        aggregate: Aggregate = "count",
+        field: str | None = None,
+        start: datetime,
+        end: datetime,
+        stream_ids: Sequence[object] | None = None,
+    ) -> list[TimeBucketRow]:
+        """Return typed per-stream rollups via ``time_bucket``.
+
+        Args:
+            bucket: Bucket width (e.g. ``"1 hour"``, ``"30 minutes"``,
+                ``"1 day"``). ``month``/``year`` widths are not supported —
+                they are variable-length and cannot be bound as a fixed
+                interval.
+            aggregate: One of ``count``, ``avg``, ``sum``, ``min``, ``max``,
+                ``first``, ``last``.
+            field: Value column for every aggregate except ``count``.
+            start: Inclusive lower bound on the time column.
+            end: Exclusive upper bound on the time column.
+            stream_ids: Restrict to these streams (all streams when ``None``).
+
+        Returns:
+            One :class:`TimeBucketRow` per (stream, bucket), ordered by
+            stream then bucket ascending.
+        """
+        _ = _table_field(cls, cls.time_field, what="time")
+        _ = _table_field(cls, cls.stream_field, what="stream")
+        if aggregate != "count":
+            if field is None:
+                raise ValueError(
+                    f"aggregate={aggregate!r} requires a value field"
+                )
+            _ = _table_field(cls, field, what="aggregate")
+
+        placeholders: list[object] = [
+            _bucket_to_timedelta(bucket),
+            start,
+            end,
+        ]
+        where = [
+            f"s.{cls.time_field} >= $2",
+            f"s.{cls.time_field} < $3",
+        ]
+        if stream_ids is not None:
+            if not stream_ids:
+                return []
+            pos = len(placeholders)
+            placeholders.extend(stream_ids)
+            where.append(
+                f"s.{cls.stream_field} IN ("
+                + ", ".join(f"${i + 1}" for i in range(pos, len(placeholders)))
+                + ")"
+            )
+
+        if aggregate == "count":
+            value_sql = "COUNT(*) AS value"
+        elif aggregate in ("first", "last"):
+            value_sql = (
+                f"{aggregate}(s.{field}, s.{cls.time_field}) AS value"
+            )
+        else:
+            value_sql = f"{aggregate}(s.{field}) AS value"
+
+        sql = f"""
+            SELECT
+                time_bucket($1::interval, s.{cls.time_field}) AS bucket,
+                s.{cls.stream_field} AS stream_id,
+                {value_sql},
+                COUNT(*) AS count
+            FROM {cls._meta.db_table} s
+            WHERE {" AND ".join(where)}
+            GROUP BY bucket, s.{cls.stream_field}
+            ORDER BY s.{cls.stream_field}, bucket
+        """
+
+        rows = await _fetch_rows(sql, placeholders)
+        result: list[TimeBucketRow] = []
+        for row in rows:
+            bucket_value = row.get("bucket")
+            stream_value = row.get("stream_id")
+            value_value = row.get("value")
+            count_value = row.get("count")
+            result.append(
+                TimeBucketRow(
+                    stream_id=cast(int | str, stream_value),
+                    bucket=cast(datetime, bucket_value),
+                    value=cast(float | None, value_value),
+                    count=cast(int, count_value),
+                )
+            )
+        return result
+
+
+# Re-export LibraryAny consumers for clarity of the public surface.
+__all__ = [
+    "Aggregate",
+    "EventStreamMixin",
+    "TimeBucketRow",
+]

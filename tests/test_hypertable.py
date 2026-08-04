@@ -68,3 +68,40 @@ class TestCreateContinuousAggregate:
         assert kwargs["query"] == "SELECT 1"
         assert kwargs["time_column"] == "bucket"
         assert kwargs["refresh_interval"] == "30 minutes"
+
+
+class TestBucketParsing:
+    """Unit tests for the EventStreamMixin bucket-width parser (no DB)."""
+
+    def test_parses_common_units(self) -> None:
+        from datetime import timedelta
+
+        from tortoise_extended.timescale.stream import _bucket_to_timedelta
+
+        assert _bucket_to_timedelta("1 hour") == timedelta(hours=1)
+        assert _bucket_to_timedelta("30 minutes") == timedelta(minutes=30)
+        assert _bucket_to_timedelta("1 day") == timedelta(days=1)
+        assert _bucket_to_timedelta("2 weeks") == timedelta(weeks=2)
+        assert _bucket_to_timedelta("500 milliseconds") == timedelta(milliseconds=500)
+
+    def test_rejects_variable_length_units(self) -> None:
+        import pytest
+
+        from tortoise_extended.timescale.stream import _bucket_to_timedelta
+
+        with pytest.raises(ValueError):
+            _bucket_to_timedelta("1 month")
+        with pytest.raises(ValueError):
+            _bucket_to_timedelta("1 year")
+
+    def test_rejects_malformed_buckets(self) -> None:
+        import pytest
+
+        from tortoise_extended.timescale.stream import _bucket_to_timedelta
+
+        with pytest.raises(ValueError):
+            _bucket_to_timedelta("hourly")
+        with pytest.raises(ValueError):
+            _bucket_to_timedelta("1")
+        with pytest.raises(ValueError):
+            _bucket_to_timedelta("many hours")

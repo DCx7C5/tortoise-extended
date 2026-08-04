@@ -19,8 +19,10 @@ import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.timescale import (
     CompressionManager,
     ContinuousAggregateManager,
+    EventStreamMixin,
     HypertableManager,
     RetentionPolicy,
+    TimeBucketRow,
 )
 
 # ---------------------------------------------------------------------------
@@ -55,6 +57,22 @@ AGG_FULL = """
     WITH NO DATA
 """
 
+# TimescaleDB requires the hypertable partition column to be part of the
+# primary key / every unique index. Tortoise models only support single-column
+# pks, so stream tables follow the raw-DDL composite-pk pattern (same as
+# test_events above).
+STREAM_DDL = """
+    CREATE TABLE test_stream_events (
+        id BIGINT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        stream_id INT NOT NULL,
+        value DOUBLE PRECISION NOT NULL,
+        token_count INT NOT NULL DEFAULT 0,
+        kind VARCHAR(20) NOT NULL DEFAULT 'event',
+        PRIMARY KEY (id, created_at, stream_id)
+    )
+"""
+
 
 def _pg_available() -> bool:
     """Quick check — can we connect to the test PG?"""
@@ -82,6 +100,20 @@ class TimescaleProbe(Model):
         table = "test_timescale_probe"
 
 
+class StreamEvent(EventStreamMixin):
+    """Multi-stream event model exercising the EventStreamMixin."""
+
+    id = fields.BigIntField(primary_key=True)
+    created_at = fields.DatetimeField(use_tz=True)
+    stream_id = fields.IntField()
+    value = fields.FloatField()
+    token_count = fields.IntField(default=0)
+    kind = fields.CharField(max_length=20, default="event")
+
+    class Meta:
+        table = "test_stream_events"
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -99,6 +131,7 @@ async def _init_db():
     conn = Tortoise.get_connection("default")
     await conn.execute_query("DROP TABLE IF EXISTS test_events CASCADE")
     await conn.execute_query("DROP TABLE IF EXISTS test_timescale_probe CASCADE")
+    await conn.execute_query("DROP TABLE IF EXISTS test_stream_events CASCADE")
     await Tortoise.close_connections()
 
 
@@ -398,3 +431,199 @@ class TestContinuousAggregateManager:
         await ContinuousAggregateManager.drop("test_daily_events2", if_exists=False)
         aggregates = await ContinuousAggregateManager.list()
         assert all(a["view_name"] != "test_daily_events2" for a in aggregates)
+
+
+# ---------------------------------------------------------------------------
+# 5. EventStreamMixin
+# ---------------------------------------------------------------------------
+
+
+class TestEventStream:
+    """Verify the multi-stream mixin end-to-end against live TimescaleDB."""
+
+    @pytest.fixture(autouse=True)
+    async def _fresh(self) -> AsyncGenerator[None, None]:
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query("DROP TABLE IF EXISTS test_stream_events CASCADE")
+        # Composite PK (id, created_at) — see STREAM_DDL comment.
+        await conn.execute_query(STREAM_DDL)
+        yield
+
+    @pytest.mark.asyncio
+    async def test_setup_creates_hypertable_and_dimension(self) -> None:
+        await StreamEvent.setup()
+
+        assert await HypertableManager.is_hypertable("test_stream_events")
+        conn = Tortoise.get_connection("default")
+        result = await conn.execute_query(
+            "SELECT column_name FROM timescaledb_information.dimensions "
+            "WHERE hypertable_name = 'test_stream_events'"
+        )
+        columns = {row["column_name"] for row in result[1]}
+        assert "stream_id" in columns
+        assert "created_at" in columns
+
+    @pytest.mark.asyncio
+    async def test_setup_is_idempotent(self) -> None:
+        await StreamEvent.setup()
+        await StreamEvent.setup()  # second call must not raise
+
+    @pytest.mark.asyncio
+    async def test_bulk_insert_via_copy(self) -> None:
+        await StreamEvent.setup()
+        now = datetime.datetime.now(datetime.timezone.utc)
+        instances = [
+            StreamEvent(
+                id=i,
+                created_at=now + datetime.timedelta(seconds=i),
+                stream_id=(i % 3) + 1,
+                value=float(i),
+            )
+            for i in range(1, 6)
+        ]
+        inserted = await StreamEvent.bulk_insert(instances)
+        assert inserted == 5
+        assert await StreamEvent.all().count() == 5
+
+    @pytest.mark.asyncio
+    async def test_bulk_insert_requires_explicit_pk(self) -> None:
+        await StreamEvent.setup()
+        with pytest.raises(ValueError):
+            await StreamEvent.bulk_insert(
+                [StreamEvent(created_at=datetime.datetime.now(datetime.timezone.utc), stream_id=1, value=1.0)]
+            )
+
+    @pytest.mark.asyncio
+    async def test_latest_per_stream(self) -> None:
+        await StreamEvent.setup()
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        # stream 1: two events (newest at +10s), stream 2: one event, stream 3: one
+        await StreamEvent.bulk_insert(
+            [
+                StreamEvent(id=1, created_at=base, stream_id=1, value=1.0),
+                StreamEvent(id=2, created_at=base + datetime.timedelta(seconds=10), stream_id=1, value=2.0),
+                StreamEvent(id=3, created_at=base, stream_id=2, value=3.0),
+                StreamEvent(id=4, created_at=base, stream_id=3, value=4.0),
+            ]
+        )
+        latest = await StreamEvent.latest_per_stream(stream_ids=[1, 2, 3])
+        by_stream = {e.stream_id: e for e in latest}
+        assert len(latest) == 3
+        assert by_stream[1].id == 2
+        assert by_stream[2].id == 3
+        assert by_stream[3].id == 4
+
+    @pytest.mark.asyncio
+    async def test_latest_per_stream_after_and_limit(self) -> None:
+        await StreamEvent.setup()
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        await StreamEvent.bulk_insert(
+            [
+                StreamEvent(id=1, created_at=base, stream_id=1, value=1.0),
+                StreamEvent(id=2, created_at=base + datetime.timedelta(minutes=5), stream_id=1, value=2.0),
+                StreamEvent(id=3, created_at=base + datetime.timedelta(minutes=10), stream_id=2, value=3.0),
+            ]
+        )
+        latest = await StreamEvent.latest_per_stream(
+            after=base + datetime.timedelta(minutes=4), limit=2
+        )
+        ids = {e.id for e in latest}
+        assert ids == {2, 3}
+
+    @pytest.mark.asyncio
+    async def test_time_series_count_and_avg(self) -> None:
+        await StreamEvent.setup()
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        # stream 1: two events in hour bucket 12:00, one at 13:30
+        # stream 2: one event in hour bucket 12:00
+        await StreamEvent.bulk_insert(
+            [
+                StreamEvent(id=1, created_at=base, stream_id=1, value=2.0),
+                StreamEvent(id=2, created_at=base + datetime.timedelta(minutes=30), stream_id=1, value=4.0),
+                StreamEvent(id=3, created_at=base + datetime.timedelta(minutes=90), stream_id=1, value=8.0),
+                StreamEvent(id=4, created_at=base, stream_id=2, value=10.0),
+            ]
+        )
+        counts = await StreamEvent.time_series(
+            "1 hour",
+            start=base,
+            end=base + datetime.timedelta(hours=3),
+            stream_ids=[1, 2],
+        )
+        assert isinstance(counts[0], TimeBucketRow)
+        by_key = {(r.stream_id, r.bucket) : r for r in counts}
+        assert by_key[(1, base)].count == 2
+        assert by_key[(1, base + datetime.timedelta(hours=1))].count == 1
+        assert by_key[(2, base)].count == 1
+        assert by_key[(1, base)].value == 2.0  # count aggregate fills value
+
+        avgs = await StreamEvent.time_series(
+            "1 hour",
+            aggregate="avg",
+            field="value",
+            start=base,
+            end=base + datetime.timedelta(hours=3),
+            stream_ids=[1],
+        )
+        avg_by_bucket = {r.bucket: r for r in avgs}
+        assert avg_by_bucket[base].value == 3.0
+        assert avg_by_bucket[base + datetime.timedelta(hours=1)].value == 8.0
+
+    @pytest.mark.asyncio
+    async def test_time_series_first_and_last(self) -> None:
+        await StreamEvent.setup()
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        await StreamEvent.bulk_insert(
+            [
+                StreamEvent(id=1, created_at=base, stream_id=1, value=1.0),
+                StreamEvent(id=2, created_at=base + datetime.timedelta(minutes=10), stream_id=1, value=2.0),
+                StreamEvent(id=3, created_at=base + datetime.timedelta(minutes=20), stream_id=1, value=3.0),
+            ]
+        )
+        firsts = await StreamEvent.time_series(
+            "1 hour",
+            aggregate="first",
+            field="value",
+            start=base,
+            end=base + datetime.timedelta(hours=1),
+            stream_ids=[1],
+        )
+        lasts = await StreamEvent.time_series(
+            "1 hour",
+            aggregate="last",
+            field="value",
+            start=base,
+            end=base + datetime.timedelta(hours=1),
+            stream_ids=[1],
+        )
+        assert firsts[0].value == 1.0
+        assert lasts[0].value == 3.0
+
+    @pytest.mark.asyncio
+    async def test_time_series_requires_field_for_value_aggregates(self) -> None:
+        await StreamEvent.setup()
+        with pytest.raises(ValueError):
+            await StreamEvent.time_series(
+                "1 hour",
+                aggregate="avg",
+                start=datetime.datetime.now(datetime.timezone.utc),
+                end=datetime.datetime.now(datetime.timezone.utc),
+            )
+
+    @pytest.mark.asyncio
+    async def test_in_range_pure_orm(self) -> None:
+        await StreamEvent.setup()
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        await StreamEvent.bulk_insert(
+            [
+                StreamEvent(id=1, created_at=base, stream_id=1, value=1.0),
+                StreamEvent(id=2, created_at=base + datetime.timedelta(hours=2), stream_id=2, value=2.0),
+                StreamEvent(id=3, created_at=base + datetime.timedelta(hours=4), stream_id=1, value=3.0),
+            ]
+        )
+        rows = await StreamEvent.in_range(
+            base,
+            base + datetime.timedelta(hours=3),
+            stream_ids=[1],
+        ).all()
+        assert [e.id for e in rows] == [1]

@@ -7,6 +7,24 @@ This overlay declares fully-known signatures; callers narrow the
 """
 
 from collections.abc import Sequence
+from typing import AsyncContextManager, Protocol
+
+
+class RawConnection(Protocol):
+    """The raw driver connection yielded by ``acquire_connection``.
+
+    Only the surface used by ``tortoise_extended`` is declared (asyncpg's
+    ``copy_records_to_table`` for COPY ingestion).
+    """
+
+    async def copy_records_to_table(
+        self,
+        table_name: str,
+        *,
+        columns: list[str],
+        records: list[list[object]],
+        timeout: float | None = None,
+    ) -> str: ...
 
 
 class BaseDBAsyncClient:
@@ -25,3 +43,5 @@ class BaseDBAsyncClient:
     ) -> list[dict[str, object]]: ...
 
     async def execute_script(self, query: str) -> None: ...
+
+    def acquire_connection(self) -> AsyncContextManager[RawConnection]: ...
