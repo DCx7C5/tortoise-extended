@@ -87,6 +87,23 @@
   or raise `NotSupportedError`.
 - Every item needs tests (mirror feature-area layout in `tests/`).
 
+### Internal hygiene — typing debt — `todo`
+1. **Type asyncpg result-row shapes** — the `reportUnknown*` suppression
+   cluster in `timescale/` is the only *reducible* part of the 114
+   `# pyright: ignore` comments. `execute_query` returns
+   `(sql, rows)` where `rows` is untyped; strict mode can't infer
+   `result[1]`. Define small typed `Row` protocols / aliases for the
+   `execute_query` tuples and annotate:
+   - `timescale/hypertable.py` — 7 `reportUnknown*` sites
+   - `timescale/retention.py` — 4
+   - `timescale/compression.py` — 3
+   - stragglers in `expressions/ltree_filters.py`, `graph_filters.py`,
+     `cache/queryset.py` — 1 each
+   Expected result: eliminate ~15 `reportUnknown*` suppressions. The
+   `reportExplicitAny`/`LibraryAny` cluster (~75) is permanent by design
+   (untyped upstream — tortoise/asyncpg/redis runtime) and must NOT be
+   touched. Gate stays `basedpyright` 0/0/0 + ruff clean.
+
 ---
 
 ## B. Files + ltree graphs — design
