@@ -342,7 +342,7 @@ dev = [
 requires-dist = [
     { name = "msgspec", specifier = ">=0.21.0" },
     { name = "pypika-tortoise", specifier = ">=0.6.5,<0.7" },
-    { name = "redis", extras = ["hiredis"], marker = "extra == 'redis'", specifier = ">=5.0.0" },
+    { name = "redis", extras = ["hiredis"], marker = "extra == 'redis'", specifier = ">=7.0.0" },
     { name = "tortoise-orm", extras = ["asyncpg"], specifier = ">=1.1.7,<1.2" },
     { name = "tortoise-orm-stubs", specifier = ">=1.0.2" },
 ]

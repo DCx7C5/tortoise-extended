@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-redis = ["redis[hiredis]>=5.0.0"]
+redis = ["redis[hiredis]>=7.0.0"]
 
 [build-system]
 requires = ["hatchling"]
