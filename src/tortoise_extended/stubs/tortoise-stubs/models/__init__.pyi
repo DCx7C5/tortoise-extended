@@ -105,20 +105,32 @@ class Model:
     ) -> None: ...
 
     @classmethod
-    def filter(cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any) -> QuerySet[Self]: ...
+    def filter(
+        cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any
+    ) -> QuerySet[Self]: ...
 
     @classmethod
     def _init_from_db(cls: type[Self], **kwargs: Any) -> Self:
         """Hydrate a raw DB row (model-field kwargs) into a model instance."""
 
     @classmethod
-    def exclude(cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any) -> QuerySet[Self]: ...
+    def exclude(
+        cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any
+    ) -> QuerySet[Self]: ...
 
     @classmethod
     def annotate(cls, **kwargs: Expression | Term) -> QuerySet[Self]: ...
 
     @classmethod
     def all(cls, using_db: BaseDBAsyncClient | None = None) -> QuerySet[Self]: ...
+
+    @classmethod
+    def _choose_db(cls, for_write: bool = False) -> BaseDBAsyncClient: ...
+
+    @classmethod
+    def _db_queryset(
+        cls, using_db: BaseDBAsyncClient | None = None, for_write: bool = False
+    ) -> QuerySet[Self]: ...
 
     @classmethod
     def get(

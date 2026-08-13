@@ -87,11 +87,13 @@ type _ValidatorType = list[tortoise.validators.Validator | Callable[..., Any]]
 
 # ── BigIntField ─────────────────────────────────────────────────────────
 
-@overload
-def BigIntField(pk: bool = False, *, null: Literal[False] = False, **kwargs: Any) -> Field[int]: ...
+class BigIntField(Field[int | None]):
+    """Big integer field — a runtime CLASS (``isinstance``-safe).
 
-@overload
-def BigIntField(pk: bool = False, *, null: Literal[True], **kwargs: Any) -> Field[int | None]: ...
+    Typed nullable because ``null=True`` instances (e.g. a nullable
+    ``parent_id``) must keep ``is None`` comparisons type-checking; the
+    class-level alternative ``Field[int]`` would flag those as unnecessary.
+    """
 
 
 # ── BinaryField ─────────────────────────────────────────────────────────
@@ -290,11 +292,8 @@ def IntEnumField(
 
 # ── IntField ────────────────────────────────────────────────────────────
 
-@overload
-def IntField(pk: bool = False, *, null: Literal[False] = False, **kwargs: Any) -> Field[int]: ...
-
-@overload
-def IntField(pk: bool = False, *, null: Literal[True], **kwargs: Any) -> Field[int | None]: ...
+class IntField(Field[int]):
+    """Integer field — a runtime CLASS (``isinstance``-safe)."""
 
 
 # ── JSONField ───────────────────────────────────────────────────────────
@@ -320,11 +319,8 @@ def JSONField(
 
 # ── SmallIntField ───────────────────────────────────────────────────────
 
-@overload
-def SmallIntField(pk: bool = False, *, null: Literal[False] = False, **kwargs: Any) -> Field[int]: ...
-
-@overload
-def SmallIntField(pk: bool = False, *, null: Literal[True], **kwargs: Any) -> Field[int | None]: ...
+class SmallIntField(Field[int]):
+    """Small integer field — a runtime CLASS (``isinstance``-safe)."""
 
 
 # ── TextField ───────────────────────────────────────────────────────────

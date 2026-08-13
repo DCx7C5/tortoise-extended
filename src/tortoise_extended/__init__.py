@@ -92,6 +92,12 @@ from tortoise_extended.migrations.operations import (
     CreateContinuousAggregate,
     CreateHypertable,
 )
+from tortoise_extended.models import (
+    BaseModel,
+    SoftDeleteModel,
+    SoftDeleteQuerySet,
+    TimestampMixin,
+)
 from tortoise_extended.timescale import EventStreamMixin, TimeBucketRow
 
 # ---------------------------------------------------------------------------
@@ -312,6 +318,10 @@ __all__ = [
     "VectorField",
     "VectorFieldError",
     "TimeBucketRow",
+    "BaseModel",
+    "SoftDeleteModel",
+    "SoftDeleteQuerySet",
+    "TimestampMixin",
     "all_paths",
     "cached",
     "cached_method",
