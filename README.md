@@ -15,6 +15,7 @@ from tortoise import Tortoise, fields
 from tortoise.models import Model
 from tortoise_extended import VectorField, HNSWIndex
 
+
 class Entity(Model):
     title = fields.CharField(max_length=255)
     embedding = VectorField(dimensions=1536)
@@ -23,15 +24,18 @@ class Entity(Model):
         table = "entities"
         indexes = [HNSWIndex(fields=("embedding",), m=32, ef_construction=400)]
 
+
 await Tortoise.init(
     db_url="postgres://user:pass@localhost:5432/graphrag",
     modules={"models": ["__main__"]},
 )
 
 # Query with vector similarity
-entities = await Entity.filter(
-    embedding__cosine_distance=[query_vec, 0.3]
-).order_by("embedding__cosine_distance").limit(10)
+entities = (
+    await Entity.filter(embedding__cosine_distance=[query_vec, 0.3])
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 ```
 
 ## What This Package Does
@@ -102,8 +106,10 @@ The package ships reusable base classes rather than a fixed GraphRAG schema — 
 from tortoise import fields
 from tortoise_extended import BaseGraphNodeModel, BaseGraphEdgeModel
 
+
 class Category(BaseGraphNodeModel):
     name = fields.CharField(max_length=100)
+
 
 class CategoryLink(BaseGraphEdgeModel):
     class Meta:
@@ -116,14 +122,13 @@ class CategoryLink(BaseGraphEdgeModel):
             ("source_id", "target_id", "edge_type"),
         )
 
+
 # Create a tree
 root = await Category.create(name="Electronics")
 laptops = await Category.create(name="Laptops", parent=root)
 
 # Create a typed, weighted edge
-await CategoryLink.create(
-    source=root, target=laptops, edge_type="contains", weight=1.0
-)
+await CategoryLink.create(source=root, target=laptops, edge_type="contains", weight=1.0)
 ```
 
 ## Module Reference
@@ -135,6 +140,7 @@ Self-contained pgvector field. Does **not** depend on `tortoise-embeddings`.
 ```python
 from tortoise import fields, models
 from tortoise_extended import VectorField
+
 
 class Chunk(models.Model):
     embedding = VectorField(dimensions=1536, null=True)
@@ -166,6 +172,7 @@ HNSW (Hierarchical Navigable Small World) index for approximate nearest-neighbor
 
 ```python
 from tortoise_extended import VectorField, HNSWIndex
+
 
 class Chunk(models.Model):
     embedding = VectorField(dimensions=1536)
@@ -237,19 +244,13 @@ t = Table("entities")
 **Query filters** (auto-registered via monkey-patch):
 ```python
 # Find entities within L2 distance 0.5 of a query vector
-entities = await Entity.filter(
-    embedding__l2_distance=([query_vec, 0.5])
-)
+entities = await Entity.filter(embedding__l2_distance=([query_vec, 0.5]))
 
 # Find entities within cosine distance 0.3
-entities = await Entity.filter(
-    embedding__cosine_distance=([query_vec, 0.3])
-)
+entities = await Entity.filter(embedding__cosine_distance=([query_vec, 0.3]))
 
 # Find entities with inner product >= 0.8
-entities = await Entity.filter(
-    embedding__inner_product=([query_vec, 0.8])
-)
+entities = await Entity.filter(embedding__inner_product=([query_vec, 0.8]))
 ```
 
 ---
@@ -275,8 +276,11 @@ cte = (
     )
     .union(
         PostgreSQLQuery.from_(entities)
-        .join(relationships).on(entities.id == relationships.source_entity_id)
-        .select(entities.id, entities.title, (RawSQL("ancestors.depth") + 1).as_("depth"))
+        .join(relationships)
+        .on(entities.id == relationships.source_entity_id)
+        .select(
+            entities.id, entities.title, (RawSQL("ancestors.depth") + 1).as_("depth")
+        )
     )
     .build()
 )

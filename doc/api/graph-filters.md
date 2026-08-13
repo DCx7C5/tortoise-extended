@@ -33,9 +33,11 @@ query = (
 **Example:**
 ```python
 # Find entities within L2 distance 0.5
-entities = await Entity.filter(
-    embedding__l2_distance=[[query_vec], 0.5]
-).order_by("embedding__l2_distance").limit(10)
+entities = (
+    await Entity.filter(embedding__l2_distance=[[query_vec], 0.5])
+    .order_by("embedding__l2_distance")
+    .limit(10)
+)
 ```
 
 ---
@@ -65,9 +67,11 @@ query = (
 **Example:**
 ```python
 # Find entities within cosine distance 0.3
-entities = await Entity.filter(
-    embedding__cosine_distance=[[query_vec], 0.3]
-).order_by("embedding__cosine_distance").limit(10)
+entities = (
+    await Entity.filter(embedding__cosine_distance=[[query_vec], 0.3])
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 ```
 
 ---
@@ -97,9 +101,11 @@ query = (
 **Example:**
 ```python
 # Find entities with inner product >= 0.8
-entities = await Entity.filter(
-    embedding__inner_product=[[query_vec], 0.8]
-).order_by("embedding__inner_product").limit(10)
+entities = (
+    await Entity.filter(embedding__inner_product=[[query_vec], 0.8])
+    .order_by("embedding__inner_product")
+    .limit(10)
+)
 ```
 
 ---
@@ -154,48 +160,53 @@ The operators are auto-registered as query filters via monkey-patching.
 
 ```python
 # Format: field__operator_name=[vector, threshold]
-entities = await Entity.filter(
-    embedding__l2_distance=[[query_vec], 0.5]
-)
+entities = await Entity.filter(embedding__l2_distance=[[query_vec], 0.5])
 
-entities = await Entity.filter(
-    embedding__cosine_distance=[[query_vec], 0.3]
-)
+entities = await Entity.filter(embedding__cosine_distance=[[query_vec], 0.3])
 
-entities = await Entity.filter(
-    embedding__inner_product=[[query_vec], 0.8]
-)
+entities = await Entity.filter(embedding__inner_product=[[query_vec], 0.8])
 ```
 
 ### Ordering
 
 ```python
 # Order by distance (ascending = closest first)
-entities = await Entity.filter(
-    embedding__cosine_distance=[[query_vec], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+entities = (
+    await Entity.filter(embedding__cosine_distance=[[query_vec], 0.5])
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 
 # Order by inner product (descending = most similar first)
-entities = await Entity.filter(
-    embedding__inner_product=[[query_vec], 0.8]
-).order_by("-embedding__inner_product").limit(10)
+entities = (
+    await Entity.filter(embedding__inner_product=[[query_vec], 0.8])
+    .order_by("-embedding__inner_product")
+    .limit(10)
+)
 ```
 
 ### Combined Filters
 
 ```python
 # Filter by type + vector distance
-entities = await Entity.filter(
-    type="TECHNOLOGY",
-    embedding__cosine_distance=[[query_vec], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+entities = (
+    await Entity.filter(
+        type="TECHNOLOGY", embedding__cosine_distance=[[query_vec], 0.5]
+    )
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 
 # Filter by multiple conditions
-entities = await Entity.filter(
-    type__in=["TECHNOLOGY", "CONCEPT"],
-    metadata__contains={"source": "arxiv"},
-    embedding__cosine_distance=[[query_vec], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+entities = (
+    await Entity.filter(
+        type__in=["TECHNOLOGY", "CONCEPT"],
+        metadata__contains={"source": "arxiv"},
+        embedding__cosine_distance=[[query_vec], 0.5],
+    )
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 ```
 
 ## Operator Selection Guide

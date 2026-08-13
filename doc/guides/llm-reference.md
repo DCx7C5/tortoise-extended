@@ -160,9 +160,11 @@ Category.filter(path__match="root.*.child")
 ### "Find similar items"
 
 ```python
-items = await Item.filter(
-    embedding__cosine_distance=[[query_embedding], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+items = (
+    await Item.filter(embedding__cosine_distance=[[query_embedding], 0.5])
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 ```
 
 ### "Get all children of a node"
@@ -172,7 +174,9 @@ items = await Item.filter(
 children = await node.get_descendants(include_self=False)
 
 # Option B: adjacency via BaseGraphEdgeModel
-children = await BaseGraphEdgeModel.outgoing(source_id=node.id, edge_type="contains").all()
+children = await BaseGraphEdgeModel.outgoing(
+    source_id=node.id, edge_type="contains"
+).all()
 
 # Option C: custom FK + related_name (your own models)
 children = await node.children.all()
@@ -182,6 +186,7 @@ children = await node.children.all()
 
 ```python
 from tortoise_extended import cached
+
 
 @cached(ttl=300)
 async def get_popular_items():
@@ -252,13 +257,20 @@ keyword-augmented recall.
 ```python
 from tortoise import fields, models
 from tortoise_extended import (
-    BaseGraphNodeModel, BaseGraphEdgeModel, VectorField, HNSWIndex, HybridSearch, GraphTraversal,
+    BaseGraphNodeModel,
+    BaseGraphEdgeModel,
+    VectorField,
+    HNSWIndex,
+    HybridSearch,
+    GraphTraversal,
 )
+
 
 class TextUnit(models.Model):
     id = fields.UUIDField(pk=True)
     content = fields.TextField()
     embedding = VectorField(dimensions=1536)
+
 
 class Entity(BaseGraphNodeModel):
     description = fields.TextField(default="")
@@ -267,8 +279,10 @@ class Entity(BaseGraphNodeModel):
     class Meta:
         indexes = [HNSWIndex(fields=("embedding",), m=32, ef_construction=400)]
 
+
 class Relationship(BaseGraphEdgeModel):
     pass
+
 
 # retrieval: hybrid over text units
 search = HybridSearch(model=TextUnit, vector_field="embedding", text_field="content")
@@ -291,6 +305,7 @@ hoc cross-references between files use a `BaseGraphEdgeModel` table.
 ```python
 from tortoise_extended import BaseHierarchyModel, BaseGraphEdgeModel, GiSTIndex
 
+
 class FileNode(BaseHierarchyModel):
     size_bytes = fields.BigIntField(default=0)
 
@@ -304,6 +319,7 @@ class FileNode(BaseHierarchyModel):
             ("parent_id", "depth"),
         )
 
+
 class CodeLink(BaseGraphEdgeModel):
     class Meta:
         table = "code_links"
@@ -313,6 +329,7 @@ class CodeLink(BaseGraphEdgeModel):
             ("target_id", "edge_type"),
             ("source_id", "target_id", "edge_type"),
         )
+
 
 # subtree query
 docs = await FileNode.get_descendants()  # from a root node
@@ -333,15 +350,17 @@ continuous aggregates, and retention.
 ```python
 from tortoise_extended import BaseEventStreamModel, fields
 
+
 class ClickEvent(BaseEventStreamModel):
-    stream_id = fields.CharField(max_length=64)          # overrides default
-    ts = fields.DatetimeField()                           # overrides default
+    stream_id = fields.CharField(max_length=64)  # overrides default
+    ts = fields.DatetimeField()  # overrides default
     user_id = fields.UUIDField()
     url = fields.TextField()
     latency_ms = fields.IntField()
 
     class Meta:
         table = "click_events"
+
 
 # one-time setup (hypertable + partitions + policies)
 await ClickEvent.setup(compress_after="7 days", drop_after="90 days")
@@ -363,8 +382,14 @@ Hot product vectors cached in Redis; cold ANN in pgvector.
 
 ```python
 from tortoise_extended import (
-    VectorField, HNSWIndex, RedisCache, BaseCacheableModel, CachedQuerySet, cached,
+    VectorField,
+    HNSWIndex,
+    RedisCache,
+    BaseCacheableModel,
+    CachedQuerySet,
+    cached,
 )
+
 
 class Product(BaseCacheableModel):
     _cache_ttl = 300
@@ -377,13 +402,17 @@ class Product(BaseCacheableModel):
     class Meta:
         indexes = [HNSWIndex(fields=("embedding",), m=16, ef_construction=200)]
 
+
 await RedisCache.init(url="redis://localhost:6379/0")
+
 
 @cached(ttl=120)
 async def similar_products(vec):
-    return await Product.filter(
-        embedding__cosine_distance=[[vec], 0.7]
-    ).order_by("embedding__cosine_distance").limit(12)
+    return (
+        await Product.filter(embedding__cosine_distance=[[vec], 0.7])
+        .order_by("embedding__cosine_distance")
+        .limit(12)
+    )
 ```
 
 **Why:** BaseCacheableModel for row-level reads, `@cached` for the query result,
@@ -392,13 +421,21 @@ HNSW for low-latency ANN.
 ### Scenario 5 — Social/org graph with pathfinding
 
 ```python
-from tortoise_extended import BaseGraphNodeModel, BaseGraphEdgeModel, find_cycles, shortest_path
+from tortoise_extended import (
+    BaseGraphNodeModel,
+    BaseGraphEdgeModel,
+    find_cycles,
+    shortest_path,
+)
+
 
 class Person(BaseGraphNodeModel):
     pass
 
+
 class Follows(BaseGraphEdgeModel):
     pass
+
 
 # degrees of separation
 path = await shortest_path(Person, Follows, from_id=a.id, to_id=b.id, max_hops=6)
@@ -414,10 +451,15 @@ queryable by both directions.
 
 ```python
 from tortoise_extended.timescale import (
-    HypertableManager, CompressionManager, RetentionPolicy, ContinuousAggregateManager,
+    HypertableManager,
+    CompressionManager,
+    RetentionPolicy,
+    ContinuousAggregateManager,
 )
 
-await HypertableManager.create_hypertable("metrics", time_column="ts", chunk_time_interval="1 day")
+await HypertableManager.create_hypertable(
+    "metrics", time_column="ts", chunk_time_interval="1 day"
+)
 await CompressionManager.set_compression("metrics", compress_after="7 days")
 await RetentionPolicy.set_retention("metrics", drop_after="90 days")
 await ContinuousAggregateManager.create_continuous_aggregate(
@@ -436,18 +478,20 @@ Records keep full history, hide logically deleted rows, and stamp every write.
 from tortoise import fields
 from tortoise_extended import BaseModel, TimestampMixin, BaseSoftDeleteModel
 
+
 class Order(TimestampMixin, BaseSoftDeleteModel, BaseModel):
     total = fields.DecimalField(max_digits=12, decimal_places=2)
     status = fields.CharField(max_length=32, default="open")
 
     class Meta:
         table = "orders"
-        indexes = (("created_at",),)   # redeclare — not inherited from bases
+        indexes = (("created_at",),)  # redeclare — not inherited from bases
+
 
 order = await Order.create(total=99.50)
-await order.delete()                   # soft delete — row stays, hidden
-await Order.with_deleted().get(pk=order.pk)   # still retrievable
-await order.restore()                  # back to live
+await order.delete()  # soft delete — row stays, hidden
+await Order.with_deleted().get(pk=order.pk)  # still retrievable
+await order.restore()  # back to live
 ```
 
 **Why:** `TimestampMixin` gives `created_at`/`updated_at`; `BaseSoftDeleteModel`

@@ -48,8 +48,11 @@ cte = (
     )
     .union(
         PostgreSQLQuery.from_(entities)
-        .join(relationships).on(entities.id == relationships.source_entity_id)
-        .select(entities.id, entities.title, (RawSQL("ancestors.depth") + 1).as_("depth"))
+        .join(relationships)
+        .on(entities.id == relationships.source_entity_id)
+        .select(
+            entities.id, entities.title, (RawSQL("ancestors.depth") + 1).as_("depth")
+        )
     )
     .build()
 )
@@ -91,8 +94,8 @@ traversal = GraphTraversal(Entity, Relationship)
 # Local neighborhood search (1-2 hops)
 neighbors = await traversal.neighbors(
     node_id=entity.id,
-    direction="both",        # "outgoing" | "incoming" | "both"
-    edge_type=None,          # optional edge type filter
+    direction="both",  # "outgoing" | "incoming" | "both"
+    edge_type=None,  # optional edge type filter
     max_depth=2,
 )
 
@@ -122,7 +125,8 @@ has_cycle = await traversal.has_cycle(max_depth=20)
 from tortoise_extended import shortest_path, all_paths, find_cycles
 
 path = await shortest_path(
-    Entity, Relationship,
+    Entity,
+    Relationship,
     from_id=entity_a.id,
     to_id=entity_b.id,
     max_hops=5,
@@ -130,7 +134,8 @@ path = await shortest_path(
 )
 
 paths = await all_paths(
-    Entity, Relationship,
+    Entity,
+    Relationship,
     from_id=entity_a.id,
     to_id=entity_b.id,
     max_hops=5,
@@ -148,7 +153,7 @@ search = HybridSearch(
     model=Entity,
     vector_field="embedding",
     text_field="description",
-    distance_metric="cosine",   # "cosine" | "l2" | "inner_product"
+    distance_metric="cosine",  # "cosine" | "l2" | "inner_product"
     vector_weight=0.7,
     text_weight=0.3,
 )
@@ -240,7 +245,8 @@ Use for understanding relationships between entities:
 from tortoise_extended import shortest_path
 
 path = await shortest_path(
-    Entity, Relationship,
+    Entity,
+    Relationship,
     from_id=python_entity.id,
     to_id=tensorflow_entity.id,
     max_hops=5,

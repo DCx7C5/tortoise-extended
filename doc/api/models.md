@@ -68,6 +68,7 @@ no primary key; `BaseModel` exists for models that want a 64-bit key instead
 from tortoise import fields
 from tortoise_extended.models.base import BaseModel
 
+
 class Account(BaseModel):
     name = fields.CharField(max_length=64)
 
@@ -96,6 +97,7 @@ canonical one. Stackable with any abstract base.
 from tortoise import fields
 from tortoise_extended.models.base import BaseModel
 from tortoise_extended.models.mixins import TimestampMixin
+
 
 class Account(TimestampMixin, BaseModel):
     name = fields.CharField(max_length=64)
@@ -146,15 +148,17 @@ blocked.
 ```python
 from tortoise_extended import BaseUserModel
 
+
 class User(BaseUserModel):
     class Meta:
         table = "users"
 
+
 admin = await User.create_superuser("Admin@Example.com", "hunter2")
-await admin.check_password("hunter2")   # True
+await admin.check_password("hunter2")  # True
 
 user = await User.create_user("alice@example.com", "s3cret!")
-user.email                               # "alice@example.com" (normalized)
+user.email  # "alice@example.com" (normalized)
 await user.set_password("new-password")  # re-hash in place
 await user.save()
 ```
@@ -201,22 +205,24 @@ from tortoise import fields
 from tortoise_extended.models.base import BaseModel
 from tortoise_extended.models.soft_delete import BaseSoftDeleteModel
 
+
 class Account(BaseSoftDeleteModel, BaseModel):
     name = fields.CharField(max_length=64)
 
     class Meta:
         table = "accounts"
 
+
 account = await Account.create(name="alice")
 
-await Account.all()                      # live rows only
-await Account.filter(name="alice")       # live rows only
-await Account.with_deleted()             # everything
-await Account.only_deleted()             # soft-deleted only
+await Account.all()  # live rows only
+await Account.filter(name="alice")  # live rows only
+await Account.with_deleted()  # everything
+await Account.only_deleted()  # soft-deleted only
 
-await account.delete()                   # soft delete (sets deleted_at)
-await account.restore()                  # back to live
-await Account.only_deleted().restore()   # restore all deleted rows
+await account.delete()  # soft delete (sets deleted_at)
+await account.restore()  # back to live
+await Account.only_deleted().restore()  # restore all deleted rows
 await Account.with_deleted().hard_delete()  # physical delete
 ```
 

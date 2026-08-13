@@ -120,22 +120,30 @@ wiring guide):
 ```python
 class FileNode(BaseHierarchyModel):
     """File/dir tree. ltree path = materialized path from project root."""
-    project = fields.ForeignKeyField("models.Project", related_name="files",
-                                     on_delete=fields.CASCADE)
+
+    project = fields.ForeignKeyField(
+        "models.Project", related_name="files", on_delete=fields.CASCADE
+    )
     is_directory = fields.BooleanField(default=True)
     content_hash = fields.CharField(max_length=64, null=True)  # sha256
     size_bytes = fields.BigIntField(null=True)
     mtime = fields.DatetimeField(null=True)
     embedding = VectorField(dimensions=1536, null=True)  # content vec
+
     class Meta:
         table = "file_nodes"
         indexes = [  # inherited GiST(path) + partial for files
-            PartialIndex(fields=("project_id", "is_directory"),
-                         where=Q(is_directory=False), name="idx_files_only"),
+            PartialIndex(
+                fields=("project_id", "is_directory"),
+                where=Q(is_directory=False),
+                name="idx_files_only",
+            ),
         ]
+
 
 class FileLink(BaseGraphEdgeModel):
     """Cross-file edges (imports/deps/copies) — arbitrary, not a tree."""
+
     class Meta:
         table = "file_links"
 ```
@@ -226,14 +234,17 @@ other model.
   ```python
   class BaseModel(models.Model):
       """Abstract base: BigInt pk. For internal-only tables."""
-      id = fields.BigIntField(primary_key=True)          # JOIN-fast ints
+
+      id = fields.BigIntField(primary_key=True)  # JOIN-fast ints
 
       class Meta:
           abstract = True
 
+
   class UnifiedIdModel(BaseModel):
       """Abstract base: BigInt pk + UUID7 unified id for cross-table refs."""
-      uid = UUID7Field(unique=True, index=True)          # shared ID space
+
+      uid = UUID7Field(unique=True, index=True)  # shared ID space
 
       class Meta:
           abstract = True

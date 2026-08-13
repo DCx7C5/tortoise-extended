@@ -27,7 +27,8 @@ Find shortest path between two nodes. Returns list of row dicts or None.
 
 ```python
 path = await shortest_path(
-    Entity, Relationship,
+    Entity,
+    Relationship,
     from_id=entity_a.id,
     to_id=entity_b.id,
     max_hops=5,
@@ -54,7 +55,8 @@ Find all paths between two nodes (up to `max_paths`). Ordered by length.
 
 ```python
 paths = await all_paths(
-    Entity, Relationship,
+    Entity,
+    Relationship,
     from_id=entity_a.id,
     to_id=entity_b.id,
     max_hops=5,

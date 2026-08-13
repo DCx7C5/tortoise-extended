@@ -22,15 +22,20 @@ This guide covers optimization strategies for tortoise-extended in production en
 entities = await Entity.all()
 
 # Good: LIMIT + vector filter
-entities = await Entity.filter(
-    embedding__cosine_distance=[[query_vec], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+entities = (
+    await Entity.filter(embedding__cosine_distance=[[query_vec], 0.5])
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 
 # Better: Type filter + vector filter
-entities = await Entity.filter(
-    type="TECHNOLOGY",
-    embedding__cosine_distance=[[query_vec], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+entities = (
+    await Entity.filter(
+        type="TECHNOLOGY", embedding__cosine_distance=[[query_vec], 0.5]
+    )
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 ```
 
 ### Batch Operations
@@ -41,9 +46,7 @@ for entity in entities:
     await Entity.create(**entity)
 
 # Good: Bulk insert
-await Entity.bulk_create([
-    Entity(**entity) for entity in entities
-])
+await Entity.bulk_create([Entity(**entity) for entity in entities])
 ```
 
 ### Memory Management
@@ -201,6 +204,7 @@ await Tortoise.init(
     modules={"models": ["myapp.models"]},
 )
 
+
 # Model-level cache (BaseCacheableModel) — auto-invalidated on save/delete
 class Entity(BaseCacheableModel, models.Model):
     _cache_ttl = 600
@@ -209,12 +213,14 @@ class Entity(BaseCacheableModel, models.Model):
     class Meta:
         table = "entities"
 
+
 entity = await Entity.get_cached(id="uuid-here")
 
 # Query-level cache (CachedQuerySet — a drop-in QuerySet subclass)
 from tortoise_extended.cache import CachedQuerySet
 
 rows = await CachedQuerySet(Event).filter(kind="click").cache(ttl=300)
+
 
 # Function-level cache
 @cached(ttl=300)
@@ -232,10 +238,8 @@ See [Cache (Redis)](../api/cache.md) for the full API.
 # Process in chunks
 async def bulk_insert(entities: list[dict], chunk_size: int = 1000):
     for i in range(0, len(entities), chunk_size):
-        chunk = entities[i:i + chunk_size]
-        await Entity.bulk_create([
-            Entity(**entity) for entity in chunk
-        ])
+        chunk = entities[i : i + chunk_size]
+        await Entity.bulk_create([Entity(**entity) for entity in chunk])
 ```
 
 ### Parallel Processing
@@ -243,16 +247,19 @@ async def bulk_insert(entities: list[dict], chunk_size: int = 1000):
 ```python
 import asyncio
 
+
 async def parallel_search(query_embeddings: list[list[float]]):
     async def search_single(embedding):
-        return await Entity.filter(
-            embedding__cosine_distance=[[embedding], 0.5]
-        ).order_by("embedding__cosine_distance").limit(10)
-    
+        return (
+            await Entity.filter(embedding__cosine_distance=[[embedding], 0.5])
+            .order_by("embedding__cosine_distance")
+            .limit(10)
+        )
+
     # Execute in parallel
     tasks = [search_single(emb) for emb in query_embeddings]
     results = await asyncio.gather(*tasks)
-    
+
     return results
 ```
 
@@ -282,15 +289,18 @@ logging.getLogger("asyncpg").setLevel(logging.DEBUG)
 import cProfile
 import pstats
 
+
 async def profile_search():
     profiler = cProfile.Profile()
     profiler.enable()
-    
+
     # Execute search
-    results = await Entity.filter(
-        embedding__cosine_distance=[[query_vec], 0.5]
-    ).order_by("embedding__cosine_distance").limit(10)
-    
+    results = (
+        await Entity.filter(embedding__cosine_distance=[[query_vec], 0.5])
+        .order_by("embedding__cosine_distance")
+        .limit(10)
+    )
+
     profiler.disable()
     stats = pstats.Stats(profiler)
     stats.sort_stats("cumulative")

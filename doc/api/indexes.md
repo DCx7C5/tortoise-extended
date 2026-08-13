@@ -48,6 +48,7 @@ HNSWIndex(
 from tortoise import fields, models
 from tortoise_extended import VectorField, HNSWIndex
 
+
 class Chunk(models.Model):
     id = fields.IntField(pk=True)
     content = fields.TextField()
@@ -147,6 +148,7 @@ IVFFlatIndex(
 from tortoise import fields, models
 from tortoise_extended import VectorField, IVFFlatIndex
 
+
 class Chunk(models.Model):
     id = fields.IntField(pk=True)
     content = fields.TextField()
@@ -227,6 +229,7 @@ GiSTIndex(
 from tortoise import fields, models
 from tortoise_extended import LTreeField, GiSTIndex
 
+
 class Category(models.Model):
     name = fields.CharField(max_length=100)
     path = LTreeField(max_length=1024)
@@ -272,9 +275,7 @@ class Chunk(models.Model):
     embedding = VectorField(dimensions=1536)
 
     class Meta:
-        indexes = [
-            HNSWIndex(fields=("embedding",), m=32, ef_construction=400)
-        ]
+        indexes = [HNSWIndex(fields=("embedding",), m=32, ef_construction=400)]
 ```
 
 ### After Data Insertion

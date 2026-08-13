@@ -115,14 +115,12 @@ operations = [
         """,
         reverse_sql="DROP TABLE events;",
     ),
-
     # Convert to hypertable
     CreateHypertable(
         table_name="events",
         time_column="created_at",
         chunk_time_interval="7 days",
     ),
-
     # Create continuous aggregate
     CreateContinuousAggregate(
         view_name="daily_event_stats",

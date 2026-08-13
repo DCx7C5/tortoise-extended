@@ -41,13 +41,16 @@ await Tortoise.init(
     modules={"models": ["myapp.models"]},
 )
 
+
 # Use cached model
 class Entity(BaseCacheableModel):
     _cache_ttl = 600
     title = fields.CharField(max_length=512)
 
+
 # Cached query
 entity = await Entity.get_cached(id="uuid-here")
+
 
 # Cached function
 @cached(ttl=300)
@@ -120,6 +123,7 @@ and add your own columns.
 from tortoise import fields
 from tortoise_extended.cache import BaseCacheableModel
 
+
 class Entity(BaseCacheableModel):
     _cache_ttl = 600
     _cache_fields = ["title", "entity_type"]
@@ -178,9 +182,13 @@ from tortoise_extended.cache import CachedQuerySet
 entities = await CachedQuerySet(Entity).filter(type="TECHNOLOGY").cache(ttl=300)
 
 # Custom key
-entities = await CachedQuerySet(Entity).filter(type="TECHNOLOGY").cache(
-    key="tech_entities",
-    ttl=600,
+entities = (
+    await CachedQuerySet(Entity)
+    .filter(type="TECHNOLOGY")
+    .cache(
+        key="tech_entities",
+        ttl=600,
+    )
 )
 
 # Invalidate specific query
@@ -197,9 +205,9 @@ directly (as above) or expose it through a custom manager. Query chaining
 
 ```python
 qs = qs.cache(  # qs is a CachedQuerySet
-    ttl=300,           # TTL in seconds
+    ttl=300,  # TTL in seconds
     key="custom_key",  # Custom cache key (optional)
-    backend=None,      # Custom backend (optional)
+    backend=None,  # Custom backend (optional)
     namespace="queryset",
 )
 ```
@@ -218,9 +226,11 @@ Cache function results in Redis.
 ```python
 from tortoise_extended.cache import cached
 
+
 @cached(ttl=600)
 async def get_entity(entity_id: str):
     return await Entity.get(id=entity_id)
+
 
 # First call: hits database
 entity = await get_entity("uuid-here")
@@ -256,6 +266,7 @@ Cache method results (excludes self/cls from key).
 ```python
 from tortoise_extended.cache import cached_method
 
+
 class EntityService:
     @cached_method(ttl=300)
     async def get_entity(self, entity_id: str):
@@ -268,6 +279,7 @@ Invalidate cache entries on function call.
 
 ```python
 from tortoise_extended.cache import invalidate
+
 
 @invalidate("entity:*", namespace="entity")
 async def update_entity(entity_id: str, data: dict):
@@ -289,6 +301,7 @@ Abstract base for custom backends.
 
 ```python
 from tortoise_extended.cache.base import CacheBackend
+
 
 class MemcachedBackend(CacheBackend):
     async def get(self, key: str) -> Any | None: ...
@@ -384,6 +397,7 @@ Use `setnx` or locks for hot keys:
 import asyncio
 
 _lock = asyncio.Lock()
+
 
 @cached(ttl=60)
 async def get_hot_data(key: str):

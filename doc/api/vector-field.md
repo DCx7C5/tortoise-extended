@@ -47,6 +47,7 @@ list[float] | None
 from tortoise import fields, models
 from tortoise_extended import VectorField
 
+
 class Chunk(models.Model):
     id = fields.IntField(pk=True)
     content = fields.TextField()
@@ -61,6 +62,7 @@ class Chunk(models.Model):
 ```python
 from tortoise import fields, models
 from tortoise_extended import VectorField, HNSWIndex
+
 
 class Chunk(models.Model):
     id = fields.IntField(pk=True)
@@ -97,14 +99,18 @@ from tortoise_extended import L2Distance, CosineDistance
 query_vec = [0.1, 0.2, 0.3, ...]
 
 # Cosine similarity
-chunks = await Chunk.filter(
-    embedding__cosine_distance=[[query_vec], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+chunks = (
+    await Chunk.filter(embedding__cosine_distance=[[query_vec], 0.5])
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 
 # L2 distance
-chunks = await Chunk.filter(
-    embedding__l2_distance=[[query_vec], 0.3]
-).order_by("embedding__l2_distance").limit(10)
+chunks = (
+    await Chunk.filter(embedding__l2_distance=[[query_vec], 0.3])
+    .order_by("embedding__l2_distance")
+    .limit(10)
+)
 ```
 
 ## Input Formats

@@ -19,6 +19,7 @@ import tortoise_extended  # Too late!
 
 # Right
 import tortoise_extended  # First!
+
 tortoise_extended.patch()  # Explicitly apply the monkey-patches
 from tortoise import Tortoise
 ```
@@ -80,6 +81,7 @@ DataError: vector dimension mismatch
 # Wrong: expects 1536 dimensions
 class Chunk(models.Model):
     embedding = VectorField(dimensions=1536)
+
 
 await Chunk.create(embedding=[0.1, 0.2, 0.3])  # Only 3 dimensions
 
@@ -146,7 +148,9 @@ await Tortoise.init(
 
 # Or reduce concurrent queries
 import asyncio
+
 semaphore = asyncio.Semaphore(10)
+
 
 async def limited_query():
     async with semaphore:
@@ -167,9 +171,11 @@ asyncpg.exceptions.QueryCanceledError: query canceled due to user request
 **Fix:**
 ```python
 # Add LIMIT
-entities = await Entity.filter(
-    embedding__cosine_distance=[[query_vec], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+entities = (
+    await Entity.filter(embedding__cosine_distance=[[query_vec], 0.5])
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 
 # Add index
 await connections.get("default").execute_query("""
@@ -198,9 +204,13 @@ MemoryError: Unable to allocate array
 # Use pagination
 async def paginated_search(query_vec, page: int = 1, page_size: int = 10):
     offset = (page - 1) * page_size
-    return await Entity.filter(
-        embedding__cosine_distance=[[query_vec], 0.5]
-    ).order_by("embedding__cosine_distance").offset(offset).limit(page_size)
+    return (
+        await Entity.filter(embedding__cosine_distance=[[query_vec], 0.5])
+        .order_by("embedding__cosine_distance")
+        .offset(offset)
+        .limit(page_size)
+    )
+
 
 # Or use streaming
 async def streaming_search(query_vec):
@@ -226,11 +236,13 @@ TypeError: Object of type UUID is not JSON serializable
 import json
 from uuid import UUID
 
+
 class UUIDEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, UUID):
             return str(obj)
         return super().default(obj)
+
 
 # Use custom encoder
 metadata = json.dumps({"id": uuid_obj}, cls=UUIDEncoder)
@@ -322,9 +334,11 @@ profiler = cProfile.Profile()
 profiler.enable()
 
 # Your code here
-results = await Entity.filter(
-    embedding__cosine_distance=[[query_vec], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+results = (
+    await Entity.filter(embedding__cosine_distance=[[query_vec], 0.5])
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 
 profiler.disable()
 stats = pstats.Stats(profiler)

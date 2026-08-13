@@ -96,11 +96,23 @@ All errors derive from `TortoiseExtendedError`:
 
 ```python
 from tortoise_extended import (
-    CacheError, CacheKeyError, CacheSerializationError, CacheDataError,
-    CacheBackendNotInitializedError, RedisCacheError,
-    FieldDefinitionError, VectorFieldError, LTreeFieldError,
-    IndexDefinitionError, GraphError, GraphTraversalError, HierarchyError,
-    RecursiveCTEError, HybridSearchError, TimescaleError,
-    MigrationOperationError, TortoiseExtendedError,
+    CacheError,
+    CacheKeyError,
+    CacheSerializationError,
+    CacheDataError,
+    CacheBackendNotInitializedError,
+    RedisCacheError,
+    FieldDefinitionError,
+    VectorFieldError,
+    LTreeFieldError,
+    IndexDefinitionError,
+    GraphError,
+    GraphTraversalError,
+    HierarchyError,
+    RecursiveCTEError,
+    HybridSearchError,
+    TimescaleError,
+    MigrationOperationError,
+    TortoiseExtendedError,
 )
 ```

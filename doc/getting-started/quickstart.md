@@ -23,12 +23,14 @@ from tortoise import Tortoise
 # Define your models (see doc/architecture/schema.md for the GraphRAG schema)
 from myapp.models import Entity, Relationship, TextUnit
 
+
 async def main():
     await Tortoise.init(
         db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended",
         modules={"models": ["myapp.models"]},
     )
     await Tortoise.generate_schemas()
+
 
 asyncio.run(main())
 ```
@@ -53,14 +55,18 @@ async def vector_search():
     query_embedding = [0.1, 0.2, 0.3, ...]
 
     # Cosine similarity
-    entities = await Entity.filter(
-        embedding__cosine_distance=[[query_embedding], 0.5]
-    ).order_by("embedding__cosine_distance").limit(10)
+    entities = (
+        await Entity.filter(embedding__cosine_distance=[[query_embedding], 0.5])
+        .order_by("embedding__cosine_distance")
+        .limit(10)
+    )
 
     # L2 distance
-    entities = await Entity.filter(
-        embedding__l2_distance=[[query_embedding], 0.3]
-    ).order_by("embedding__l2_distance").limit(10)
+    entities = (
+        await Entity.filter(embedding__l2_distance=[[query_embedding], 0.3])
+        .order_by("embedding__l2_distance")
+        .limit(10)
+    )
 
     return entities
 ```
@@ -69,6 +75,7 @@ async def vector_search():
 
 ```python
 from tortoise_extended import BaseGraphEdgeModel
+
 
 async def graph_traversal():
     entity = await Entity.get(title="Python")
@@ -104,6 +111,7 @@ library — no SQL functions are needed in the database:
 ```python
 from tortoise_extended import GraphTraversal, HybridSearch, shortest_path
 
+
 async def graph_queries():
     # Local neighborhood search (1-2 hops)
     traversal = GraphTraversal(Entity, Relationship)
@@ -115,7 +123,8 @@ async def graph_queries():
 
     # Shortest path between two entities
     path = await shortest_path(
-        Entity, Relationship,
+        Entity,
+        Relationship,
         from_id=entity.id,
         to_id=other_entity.id,
         max_hops=5,
@@ -142,6 +151,7 @@ async def graph_queries():
 from pypika_tortoise import PostgreSQLQuery, Table, RawSQL
 from tortoise_extended import RecursiveCTE
 
+
 async def find_ancestors():
     entities = Table("entities")
     relationships = Table("relationships")
@@ -155,8 +165,13 @@ async def find_ancestors():
         )
         .union(
             PostgreSQLQuery.from_(entities)
-            .join(relationships).on(entities.id == relationships.source_entity_id)
-            .select(entities.id, entities.title, (RawSQL("ancestors.depth") + 1).as_("depth"))
+            .join(relationships)
+            .on(entities.id == relationships.source_entity_id)
+            .select(
+                entities.id,
+                entities.title,
+                (RawSQL("ancestors.depth") + 1).as_("depth"),
+            )
         )
         .build()
     )
@@ -170,6 +185,7 @@ async def find_ancestors():
 
 ```python
 from tortoise_extended import GraphTraversal
+
 
 async def traverse():
     from myapp.models import Entity, Relationship

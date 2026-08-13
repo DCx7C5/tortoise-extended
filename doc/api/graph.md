@@ -54,11 +54,13 @@ your extra columns.
 from tortoise import fields
 from tortoise_extended import BaseGraphNodeModel
 
+
 class Category(BaseGraphNodeModel):
     description = fields.TextField(default="")
 
     class Meta:
         table = "categories"
+
 
 # Create root
 root = await Category.create(name="Electronics", is_root=True, depth=0)
@@ -117,9 +119,11 @@ and declares all of its own fields.
 from tortoise import fields
 from tortoise_extended import BaseGraphEdgeModel
 
+
 class Relationship(BaseGraphEdgeModel):
     class Meta:
         table = "relationships"
+
 
 # Create edge
 rel = await Relationship.create(
@@ -198,8 +202,12 @@ class Category(BaseHierarchyModel):
 
 # Create hierarchy (fields are inherited — no manual path/name/depth setup)
 root = await Category.create(name="Electronics", path="electronics")
-laptops = await Category.create(name="Laptops", path="electronics.laptops", parent_id=root.id)
-macbook = await Category.create(name="MacBook", path="electronics.laptops.macbook", parent_id=laptops.id)
+laptops = await Category.create(
+    name="Laptops", path="electronics.laptops", parent_id=root.id
+)
+macbook = await Category.create(
+    name="MacBook", path="electronics.laptops.macbook", parent_id=laptops.id
+)
 
 # Query ancestors (awaitable QuerySet)
 ancestors = await macbook.get_ancestors()
@@ -210,7 +218,9 @@ descendants = await root.get_descendants()
 # => [laptops, macbook]
 
 # Move subtree
-phones = await Category.create(name="Phones", path="electronics.phones", parent_id=root.id)
+phones = await Category.create(
+    name="Phones", path="electronics.phones", parent_id=root.id
+)
 await macbook.move_to(phones)
 # macbook.path = "electronics.phones.macbook"
 

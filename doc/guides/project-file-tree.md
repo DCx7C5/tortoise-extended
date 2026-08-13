@@ -85,9 +85,7 @@ child = await ProjectFileTree.create(
 
 ```python
 # Whole tree of a project (two equivalent forms)
-await ProjectFileTree.filter(
-    project=project, path__descendant_of=root.path_str
-)
+await ProjectFileTree.filter(project=project, path__descendant_of=root.path_str)
 await root.get_descendants(include_self=True)
 
 # Path from a file to the project root

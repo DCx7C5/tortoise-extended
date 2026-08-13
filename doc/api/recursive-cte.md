@@ -86,8 +86,11 @@ cte = (
     )
     .union(
         PostgreSQLQuery.from_(entities)
-        .join(relationships).on(entities.id == relationships.source_entity_id)
-        .select(entities.id, entities.title, (RawSQL("ancestors.depth") + 1).as_("depth"))
+        .join(relationships)
+        .on(entities.id == relationships.source_entity_id)
+        .select(
+            entities.id, entities.title, (RawSQL("ancestors.depth") + 1).as_("depth")
+        )
     )
     .build()
 )
@@ -111,8 +114,11 @@ cte = (
     )
     .union(
         PostgreSQLQuery.from_(entities)
-        .join(relationships).on(entities.id == relationships.source_entity_id)
-        .select(entities.id, entities.title, (RawSQL("ancestors.depth") + 1).as_("depth"))
+        .join(relationships)
+        .on(entities.id == relationships.source_entity_id)
+        .select(
+            entities.id, entities.title, (RawSQL("ancestors.depth") + 1).as_("depth")
+        )
         .where(RawSQL("ancestors.depth") < max_depth)
     )
     .build()
@@ -133,8 +139,11 @@ cte = (
     )
     .union(
         PostgreSQLQuery.from_(entities)
-        .join(relationships).on(entities.id == relationships.target_entity_id)
-        .select(entities.id, entities.title, (RawSQL("descendants.depth") + 1).as_("depth"))
+        .join(relationships)
+        .on(entities.id == relationships.target_entity_id)
+        .select(
+            entities.id, entities.title, (RawSQL("descendants.depth") + 1).as_("depth")
+        )
         .where(RawSQL("descendants.depth") < max_depth)
     )
     .build()
@@ -160,7 +169,8 @@ cte = (
     )
     .union(
         PostgreSQLQuery.from_(entities)
-        .join(relationships).on(entities.id == relationships.source_entity_id)
+        .join(relationships)
+        .on(entities.id == relationships.source_entity_id)
         .select(
             entities.id,
             entities.title,
@@ -204,11 +214,14 @@ cte = (
     )
     .union(
         PostgreSQLQuery.from_(entities)
-        .join(relationships).on(entities.id == relationships.source_entity_id)
+        .join(relationships)
+        .on(entities.id == relationships.source_entity_id)
         .select(
             entities.id,
             entities.title,
-            (RawSQL("weighted_paths.total_weight") + relationships.weight).as_("total_weight"),
+            (RawSQL("weighted_paths.total_weight") + relationships.weight).as_(
+                "total_weight"
+            ),
             (RawSQL("weighted_paths.depth") + 1).as_("depth"),
         )
         .where(RawSQL("weighted_paths.depth") < max_depth)

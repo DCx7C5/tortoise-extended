@@ -40,6 +40,7 @@ list[str] | None  # ["root", "parent", "child"]
 from tortoise import fields, models
 from tortoise_extended import LTreeField
 
+
 class Category(models.Model):
     name = fields.CharField(max_length=100)
     path = LTreeField(max_length=1024)
@@ -52,21 +53,15 @@ class Category(models.Model):
 
 ```python
 # Descendants: paths that live under a given path (path <@ given path)
-descendants = await Category.filter(
-    path__descendant_of="electronics.laptops"
-)
+descendants = await Category.filter(path__descendant_of="electronics.laptops")
 # => rows whose path is a descendant of electronics.laptops, e.g. electronics.laptops.macbook
 
 # Ancestors: paths that contain a given path (path @> given path)
-ancestors = await Category.filter(
-    path__ancestor_of="electronics.laptops.macbook"
-)
+ancestors = await Category.filter(path__ancestor_of="electronics.laptops.macbook")
 # => rows whose path is an ancestor of electronics.laptops.macbook, e.g. electronics
 
 # Pattern match (path ~ lquery)
-matches = await Category.filter(
-    path__match="electronics.*.macbook"
-)
+matches = await Category.filter(path__match="electronics.*.macbook")
 ```
 
 ## Filter Operators

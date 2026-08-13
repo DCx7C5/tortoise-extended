@@ -46,6 +46,7 @@ Best for: Read-heavy workloads, high query throughput.
 ```python
 from tortoise_extended import HNSWIndex
 
+
 class Entity(models.Model):
     embedding = VectorField(dimensions=1536)
 
@@ -81,6 +82,7 @@ Best for: Write-heavy workloads, large datasets.
 ```python
 from tortoise_extended import IVFFlatIndex
 
+
 class Entity(models.Model):
     embedding = VectorField(dimensions=1536)
 
@@ -107,9 +109,11 @@ class Entity(models.Model):
 
 ```python
 # Query
-entities = await Entity.filter(
-    embedding__l2_distance=[[query_vec], 0.5]
-).order_by("embedding__l2_distance").limit(10)
+entities = (
+    await Entity.filter(embedding__l2_distance=[[query_vec], 0.5])
+    .order_by("embedding__l2_distance")
+    .limit(10)
+)
 ```
 
 **SQL:** `<->` operator
@@ -120,9 +124,11 @@ entities = await Entity.filter(
 
 ```python
 # Query
-entities = await Entity.filter(
-    embedding__cosine_distance=[[query_vec], 0.3]
-).order_by("embedding__cosine_distance").limit(10)
+entities = (
+    await Entity.filter(embedding__cosine_distance=[[query_vec], 0.3])
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 ```
 
 **SQL:** `<=>` operator
@@ -133,9 +139,11 @@ entities = await Entity.filter(
 
 ```python
 # Query
-entities = await Entity.filter(
-    embedding__inner_product=[[query_vec], 0.8]
-).order_by("embedding__inner_product").limit(10)
+entities = (
+    await Entity.filter(embedding__inner_product=[[query_vec], 0.8])
+    .order_by("embedding__inner_product")
+    .limit(10)
+)
 ```
 
 **SQL:** `<#>` operator (negated)
@@ -151,26 +159,35 @@ from myapp.models import Entity  # define in your project
 
 # Find similar entities
 query_embedding = await get_embedding("machine learning")
-similar = await Entity.filter(
-    embedding__cosine_distance=[[query_embedding], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+similar = (
+    await Entity.filter(embedding__cosine_distance=[[query_embedding], 0.5])
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 ```
 
 ### Filtered Search
 
 ```python
 # Search within entity type
-similar = await Entity.filter(
-    type="TECHNOLOGY",
-    embedding__cosine_distance=[[query_embedding], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+similar = (
+    await Entity.filter(
+        type="TECHNOLOGY", embedding__cosine_distance=[[query_embedding], 0.5]
+    )
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 
 # Search with multiple filters
-similar = await Entity.filter(
-    type__in=["TECHNOLOGY", "CONCEPT"],
-    metadata__contains={"source": "arxiv"},
-    embedding__cosine_distance=[[query_embedding], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+similar = (
+    await Entity.filter(
+        type__in=["TECHNOLOGY", "CONCEPT"],
+        metadata__contains={"source": "arxiv"},
+        embedding__cosine_distance=[[query_embedding], 0.5],
+    )
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 ```
 
 ### Hybrid Search (Vector + Full-Text)
@@ -202,9 +219,11 @@ results = await search.search(
 async def batch_search(query_embeddings: list[list[float]], limit: int = 10):
     results = []
     for embedding in query_embeddings:
-        similar = await Entity.filter(
-            embedding__cosine_distance=[[embedding], 0.5]
-        ).order_by("embedding__cosine_distance").limit(limit)
+        similar = (
+            await Entity.filter(embedding__cosine_distance=[[embedding], 0.5])
+            .order_by("embedding__cosine_distance")
+            .limit(limit)
+        )
         results.append(similar)
     return results
 ```

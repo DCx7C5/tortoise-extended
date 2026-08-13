@@ -12,6 +12,7 @@ uv add tortoise-extended
 
 ```python
 import tortoise_extended  # Must be first import
+
 tortoise_extended.patch()  # Explicitly apply monkey-patches (idempotent)
 from tortoise import Tortoise
 ```
@@ -24,14 +25,17 @@ Replace standard fields with tortoise-extended fields:
 # Before
 from tortoise import fields, models
 
+
 class Chunk(models.Model):
     id = fields.UUIDField(pk=True)
     content = fields.TextField()
     embedding = fields.BinaryField(null=True)  # Manual vector handling
 
+
 # After
 from tortoise import fields, models
 from tortoise_extended import VectorField, HNSWIndex
+
 
 class Chunk(models.Model):
     id = fields.UUIDField(pk=True)
@@ -49,16 +53,20 @@ class Chunk(models.Model):
 # Before (manual vector handling)
 import numpy as np
 
+
 def cosine_similarity(a, b):
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
 
 chunks = await Chunk.all()
 similar = sorted(chunks, key=lambda c: cosine_similarity(query_vec, c.embedding))
 
 # After (pgvector queries)
-chunks = await Chunk.filter(
-    embedding__cosine_distance=[[query_vec], 0.5]
-).order_by("embedding__cosine_distance").limit(10)
+chunks = (
+    await Chunk.filter(embedding__cosine_distance=[[query_vec], 0.5])
+    .order_by("embedding__cosine_distance")
+    .limit(10)
+)
 ```
 
 ### Step 5: Update Database URL
@@ -138,8 +146,11 @@ cte = (
     )
     .union(
         PostgreSQLQuery.from_(entities)
-        .join(relationships).on(entities.id == relationships.source_entity_id)
-        .select(entities.id, entities.title, (RawSQL("ancestors.depth") + 1).as_("depth"))
+        .join(relationships)
+        .on(entities.id == relationships.source_entity_id)
+        .select(
+            entities.id, entities.title, (RawSQL("ancestors.depth") + 1).as_("depth")
+        )
     )
     .build()
 )
@@ -227,13 +238,16 @@ for rel in rels:
 # MATCH (a)-[:USES]->(b) WHERE a.name = 'Python' RETURN b
 
 # After (SQL)
-result = await connections.get("default").execute_query("""
+result = await connections.get("default").execute_query(
+    """
     SELECT b.id, b.title, b.type
     FROM entities a
     JOIN relationships r ON a.id = r.source_entity_id
     JOIN entities b ON r.target_entity_id = b.id
     WHERE a.title = $1 AND r.type = 'USES'
-""", ["Python"])
+""",
+    ["Python"],
+)
 ```
 
 ## From Apache AGE
@@ -276,13 +290,16 @@ sql = """
 """
 
 # After (PostgreSQL)
-result = await connections.get("default").execute_query("""
+result = await connections.get("default").execute_query(
+    """
     SELECT b.id, b.title, b.type
     FROM entities a
     JOIN relationships r ON a.id = r.source_entity_id
     JOIN entities b ON r.target_entity_id = b.id
     WHERE a.title = $1 AND r.type = 'USES'
-""", ["Python"])
+""",
+    ["Python"],
+)
 ```
 
 ## Database Schema Migration
@@ -339,6 +356,7 @@ import tortoise_extended
 from tortoise import Tortoise
 from myapp.models import Entity
 
+
 @pytest.fixture(autouse=True)
 async def setup_db():
     await Tortoise.init(
@@ -348,6 +366,7 @@ async def setup_db():
     await Tortoise.generate_schemas()
     yield
     await Tortoise.close_connections()
+
 
 @pytest.mark.asyncio
 async def test_entity_creation():
@@ -366,6 +385,7 @@ import pytest
 import tortoise_extended
 from tortoise import Tortoise, connections
 from myapp.models import Entity
+
 
 @pytest.mark.asyncio
 async def test_local_neighborhood():
