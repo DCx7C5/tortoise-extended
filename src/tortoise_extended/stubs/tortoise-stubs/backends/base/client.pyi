@@ -9,6 +9,8 @@ This overlay declares fully-known signatures; callers narrow the
 from collections.abc import Sequence
 from typing import AsyncContextManager, Protocol
 
+from tortoise_extended._types import RowMapping, RowValue
+
 
 class RawConnection(Protocol):
     """The raw driver connection yielded by ``acquire_connection``.
@@ -22,7 +24,7 @@ class RawConnection(Protocol):
         table_name: str,
         *,
         columns: list[str],
-        records: list[list[object]],
+        records: list[list[RowValue]],
         timeout: float | None = None,
     ) -> str: ...
 
@@ -34,13 +36,13 @@ class BaseDBAsyncClient:
         self,
         query: str,
         values: list[str] | None = None,
-    ) -> tuple[int, Sequence[dict[str, object]]]: ...
+    ) -> tuple[int, Sequence[RowMapping]]: ...
 
     async def execute_query_dict(
         self,
         query: str,
-        values: list[object] | None = None,
-    ) -> list[dict[str, object]]: ...
+        values: list[RowValue] | None = None,
+    ) -> list[RowMapping]: ...
 
     async def execute_script(self, query: str) -> None: ...
 

@@ -1,19 +1,14 @@
 """Shared type helpers for ``tortoise-extended``.
 
-``LibraryAny`` is the ONLY sanctioned spelling of ``Any`` in this package.
-It is reserved for signatures that MUST mirror an upstream library's
-``Any``-typed parameter or return — e.g. overriding
-``tortoise.fields.Field.to_db_value`` / ``to_python_value`` / ``validate``,
-which the base class declares as ``(value: Any) -> Any``.
+``Any`` is banned in runtime code, along with ``object`` and aliases of them
+(the former ``LibraryAny`` alias is REMOVED). Runtime annotations use concrete
+unions, recursive unions, or ``TypedDict``s only; ``cast()`` to concrete types
+is allowed and encouraged at boundary sites where upstream signatures are
+``Any``-typed.
 
-Using a bare ``Any`` anywhere else is a policy violation: prefer concrete
-types, unions, ``object`` + ``cast``, or ``TypeVar``.
-
-NOTE (verified 2026-07-31): ``reportExplicitAny`` fires at EVERY *use site* of
-``LibraryAny``, not just the alias definition — the ``# pyright: ignore[...]``
-on the alias line does not propagate. Each annotation using ``LibraryAny`` must
-carry its own trailing ``# pyright: ignore[reportExplicitAny]`` comment
-(see ``cache/base.py``, ``fields/vector_field.py``).
+NOTE (verified 2026-07-31): the old ``reportExplicitAny`` guidance is gone —
+``LibraryAny`` no longer exists, so no ``# pyright: ignore[reportExplicitAny]``
+comments are needed or permitted.
 
 The module also hosts the shared ``ParamSpec`` / ``TypeVar`` instances and
 ``TypeAlias``es that warning-cleanup tasks import instead of re-declaring
@@ -35,11 +30,9 @@ declaring class, so private-method calls on patched objects must go through
 
 from collections.abc import Callable, Sequence
 from datetime import date, datetime, time
-from typing import Any, ParamSpec, Protocol, TypeAlias, TypedDict, TypeVar
+from typing import ParamSpec, Protocol, TypeAlias, TypedDict, TypeVar
 
 from tortoise.models import Model
-
-LibraryAny: TypeAlias = Any  # pyright: ignore[reportExplicitAny]
 
 P = ParamSpec("P")
 """Bare ``ParamSpec`` for decorator signatures that forward arbitrary callables."""
@@ -55,6 +48,15 @@ RowValue: TypeAlias = str | int | float | bool | bytes | None
 
 CoercedValue: TypeAlias = RowValue | datetime | date | time
 """A cache value after field-type coercion (JSON str restored to datetime/date/time)."""
+
+RowMapping: TypeAlias = dict[str, RowValue]
+"""A raw SQL result row."""
+
+SerializedRecord: TypeAlias = dict[str, RowValue]
+"""A serialized model record as stored in the cache backend."""
+
+ModelKwargs: TypeAlias = dict[str, CoercedValue]
+"""Keyword arguments accepted by Model.create / Model.construct mirrors."""
 
 CacheValue: TypeAlias = RowValue | list["CacheValue"] | dict[str, "CacheValue"]
 """A value storable in a cache backend (JSON-serializable shape)."""
@@ -82,20 +84,12 @@ class FieldInitKwargs(TypedDict, total=False):
     model: type[Model] | None
 
 
-ModelKwargs: TypeAlias = dict[str, LibraryAny]  # pyright: ignore[reportExplicitAny]
-"""Keyword arguments accepted by ``Model.create`` / ``Model.update`` mirrors."""
-
-SerializedRecord: TypeAlias = dict[str, LibraryAny]  # pyright: ignore[reportExplicitAny]
-"""A serialized model record as stored in the cache backend."""
-
-RowMapping: TypeAlias = dict[str, LibraryAny]  # pyright: ignore[reportExplicitAny]
-"""A raw SQL result row exposed by the ORM cursor / ``QuerySet.values``."""
-
-
 class Deconstructable(Protocol):
     """Protocol for Tortoise migration operations that implement ``deconstruct()``."""
 
-    def deconstruct(self) -> tuple[str, tuple[()], dict[str, Any]]: ...  # pyright: ignore[reportExplicitAny]
+    def deconstruct(
+        self,
+    ) -> tuple[str, tuple[()], dict[str, str | int | float | bool | None]]: ...
 
 
 class AsyncpgConnection(Protocol):

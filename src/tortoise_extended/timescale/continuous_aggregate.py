@@ -27,12 +27,13 @@ Usage::
     )
 """
 
+from collections.abc import Sequence
 from typing import cast
 
 from tortoise import connections
 
 from tortoise_extended._quote import quote_ident, quote_literal
-from tortoise_extended._types import LibraryAny, RowMapping
+from tortoise_extended._types import RowMapping, RowValue
 
 
 class ContinuousAggregateManager:
@@ -252,7 +253,7 @@ class ContinuousAggregateManager:
         await conn.execute_query(sql)
 
     @staticmethod
-    async def list() -> list[dict[str, LibraryAny]]:  # pyright: ignore[reportExplicitAny]
+    async def list() -> list[RowMapping]:
         """List all continuous aggregates.
 
         Returns:
@@ -275,6 +276,9 @@ class ContinuousAggregateManager:
         """
 
         result = await conn.execute_query(sql)
-        rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
+        rows = cast(
+            Sequence[RowMapping | tuple[RowValue, ...]],
+            result[1] if isinstance(result, tuple) else result,
+        )
 
-        return [cast(RowMapping, dict(row)) for row in rows]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+        return [dict(cast(RowMapping, row)) for row in rows]

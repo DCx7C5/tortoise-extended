@@ -152,7 +152,7 @@ class HybridSearch:
                 ORDER BY combined_score DESC
                 LIMIT $3
             """
-            params: list[object] = [vector_literal, query_text, max_results]
+            params: list[str | int | float | None] = [vector_literal, query_text, max_results]
             if min_distance is not None:
                 params.append(min_distance)
         else:

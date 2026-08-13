@@ -29,10 +29,13 @@ Usage::
     print(f"Compression ratio: {stats['compression_ratio']}")
 """
 
+from collections.abc import Sequence
+from typing import cast
+
 from tortoise import connections
 
 from tortoise_extended._quote import quote_ident, quote_literal
-from tortoise_extended._types import LibraryAny
+from tortoise_extended._types import RowMapping, RowValue
 
 
 class CompressionManager:
@@ -194,7 +197,7 @@ class CompressionManager:
         await conn.execute_query(sql)
 
     @staticmethod
-    async def get_stats(table_name: str) -> dict[str, LibraryAny]:  # pyright: ignore[reportExplicitAny]
+    async def get_stats(table_name: str) -> RowMapping:
         """Get compression statistics for a hypertable.
 
         Args:
@@ -240,12 +243,15 @@ class CompressionManager:
         """
 
         result = await conn.execute_query(sql)
-        rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
+        rows = cast(
+            Sequence[RowMapping | tuple[RowValue, ...]],
+            result[1] if isinstance(result, tuple) else result,
+        )
 
         if rows:
-            row: LibraryAny = rows[0]  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
+            row = rows[0]
             if isinstance(row, dict):
-                return row  # pyright: ignore[reportUnknownVariableType]
+                return row
             return {
                 "uncompressed_size": row[0],
                 "compressed_size": row[1],

@@ -28,12 +28,13 @@ package (and calling :func:`patch` if used) must happen before
 """
 
 from collections.abc import Awaitable, Callable
+from typing import cast
 
 from asyncpg import Pool
 from tortoise.fields import Field
 from tortoise.filters import FilterInfoDict
 
-from tortoise_extended._types import LibraryAny
+from tortoise_extended._types import AsyncpgConnection, RowValue
 from tortoise_extended.cache import (
     CacheableModel,
     CachedQuerySet,
@@ -122,7 +123,7 @@ def _decode_vector(value: str) -> list[float]:
     return [float(x) for x in stripped.split(",") if x]
 
 
-async def _pgvector_codec_init(conn: object) -> None:
+async def _pgvector_codec_init(conn: AsyncpgConnection) -> None:
     """Set the pgvector type codec on a single connection.
 
     Resolves the schema of the ``vector`` type from the connection so the
@@ -165,7 +166,8 @@ async def _pgvector_codec_init(conn: object) -> None:
 
 
 async def _combined_codec_init(
-    conn: object, original_init: Callable[[object], Awaitable[None]] | None
+    conn: AsyncpgConnection,
+    original_init: Callable[[AsyncpgConnection], Awaitable[None]] | None,
 ) -> None:
     """Run the pgvector codec setup before a caller-provided init callback."""
     await _pgvector_codec_init(conn)
@@ -228,11 +230,17 @@ def _apply_patches() -> None:
 
     # 3. Patch get_filters_for_field to handle VectorField (idempotent)
     if not getattr(_filters_mod, "_tortoise_extended_patched", False):
-        _original_get_filters = _filters_mod.get_filters_for_field
+        # The upstream function is stub-typed with an invariant ``Field[object]``
+        # parameter; re-type it through a Callable so the concrete ``RowValue``
+        # field can be forwarded (the runtime accepts any field type).
+        _original_get_filters = cast(
+            Callable[[str, Field[RowValue] | None, str], dict[str, FilterInfoDict]],
+            _filters_mod.get_filters_for_field,
+        )
 
         def _patched_get_filters_for_field(
             field_name: str,
-            field: Field[object] | None,
+            field: Field[RowValue] | None,
             source_field: str,
         ) -> dict[str, FilterInfoDict]:
             if field is not None and isinstance(field, VectorField):
@@ -260,12 +268,20 @@ def _apply_patches() -> None:
 
     async def _patched_create_pool(
         self: _asyncpg_client_mod.AsyncpgDBClient,
-        **kwargs: LibraryAny,  # pyright: ignore[reportExplicitAny]
+        **kwargs: str
+        | int
+        | float
+        | bool
+        | None
+        | Callable[[AsyncpgConnection], Awaitable[None]],
     ) -> Pool:
         # Inject init callback so EVERY new connection gets the codec
-        original_init = kwargs.pop("init", None)
+        original_init = cast(
+            Callable[[AsyncpgConnection], Awaitable[None]] | None,
+            kwargs.pop("init", None),
+        )
 
-        async def _combined_init(conn: object) -> None:
+        async def _combined_init(conn: AsyncpgConnection) -> None:
             await _combined_codec_init(conn, original_init)
 
         kwargs["init"] = _combined_init

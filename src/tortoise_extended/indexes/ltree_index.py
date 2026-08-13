@@ -18,14 +18,17 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, cast, override
 
 from tortoise.indexes import Index
+from tortoise.models import Model
+from tortoise_extended._types import SchemaGeneratorLike
 from tortoise_extended.indexes._dialect import assert_postgres_dialect
 
 if TYPE_CHECKING:
     from tortoise.backends.base.schema_generator import BaseSchemaGenerator
-    from tortoise.models import Model
 
 
-def _qualify_table_name(schema_generator: object, table_name: str, schema: str | None) -> str:
+def _qualify_table_name(
+    schema_generator: SchemaGeneratorLike, table_name: str, schema: str | None
+) -> str:
     """Call the schema generator's ``_qualify_table_name`` helper.
 
     ``getattr`` is required because pyright flags protected-member access
@@ -38,15 +41,28 @@ def _qualify_table_name(schema_generator: object, table_name: str, schema: str |
     return method(table_name, schema)
 
 
-def _get_index_name(schema_generator: object, prefix: str, model: object, field_names: list[str]) -> str:
+def _get_index_name(
+    schema_generator: SchemaGeneratorLike,
+    prefix: str,
+    model: type[Model],
+    field_names: list[str],
+) -> str:
     """Call the schema generator's ``_get_index_name`` helper."""
-    method = cast(Callable[[str, object, list[str]], str], getattr(schema_generator, "_get_index_name"))
+    method = cast(
+        Callable[[str, type[Model], list[str]], str],
+        getattr(schema_generator, "_get_index_name"),
+    )
     return method(prefix, model, field_names)
 
 
-def _format_index_fields(schema_generator: object, field_names: list[str]) -> str:
+def _format_index_fields(
+    schema_generator: SchemaGeneratorLike, field_names: list[str]
+) -> str:
     """Call the schema generator's ``_format_index_fields`` helper."""
-    method = cast(Callable[[list[str]], str], getattr(schema_generator, "_format_index_fields"))
+    method = cast(
+        Callable[[list[str]], str],
+        getattr(schema_generator, "_format_index_fields"),
+    )
     return method(field_names)
 
 

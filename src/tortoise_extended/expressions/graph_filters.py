@@ -4,17 +4,25 @@ Custom Criterion subclasses for pgvector distance operators:
 <-> L2 distance, <#> inner product, <=> cosine distance
 """
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, TypeAlias, cast
 
 from pypika_tortoise.enums import Comparator
 from pypika_tortoise.terms import BasicCriterion, Field, Term, ValueWrapper
+from tortoise.fields import Field as TortoiseField
+from tortoise.filters import FilterInfoDict
 from tortoise.filters import is_null as _is_null
 from tortoise.filters import not_null as _not_null
-from tortoise_extended._types import LibraryAny
+from tortoise_extended._types import RowValue
 from tortoise_extended.exceptions import VectorFieldError
 
 if TYPE_CHECKING:
     from tortoise.models import Model
+
+_VectorValue: TypeAlias = list[float] | tuple[float, ...] | str
+"""A query vector: a sequence of floats or a pgvector literal string."""
+
+_VectorFilterValue: TypeAlias = list[_VectorValue | float] | tuple[_VectorValue | float, ...] | str
+"""A similarity-filter value: plain vector or ``[vector, threshold]`` compound."""
 
 
 # pgvector operator comparators — define as simple value holders for BasicCriterion
@@ -90,9 +98,9 @@ class JaccardDistance(BasicCriterion):
 
 
 def vector_encoder(
-    value: LibraryAny,  # pyright: ignore[reportExplicitAny]
+    value: RowValue | list[float] | tuple[float, ...],
     _instance: Model | None = None,
-    _field: LibraryAny = None,  # pyright: ignore[reportExplicitAny]
+    _field: TortoiseField[list[float]] | None = None,
 ) -> str | None:
     """Encode a list/tuple of floats into pgvector ``'[1.0,0.0,...]'`` string.
 
@@ -108,15 +116,15 @@ def vector_encoder(
     if isinstance(value, str):
         return value
     if isinstance(value, (list, tuple)):
-        return "[" + ",".join(str(float(x)) for x in value) + "]"  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+        return "[" + ",".join(str(float(x)) for x in value) + "]"
     return str(value)
 
 
 def _vector_value_passthrough(
-    value: LibraryAny,  # pyright: ignore[reportExplicitAny]
-    _instance: LibraryAny = None,  # pyright: ignore[reportExplicitAny]
-    _field: LibraryAny = None,  # pyright: ignore[reportExplicitAny]
-) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
+    value: _VectorFilterValue,
+    _instance: Model | None = None,
+    _field: TortoiseField[list[float]] | None = None,
+) -> _VectorFilterValue:
     """Identity encoder for Tortoise filter value_encoder slot.
 
     The distance operators (``_l2_distance_lte`` etc.) receive the raw
@@ -154,7 +162,7 @@ def _vector_eq_guard(_field: Term, _value: bool) -> BasicCriterion:
     )
 
 
-def get_vector_filters(field_name: str, source_field: str) -> dict[str, LibraryAny]:  # pyright: ignore[reportExplicitAny]
+def get_vector_filters(field_name: str, source_field: str) -> dict[str, FilterInfoDict]:
     """Return filter definitions for a VectorField.
 
     pgvector does not support ``=`` on vector columns, so the base filter
@@ -205,10 +213,10 @@ def get_vector_filters(field_name: str, source_field: str) -> dict[str, LibraryA
 
 
 def _parse_vector_threshold(
-    value: object,
+    value: _VectorFilterValue,
     default_threshold: float,
     operator: str,
-) -> tuple[object, float]:
+) -> tuple[_VectorValue, float]:
     """Parse a similarity-filter value into ``(query_vector, threshold)``.
 
     Supports two documented shapes:
@@ -221,37 +229,31 @@ def _parse_vector_threshold(
     :class:`VectorFieldError` instead of silently producing invalid SQL
     (G20).
     """
-    if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], list):  # pyright: ignore[reportUnknownArgumentType]
-        compound = cast(list[object] | tuple[object, object], value)
-        query_vector = compound[0]
-        threshold = compound[1]
-        if (
-            isinstance(threshold, bool)
-            or not isinstance(threshold, (int, float))
-        ):
-            raise VectorFieldError(
-                f"{operator} compound value must be [query_vector, threshold]; "
-                f"threshold must be a number, got {threshold!r}"
-            )
-        return query_vector, float(threshold)
-    # Re-broaden: the failed compound check narrows ``value`` to a partially
-    # unknown union; cast back to the declared ``object`` for a clean return.
-    return cast(object, value), default_threshold
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        first, threshold = value[0], value[1]
+        if isinstance(first, list):
+            if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+                raise VectorFieldError(
+                    f"{operator} compound value must be [query_vector, threshold]; "
+                    f"threshold must be a number, got {threshold!r}"
+                )
+            return first, float(threshold)
+    return cast(_VectorValue, value), default_threshold
 
 
-def _l2_distance_lte(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
+def _l2_distance_lte(field: Term, value: _VectorFilterValue) -> BasicCriterion:
     """Filter: L2 distance <= threshold."""
     query_vector, threshold = _parse_vector_threshold(value, 1.0, "__l2_distance")
     return L2Distance(field, ValueWrapper(query_vector)).lte(threshold)
 
 
-def _cosine_distance_lte(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
+def _cosine_distance_lte(field: Term, value: _VectorFilterValue) -> BasicCriterion:
     """Filter: cosine distance <= threshold."""
     query_vector, threshold = _parse_vector_threshold(value, 1.0, "__cosine_distance")
     return CosineDistance(field, ValueWrapper(query_vector)).lte(threshold)
 
 
-def _inner_product_gte(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
+def _inner_product_gte(field: Term, value: _VectorFilterValue) -> BasicCriterion:
     """Filter: inner product >= threshold (higher = more similar).
 
     pgvector's ``<#>`` operator returns the **negative** inner product, so

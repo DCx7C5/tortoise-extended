@@ -16,7 +16,7 @@ class FakeSchemaGenerator:
             return f'"{table_name}"'
         return f'"{schema}"."{table_name}"'
 
-    def _get_index_name(self, prefix: str, model: object, field_names: list[str]) -> str:
+    def _get_index_name(self, prefix: str, model: FakeModel, field_names: list[str]) -> str:
         return f"{prefix}_{type(model).__name__}_{'_'.join(field_names)}"
 
     def _format_index_fields(self, field_names: list[str]) -> str:

@@ -25,11 +25,12 @@ Usage::
     macbook = await Category.create(name="MacBook", path="electronics.laptops.macbook")
 """
 
-from typing import cast, override
+from typing import Unpack, override
 
 from tortoise.fields.base import Field
+from tortoise.models import Model
 
-from tortoise_extended._types import LibraryAny
+from tortoise_extended._types import FieldDefaultValue, FieldInitKwargs
 
 
 class LTreeField(Field[list[str]]):
@@ -72,9 +73,9 @@ class LTreeField(Field[list[str]]):
         separator: str = ".",
         *,
         null: bool = False,
-        default: LibraryAny = None,  # pyright: ignore[reportExplicitAny]
+        default: FieldDefaultValue = None,
         description: str | None = None,
-        **kwargs: LibraryAny,  # pyright: ignore[reportExplicitAny]
+        **kwargs: Unpack[FieldInitKwargs],
     ) -> None:
         self.max_length = max_length
         self.separator = separator
@@ -86,7 +87,7 @@ class LTreeField(Field[list[str]]):
         )
 
     @override
-    def to_python_value(self, value: LibraryAny) -> list[str] | None:  # pyright: ignore[reportExplicitAny]
+    def to_python_value(self, value: str | list[str] | None) -> list[str] | None:
         """Convert ltree string to Python list.
 
         Args:
@@ -98,11 +99,13 @@ class LTreeField(Field[list[str]]):
         if value is None:
             return None
         if isinstance(value, list):
-            return cast(list[str], value)
+            return value
         return value.split(self.separator)
 
     @override
-    def to_db_value(self, value: list[str] | None, instance: LibraryAny) -> str | None:  # pyright: ignore[reportExplicitAny]
+    def to_db_value(
+        self, value: list[str] | None, instance: Model | None
+    ) -> str | None:
         """Convert Python list to ltree string.
 
         Args:

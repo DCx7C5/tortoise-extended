@@ -28,6 +28,7 @@ from tortoise.connection import (
     get_connection as get_connection,
     get_connections as get_connections,
 )
+from tortoise.context import TortoiseContext
 from tortoise.models import Model as Model, ModelMeta as ModelMeta
 
 
@@ -39,7 +40,7 @@ class Tortoise:
     _inited: ClassVar[bool]
 
     @classmethod
-    def init(
+    async def init(
         cls,
         config: dict[str, object] | None = None,
         config_file: str | None = None,
@@ -50,7 +51,7 @@ class Tortoise:
         timezone: str = "UTC",
         routers: list[str] | None = None,
         init_connections: bool = True,
-    ) -> object: ...
+    ) -> TortoiseContext: ...
 
     @classmethod
     def get_connection(cls, connection_name: str) -> BaseDBAsyncClient: ...

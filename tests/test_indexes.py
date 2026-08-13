@@ -202,7 +202,7 @@ class TestGiSTDialectGuard:
             return f'"{table_name}"'
 
         def _get_index_name(
-            self, prefix: str, model: object, field_names: list[str]
+            self, prefix: str, model: type, field_names: list[str]
         ) -> str:
             return f"{prefix}_idx"
 

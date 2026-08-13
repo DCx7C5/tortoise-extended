@@ -23,6 +23,7 @@ from tortoise_extended import (
     _encode_vector,
     _pgvector_codec_init,
 )
+from tortoise_extended._types import AsyncpgConnection
 from tortoise_extended.fields.ltree_field import LTreeField
 from tortoise_extended.migrations.operations import _patch_format_operation
 
@@ -86,6 +87,74 @@ class TestFilterRegistration:
 # ---------------------------------------------------------------------------
 
 
+class _CodecConn:
+    """In-memory ``AsyncpgConnection`` double that records codec setup calls.
+
+    ``probe_result`` controls the value returned by the schema probe;
+    ``probe_error`` makes the probe raise instead. Both knobs keep the
+    double protocol-compatible with ``AsyncpgConnection`` while letting the
+    tests exercise every branch of ``_pgvector_codec_init``.
+    """
+
+    def __init__(
+        self,
+        *,
+        probe_result: str | None = None,
+        probe_error: type[Exception] | None = None,
+    ) -> None:
+        self.calls: list[
+            tuple[
+                str,
+                Callable[[list[float] | str | None], str],
+                Callable[[str], list[float]],
+                str,
+            ]
+        ] = []
+        self._probe_result = probe_result
+        self._probe_error = probe_error
+
+    async def set_type_codec(
+        self,
+        typename: str,
+        *,
+        schema: str,
+        encoder: Callable[[list[float] | str | None], str],
+        decoder: Callable[[str], list[float]],
+    ) -> None:
+        self.calls.append((typename, encoder, decoder, schema))
+
+    async def fetchval(self, query: str) -> str | None:
+        assert "typname = 'vector'" in query
+        if self._probe_error is not None:
+            raise self._probe_error("probe failed")
+        return self._probe_result
+
+
+class _NoCodec:
+    """A protocol-compatible connection double without codec support.
+
+    Mirrors an asyncpg connection that cannot register custom type codecs:
+    both codec hooks raise ``AttributeError``, which ``_pgvector_codec_init``
+    swallows so registration is skipped silently.
+    """
+
+    async def set_type_codec(
+        self,
+        typename: str,
+        *,
+        schema: str,
+        encoder: Callable[[list[float] | str | None], str],
+        decoder: Callable[[str], list[float]],
+    ) -> None:
+        raise AttributeError(
+            f"cannot register codec for {typename} in schema {schema} "
+            f"({encoder.__name__}/{decoder.__name__})"
+        )
+
+    async def fetchval(self, query: str) -> str | None:
+        raise AttributeError(f"probe failed: {query}")
+
+
 class TestPgvectorCodecBranches:
     """Branch coverage for the extracted pgvector codec helpers."""
 
@@ -111,8 +180,8 @@ class TestPgvectorCodecBranches:
         assert _decode_vector("[1.5, 2.0, 3.25]") == [1.5, 2.0, 3.25]
 
     async def test_codec_init_skips_without_set_type_codec(self) -> None:
-        """Connections without ``set_type_codec`` are skipped silently."""
-        await _pgvector_codec_init(object())
+        """Connections that cannot register codecs are skipped silently."""
+        await _pgvector_codec_init(_NoCodec())
 
     async def test_codec_init_survives_codec_errors(self) -> None:
         """Missing-extension and unsupported-connection errors are swallowed."""
@@ -121,8 +190,21 @@ class TestPgvectorCodecBranches:
             def __init__(self, exc_type: type[Exception]) -> None:
                 self._exc_type = exc_type
 
-            async def set_type_codec(self, *args: object, **kwargs: object) -> None:
-                raise self._exc_type("boom")
+            async def set_type_codec(
+                self,
+                typename: str,
+                *,
+                schema: str,
+                encoder: Callable[[list[float] | str | None], str],
+                decoder: Callable[[str], list[float]],
+            ) -> None:
+                raise self._exc_type(
+                    f"cannot register codec for {typename} in schema {schema} "
+                    f"({encoder.__name__}/{decoder.__name__})"
+                )
+
+            async def fetchval(self, query: str) -> str | None:
+                raise self._exc_type(f"probe failed: {query}")
 
         await _pgvector_codec_init(_Raises(ValueError))
         await _pgvector_codec_init(_Raises(AttributeError))
@@ -130,21 +212,7 @@ class TestPgvectorCodecBranches:
     async def test_codec_init_registers_encoder_and_decoder(self) -> None:
         """The codec is registered on connections that support it."""
 
-        class _Conn:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, object, object, str]] = []
-
-            async def set_type_codec(
-                self,
-                name: str,
-                *,
-                encoder: Callable[[object], object],
-                decoder: Callable[[object], object],
-                schema: str,
-            ) -> None:
-                self.calls.append((name, encoder, decoder, schema))
-
-        conn = _Conn()
+        conn = _CodecConn()
         await _pgvector_codec_init(conn)
         assert len(conn.calls) == 1
         name, encoder, decoder, schema = conn.calls[0]
@@ -156,64 +224,29 @@ class TestPgvectorCodecBranches:
     async def test_codec_init_resolves_non_public_schema(self) -> None:
         """G18 — the codec is registered in the extension's actual schema."""
 
-        class _Conn:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, object, object, str]] = []
-
-            async def fetchval(self, query: str, *args: object) -> str | None:
-                assert "typname = 'vector'" in query
-                return "extensions"
-
-            async def set_type_codec(
-                self,
-                name: str,
-                *,
-                encoder: Callable[[object], object],
-                decoder: Callable[[object], object],
-                schema: str,
-            ) -> None:
-                self.calls.append((name, encoder, decoder, schema))
-
-        conn = _Conn()
+        conn = _CodecConn(probe_result="extensions")
         await _pgvector_codec_init(conn)
         assert conn.calls[0][3] == "extensions"
 
     async def test_codec_init_falls_back_when_probe_fails(self) -> None:
         """A failing schema probe falls back to public, not to a crash."""
 
-        class _Conn:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, object, object, str]] = []
-
-            async def fetchval(self, query: str, *args: object) -> str | None:
-                raise RuntimeError("probe failed")
-
-            async def set_type_codec(
-                self,
-                name: str,
-                *,
-                encoder: Callable[[object], object],
-                decoder: Callable[[object], object],
-                schema: str,
-            ) -> None:
-                self.calls.append((name, encoder, decoder, schema))
-
-        conn = _Conn()
+        conn = _CodecConn(probe_error=RuntimeError)
         await _pgvector_codec_init(conn)
         assert conn.calls[0][3] == "public"
 
     async def test_combined_init_without_original(self) -> None:
         """The combined init runs the codec setup with no original callback."""
-        await _combined_codec_init(object(), None)
+        await _combined_codec_init(_NoCodec(), None)
 
     async def test_combined_init_calls_original(self) -> None:
         """The original init callback still runs after the codec setup."""
-        calls: list[object] = []
+        calls: list[AsyncpgConnection] = []
 
-        async def original(conn: object) -> None:
+        async def original(conn: AsyncpgConnection) -> None:
             calls.append(conn)
 
-        conn = object()
+        conn = _CodecConn()
         await _combined_codec_init(conn, original)
         assert calls == [conn]
 

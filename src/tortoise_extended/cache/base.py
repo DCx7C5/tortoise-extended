@@ -11,9 +11,10 @@ import hashlib
 import json
 import pickle
 from abc import ABC, abstractmethod
-from typing import override
+from collections.abc import Callable
+from typing import cast, override
 
-from tortoise_extended._types import LibraryAny
+from tortoise_extended._types import CacheValue
 from tortoise_extended.exceptions import CacheKeyError
 
 
@@ -43,7 +44,7 @@ class CacheKey:
         return self.separator.join(components)
 
     @staticmethod
-    def from_dict(prefix: str, data: dict[str, object]) -> CacheKey:
+    def from_dict(prefix: str, data: dict[str, str | int | float | bool | None]) -> CacheKey:
         """Build a key from a dictionary (sorted, deterministic)."""
         key = CacheKey(prefix)
         for k, v in sorted(data.items()):
@@ -78,12 +79,12 @@ class Serializer(ABC):
     """Abstract serializer interface."""
 
     @abstractmethod
-    def dumps(self, value: LibraryAny) -> bytes:  # pyright: ignore[reportExplicitAny]
+    def dumps(self, value: CacheValue) -> bytes:
         """Serialize value to bytes."""
         raise NotImplementedError
 
     @abstractmethod
-    def loads(self, data: bytes) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
+    def loads(self, data: bytes) -> CacheValue:
         """Deserialize bytes to value."""
         raise NotImplementedError
 
@@ -91,16 +92,20 @@ class Serializer(ABC):
 class JSONSerializer(Serializer):
     """JSON serializer (safe, human-readable)."""
 
-    def __init__(self, default: LibraryAny = None):  # pyright: ignore[reportExplicitAny]
+    def __init__(self, default: Callable[[CacheValue], CacheValue] | None = None):
         self.default = default
 
     @override
-    def dumps(self, value: LibraryAny) -> bytes:  # pyright: ignore[reportExplicitAny]
-        return json.dumps(value, default=self.default or str, ensure_ascii=False).encode()
+    def dumps(self, value: CacheValue) -> bytes:
+        return json.dumps(
+            value,
+            default=cast("Callable[..., CacheValue]", self.default or str),
+            ensure_ascii=False,
+        ).encode()
 
     @override
-    def loads(self, data: bytes) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
-        return json.loads(data.decode())
+    def loads(self, data: bytes) -> CacheValue:
+        return cast(CacheValue, json.loads(data.decode()))
 
 
 class PickleSerializer(Serializer):
@@ -114,25 +119,25 @@ class PickleSerializer(Serializer):
     """
 
     @override
-    def dumps(self, value: LibraryAny) -> bytes:  # pyright: ignore[reportExplicitAny]
+    def dumps(self, value: CacheValue) -> bytes:
         return pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
 
     @override
-    def loads(self, data: bytes) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
-        return pickle.loads(data)
+    def loads(self, data: bytes) -> CacheValue:
+        return cast(CacheValue, pickle.loads(data))
 
 
 class NullSerializer(Serializer):
     """No-op serializer (for bytes values)."""
 
     @override
-    def dumps(self, value: LibraryAny) -> bytes:  # pyright: ignore[reportExplicitAny]
+    def dumps(self, value: CacheValue) -> bytes:
         if isinstance(value, bytes):
             return value
         return str(value).encode()
 
     @override
-    def loads(self, data: bytes) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
+    def loads(self, data: bytes) -> CacheValue:
         return data
 
 
@@ -151,12 +156,12 @@ class CacheBackend(ABC):
         self.serializer = serializer or JSONSerializer()
 
     @abstractmethod
-    async def get(self, key: str) -> LibraryAny | None:  # pyright: ignore[reportExplicitAny]
+    async def get(self, key: str) -> CacheValue | None:
         """Get value by key."""
         raise NotImplementedError
 
     @abstractmethod
-    async def set(self, key: str, value: LibraryAny, ttl: int | None = None) -> None:  # pyright: ignore[reportExplicitAny]
+    async def set(self, key: str, value: CacheValue, ttl: int | None = None) -> None:
         """Set value with optional TTL (seconds)."""
         raise NotImplementedError
 
@@ -185,9 +190,9 @@ class CacheBackend(ABC):
         """Delete all keys matching pattern. Returns count deleted."""
         raise NotImplementedError
 
-    async def get_many(self, keys: list[str]) -> dict[str, LibraryAny]:  # pyright: ignore[reportExplicitAny]
+    async def get_many(self, keys: list[str]) -> dict[str, CacheValue]:
         """Get multiple values at once."""
-        result: dict[str, LibraryAny] = {}  # pyright: ignore[reportExplicitAny]
+        result: dict[str, CacheValue] = {}
         for key in keys:
             value = await self.get(key)
             if value is not None:
@@ -195,7 +200,9 @@ class CacheBackend(ABC):
         return result
 
     async def set_many(
-        self, mapping: dict[str, LibraryAny], ttl: int | None = None,  # pyright: ignore[reportExplicitAny]
+        self,
+        mapping: dict[str, CacheValue],
+        ttl: int | None = None,
     ) -> None:
         """Set multiple values at once."""
         for key, value in mapping.items():
@@ -208,9 +215,7 @@ class CacheBackend(ABC):
         RedisCacheBackend overrides with atomic ``incrby``.
         """
         current = await self.get(key)
-        if current is None:
-            current = 0
-        new_value = int(current) + amount
+        new_value = int(cast(int, current)) + amount if current is not None else amount
         await self.set(key, new_value)
         return new_value
 
@@ -221,10 +226,10 @@ class CacheBackend(ABC):
         """
         raise NotImplementedError
 
-    def serialize(self, value: LibraryAny) -> bytes:  # pyright: ignore[reportExplicitAny]
+    def serialize(self, value: CacheValue) -> bytes:
         """Serialize value."""
         return self.serializer.dumps(value)
 
-    def deserialize(self, data: bytes) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
+    def deserialize(self, data: bytes) -> CacheValue:
         """Deserialize value."""
         return self.serializer.loads(data)

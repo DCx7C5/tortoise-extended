@@ -11,7 +11,7 @@ from tortoise.migrations.operations import Operation
 from tortoise.migrations.writer import MigrationWriter
 from tortoise_extended._quote import quote_ident as _quote_ident
 from tortoise_extended._quote import quote_literal as _quote_literal
-from tortoise_extended._types import Deconstructable
+from tortoise_extended._types import SchemaEditorLike
 from tortoise_extended.exceptions import MigrationOperationError
 
 if TYPE_CHECKING:
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from tortoise.migrations.writer import ImportManager
 
 
-async def _run_sql(editor: object, sql: str) -> None:
+async def _run_sql(editor: SchemaEditorLike, sql: str) -> None:
     """Execute DDL on a schema editor.
 
     Uses ``getattr`` so ``reportPrivateUsage`` is not triggered: pyright
@@ -61,9 +61,16 @@ def _patch_format_operation() -> None:
                 f"Operation {type(operation).__name__} has no deconstruct method"
             )
 
-        dc_operation = cast(Deconstructable, cast(object, operation))
-
-        class_name, args, kwargs = dc_operation.deconstruct()
+        # ``Operation`` does not statically declare ``deconstruct``, and a
+        # cast to a deconstruct protocol would require the ``object`` bridge
+        # pyright rejects (the union member ``Operation`` never overlaps the
+        # protocol).  Dispatch through ``getattr`` — the ``hasattr`` guard
+        # above guarantees the method exists at runtime.
+        dc_method = cast(
+            Callable[[], tuple[str, tuple[()], dict[str, str | int | float | bool | None]]],
+            getattr(operation, "deconstruct"),
+        )
+        class_name, args, kwargs = dc_method()
         imports.add_from("tortoise_extended.migrations.operations", class_name)
 
         parts: list[str] = [repr(a) for a in args]

@@ -11,19 +11,22 @@ import functools
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Concatenate, cast
+from typing import Concatenate, TypeVar, cast
 
-from tortoise_extended._types import P, R
+from tortoise_extended._types import CacheValue, P, R
 from tortoise_extended.cache.base import CacheBackend, CacheKey
 from tortoise_extended.exceptions import CacheError
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar("T")
+"""Type of the bound ``self`` on a :func:`cached_method` wrapper."""
+
 
 def _build_cache_key(
-    func: Callable[..., object],
-    args: tuple[object, ...],
-    kwargs: dict[str, object],
+    func: Callable[..., str],
+    args: tuple[CacheValue, ...],
+    kwargs: dict[str, CacheValue],
     prefix: str | None = None,
     key_builder: Callable[..., str] | None = None,
 ) -> str:
@@ -31,12 +34,11 @@ def _build_cache_key(
     if key_builder:
         return key_builder(*args, **kwargs)
 
-    func_module = cast(str, getattr(func, "__module__", "<unknown>"))
-    func_qualname = cast(str, getattr(func, "__qualname__", "<unknown>"))
-    func_name = f"{func_module}.{func_qualname}"
-    prefix = prefix or func_name
-
-    key = CacheKey(prefix)
+    func_name = (
+        f"{getattr(func, '__module__', '<unknown>')}."
+        f"{getattr(func, '__qualname__', '<unknown>')}"
+    )
+    key = CacheKey(prefix or func_name)
     _ = key.add(
         CacheKey.hash(
             json.dumps({"args": str(args), "kwargs": str(kwargs)}, default=str)
@@ -82,7 +84,13 @@ def cached(
 
                 backend = RedisCache.get_backend(namespace=namespace, default_ttl=ttl)
 
-            cache_key = _build_cache_key(func, args, kwargs, prefix, key_builder)
+            cache_key = _build_cache_key(
+                cast(Callable[..., str], func),
+                cast(tuple[CacheValue, ...], args),
+                cast(dict[str, CacheValue], kwargs),
+                prefix,
+                key_builder,
+            )
 
             # Try cache
             try:
@@ -98,18 +106,27 @@ def cached(
             # Store in cache
             if result is not None:
                 with contextlib.suppress(CacheError):
-                    await backend.set(cache_key, result, ttl=ttl)
+                    await backend.set(cache_key, cast(CacheValue, result), ttl=ttl)
 
             return result
 
         # Expose cache control methods
-        def _invalidate(*_a: object, **_kw: object) -> Awaitable[None]:
+        def _invalidate(*_a: CacheValue, **_kw: CacheValue) -> Awaitable[None]:
             """Invalidate cache for this decorated function."""
-            return _invalidate_cached(func, _a, _kw, prefix, key_builder, namespace)
+            return _invalidate_cached(
+                cast(Callable[..., str], func),
+                _a,
+                _kw,
+                prefix,
+                key_builder,
+                namespace,
+            )
 
-        def _cache_key(*a: object, **kw: object) -> str:
+        def _cache_key(*a: CacheValue, **kw: CacheValue) -> str:
             """Get cache key for given arguments."""
-            return _build_cache_key(func, a, kw, prefix, key_builder)
+            return _build_cache_key(
+                cast(Callable[..., str], func), a, kw, prefix, key_builder
+            )
 
         setattr(wrapper, "invalidate", _invalidate)
         setattr(wrapper, "cache_key", _cache_key)
@@ -124,8 +141,8 @@ def cached_method(
     prefix: str | None = None,
     namespace: str = "methods",
 ) -> Callable[
-    [Callable[Concatenate[object, P], Awaitable[R]]],
-    Callable[Concatenate[object, P], Awaitable[R]],
+    [Callable[Concatenate[T, P], Awaitable[R]]],
+    Callable[Concatenate[T, P], Awaitable[R]],
 ]:
     """Cache method results in Redis.
 
@@ -140,16 +157,16 @@ def cached_method(
     """
 
     def decorator(
-        func: Callable[Concatenate[object, P], Awaitable[R]],
-    ) -> Callable[Concatenate[object, P], Awaitable[R]]:
+        func: Callable[Concatenate[T, P], Awaitable[R]],
+    ) -> Callable[Concatenate[T, P], Awaitable[R]]:
         @functools.wraps(func)
-        async def wrapper(self: object, *args: P.args, **kwargs: P.kwargs) -> R:
+        async def wrapper(self: T, *args: P.args, **kwargs: P.kwargs) -> R:
             from tortoise_extended.cache.redis import RedisCache
 
             backend = RedisCache.get_backend(namespace=namespace, default_ttl=ttl)
 
             # Build key without self
-            func_qualname = cast(str, getattr(func, "__qualname__", "<unknown>"))
+            func_qualname = getattr(func, "__qualname__", "<unknown>")
             func_name = f"{type(self).__name__}.{func_qualname}"
             p = prefix or func_name
             key = CacheKey(p)
@@ -174,7 +191,7 @@ def cached_method(
             # Store in cache
             if result is not None:
                 with contextlib.suppress(CacheError):
-                    await backend.set(cache_key, result, ttl=ttl)
+                    await backend.set(cache_key, cast(CacheValue, result), ttl=ttl)
 
             return result
 
@@ -184,9 +201,9 @@ def cached_method(
 
 
 async def _invalidate_cached(
-    func: Callable[..., object],
-    args: tuple[object, ...],
-    kwargs: dict[str, object],
+    func: Callable[..., str],
+    args: tuple[CacheValue, ...],
+    kwargs: dict[str, CacheValue],
     prefix: str | None,
     key_builder: Callable[..., str] | None,
     namespace: str,

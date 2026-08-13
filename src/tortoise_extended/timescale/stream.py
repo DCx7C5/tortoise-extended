@@ -72,7 +72,7 @@ Usage::
 
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast, override
+from typing import TYPE_CHECKING, ClassVar, Literal, Self, TypeAlias, cast, override
 
 import msgspec
 from tortoise import connections, fields
@@ -80,7 +80,7 @@ from tortoise.exceptions import OperationalError
 from tortoise.fields.base import DatabaseDefault
 from tortoise.models import Model
 from tortoise_extended._quote import quote_ident
-from tortoise_extended._types import LibraryAny, RowMapping
+from tortoise_extended._types import CoercedValue, RowMapping, RowValue
 
 from tortoise_extended.timescale.compression import CompressionManager
 from tortoise_extended.timescale.hypertable import HypertableManager
@@ -102,6 +102,9 @@ _BUCKET_UNITS: dict[str, Callable[[int], timedelta]] = {
     "day": lambda n: timedelta(days=n),
     "week": lambda n: timedelta(weeks=n),
 }
+
+_SQLParam: TypeAlias = timedelta | datetime | int | str
+"""A value that can be bound as an asyncpg query parameter."""
 
 
 def _bucket_to_timedelta(bucket: str) -> timedelta:
@@ -152,7 +155,7 @@ class TimeBucketRow(msgspec.Struct):
 # ── Internal helpers ───────────────────────────────────────────────────────
 
 
-def _field_db_column(field: fields.Field[object], fallback: str) -> str:
+def _field_db_column(field: fields.Field[RowValue], fallback: str) -> str:
     """Resolve a field's physical DB column name."""
     return field.source_field or fallback
 
@@ -170,9 +173,9 @@ def _table_field(cls: type[Model], field_name: str, *, what: str) -> str:
 def _row_to_model_kwargs(
     cls: type[Model],
     row: RowMapping,
-) -> dict[str, object]:
+) -> dict[str, RowValue]:
     """Map raw DB columns to model-field kwargs (mirrors ``_init_from_db``)."""
-    kwargs: dict[str, object] = {}
+    kwargs: dict[str, RowValue] = {}
     for field_name, field in cls._meta.fields_map.items():
         db_column = _field_db_column(field, field_name)
         if db_column in row:
@@ -180,20 +183,34 @@ def _row_to_model_kwargs(
     return kwargs
 
 
-def _init_from_db(cls: type[Model], kwargs: dict[str, object]) -> Model:
+def _init_from_db(cls: type[Model], kwargs: dict[str, RowValue]) -> Model:
     init = cast(Callable[..., Model], getattr(cls, "_init_from_db"))
     return init(**kwargs)
 
 
+def _bucket_datetime(value: RowValue) -> datetime:
+    """Coerce a ``time_bucket`` result to a tz-aware datetime.
+
+    asyncpg decodes PostgreSQL ``timestamptz`` natively to ``datetime``, so
+    the common path passes through unchanged; ISO-8601 strings are parsed as
+    a defensive fallback for drivers that return text.
+    """
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    raise TypeError(f"time_bucket returned {value!r}; expected a timestamp")
+
+
 async def _fetch_rows(
     sql: str,
-    values: Sequence[object] | None = None,
+    values: Sequence[_SQLParam] | None = None,
 ) -> list[RowMapping]:
     """Run raw SQL and return rows as mappings."""
     conn = connections.get("default")
     result = await conn.execute_query(sql, list(values) if values else None)
     rows = result[1]
-    return [cast(RowMapping, dict(row)) for row in rows]
+    return [dict(row) for row in rows]
 
 
 # ── Mixin ──────────────────────────────────────────────────────────────────
@@ -399,9 +416,9 @@ class EventStreamMixin(Model):
         db_fields = [name for name in db_fields if name not in omit_fields]
         columns = [_field_db_column(fields_map[name], name) for name in db_fields]
 
-        records: list[list[object]] = []
+        records: list[list[CoercedValue]] = []
         for inst in instances:
-            values: list[object] = [
+            values: list[CoercedValue] = [
                 fields_map[name].to_db_value(getattr(inst, name), inst)
                 for name in db_fields
             ]
@@ -424,7 +441,7 @@ class EventStreamMixin(Model):
         start: datetime,
         end: datetime,
         *,
-        stream_ids: Sequence[object] | None = None,
+        stream_ids: Sequence[int | str] | None = None,
     ) -> QuerySet[Self]:
         """Return a lazy QuerySet for the time range (pure ORM, no raw SQL).
 
@@ -435,13 +452,14 @@ class EventStreamMixin(Model):
         """
         _ = _table_field(cls, cls.time_field, what="time")
         _ = _table_field(cls, cls.stream_field, what="stream")
-        filters: dict[str, LibraryAny] = {  # pyright: ignore[reportExplicitAny]
+        filters: dict[str, datetime] = {
             f"{cls.time_field}__gte": start,
             f"{cls.time_field}__lt": end,
         }
-        q = cls.filter(**filters)
+        filter_method = cast(Callable[..., "QuerySet[Self]"], cls.filter)
+        q = filter_method(**filters)
         if stream_ids is not None:
-            stream_filters: dict[str, LibraryAny] = {  # pyright: ignore[reportExplicitAny]
+            stream_filters: dict[str, list[int | str]] = {
                 f"{cls.stream_field}__in": list(stream_ids),
             }
             q = q.filter(**stream_filters)
@@ -451,7 +469,7 @@ class EventStreamMixin(Model):
     async def latest_per_stream(
         cls,
         *,
-        stream_ids: Sequence[object] | None = None,
+        stream_ids: Sequence[int | str] | None = None,
         after: datetime | None = None,
         limit: int | None = None,
     ) -> list[Self]:
@@ -472,7 +490,7 @@ class EventStreamMixin(Model):
         time_col = quote_ident(cls.time_field)
         table = quote_ident(cls._meta.db_table)
 
-        placeholders: list[object] = []
+        placeholders: list[_SQLParam] = []
         where: list[str] = []
         if stream_ids is not None:
             if not stream_ids:
@@ -510,7 +528,7 @@ class EventStreamMixin(Model):
         field: str | None = None,
         start: datetime,
         end: datetime,
-        stream_ids: Sequence[object] | None = None,
+        stream_ids: Sequence[int | str] | None = None,
     ) -> list[TimeBucketRow]:
         """Return typed per-stream rollups via ``time_bucket``.
 
@@ -544,7 +562,7 @@ class EventStreamMixin(Model):
         table = quote_ident(cls._meta.db_table)
         value_col = quote_ident(field) if field is not None else None
 
-        placeholders: list[object] = [
+        placeholders: list[_SQLParam] = [
             _bucket_to_timedelta(bucket),
             start,
             end,
@@ -595,7 +613,7 @@ class EventStreamMixin(Model):
             result.append(
                 TimeBucketRow(
                     stream_id=cast(int | str, stream_value),
-                    bucket=cast(datetime, bucket_value),
+                    bucket=_bucket_datetime(bucket_value),
                     value=cast(float | None, value_value),
                     count=cast(int, count_value),
                 )
@@ -603,7 +621,7 @@ class EventStreamMixin(Model):
         return result
 
 
-# Re-export LibraryAny consumers for clarity of the public surface.
+# Re-export the typed row container for clarity of the public surface.
 __all__ = [
     "Aggregate",
     "EventStreamMixin",

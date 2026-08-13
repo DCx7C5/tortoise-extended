@@ -12,9 +12,11 @@ from typing import TYPE_CHECKING
 
 from pypika_tortoise.enums import Comparator
 from pypika_tortoise.terms import BasicCriterion, Field, Term, ValueWrapper
+from tortoise.fields import Field as TortoiseField
+from tortoise.filters import FilterInfoDict
 from tortoise.filters import is_null as _is_null
 from tortoise.filters import not_null as _not_null
-from tortoise_extended._types import LibraryAny
+from tortoise_extended._types import RowValue
 
 if TYPE_CHECKING:
     from tortoise.models import Model
@@ -92,9 +94,9 @@ class LTreeDescendantMatch(BasicCriterion):
 # ltree-specific encoders
 
 def ltree_encoder(
-    value: LibraryAny,  # pyright: ignore[reportExplicitAny]
+    value: RowValue | list[str | int | float] | tuple[str | int | float, ...],
     _instance: Model | None = None,
-    _field: LibraryAny = None,  # pyright: ignore[reportExplicitAny]
+    _field: TortoiseField[RowValue] | None = None,
 ) -> str | None:
     """Encode a list/tuple of strings into ltree path.
 
@@ -111,14 +113,14 @@ def ltree_encoder(
     if isinstance(value, str):
         return value
     if isinstance(value, (list, tuple)):
-        return ".".join(str(v) for v in value)  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+        return ".".join(str(v) for v in value)
     return str(value)
 
 
 def _lquery_encoder(
-    value: LibraryAny,  # pyright: ignore[reportExplicitAny]
+    value: RowValue,
     _instance: Model | None = None,
-    _field: LibraryAny = None,  # pyright: ignore[reportExplicitAny]
+    _field: TortoiseField[RowValue] | None = None,
 ) -> str | None:
     """Encode lquery pattern for ltree match operations.
 
@@ -137,7 +139,7 @@ def _lquery_encoder(
 
 # Filter definitions for LTreeField
 
-def get_ltree_filters(field_name: str, source_field: str) -> dict[str, LibraryAny]:  # pyright: ignore[reportExplicitAny]
+def get_ltree_filters(field_name: str, source_field: str) -> dict[str, FilterInfoDict]:
     """Return filter definitions for an LTreeField.
 
     Provides the standard filters that make sense for ltree paths
@@ -227,26 +229,26 @@ def get_ltree_filters(field_name: str, source_field: str) -> dict[str, LibraryAn
 
 # Filter operator functions
 
-def _ancestor_of_filter(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
+def _ancestor_of_filter(field: Term, value: RowValue) -> BasicCriterion:
     """Filter: field @> value (is ancestor of)."""
     return LTreeAncestorOf(field, ValueWrapper(value))
 
 
-def _descendant_of_filter(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
+def _descendant_of_filter(field: Term, value: RowValue) -> BasicCriterion:
     """Filter: field <@ value (is descendant of)."""
     return LTreeDescendantOf(field, ValueWrapper(value))
 
 
-def _match_filter(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
+def _match_filter(field: Term, value: RowValue) -> BasicCriterion:
     """Filter: field ~ value (ltree match)."""
     return LTreeMatch(field, ValueWrapper(value))
 
 
-def _ancestor_match_filter(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
+def _ancestor_match_filter(field: Term, value: RowValue) -> BasicCriterion:
     """Filter: field ?@> value (has ancestor match)."""
     return LTreeAncestorMatch(field, ValueWrapper(value))
 
 
-def _descendant_match_filter(field: Term, value: LibraryAny) -> BasicCriterion:  # pyright: ignore[reportExplicitAny]
+def _descendant_match_filter(field: Term, value: RowValue) -> BasicCriterion:
     """Filter: field ?<@ value (has descendant match)."""
     return LTreeDescendantMatch(field, ValueWrapper(value))

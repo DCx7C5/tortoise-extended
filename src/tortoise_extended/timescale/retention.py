@@ -20,12 +20,13 @@ Usage::
     policies = await RetentionPolicy.list_policies()
 """
 
+from collections.abc import Sequence
 from typing import cast
 
 from tortoise import connections
 
 from tortoise_extended._quote import quote_literal
-from tortoise_extended._types import LibraryAny, RowMapping
+from tortoise_extended._types import RowMapping, RowValue
 
 
 class RetentionPolicy:
@@ -86,7 +87,7 @@ class RetentionPolicy:
         await conn.execute_query(sql)
 
     @staticmethod
-    async def list_policies() -> list[dict[str, LibraryAny]]:  # pyright: ignore[reportExplicitAny]
+    async def list_policies() -> list[RowMapping]:
         """List all retention policies.
 
         Returns:
@@ -113,9 +114,12 @@ class RetentionPolicy:
         """
 
         result = await conn.execute_query(sql)
-        rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
+        rows = cast(
+            Sequence[RowMapping | tuple[RowValue, ...]],
+            result[1] if isinstance(result, tuple) else result,
+        )
 
-        return [cast(RowMapping, dict(row)) for row in rows]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+        return [dict(cast(RowMapping, row)) for row in rows]
 
     @staticmethod
     async def get_chunks_to_drop(
@@ -152,6 +156,9 @@ class RetentionPolicy:
         """
 
         result = await conn.execute_query(sql)
-        rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
+        rows = cast(
+            Sequence[tuple[RowValue, ...]],
+            result[1] if isinstance(result, tuple) else result,
+        )
 
-        return [row[0] for row in rows]  # pyright: ignore[reportUnknownVariableType]
+        return [cast(str, row[0]) for row in rows]

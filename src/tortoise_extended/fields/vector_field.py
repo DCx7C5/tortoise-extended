@@ -5,11 +5,12 @@ No monkey-patch conflicts.
 """
 
 import struct
-from typing import cast, override
+from typing import Unpack, override
 
 from tortoise.fields.base import Field
+from tortoise.models import Model
 
-from tortoise_extended._types import LibraryAny
+from tortoise_extended._types import FieldDefaultValue, FieldInitKwargs
 
 
 class VectorField(Field[list[float]]):
@@ -51,9 +52,9 @@ class VectorField(Field[list[float]]):
         dimensions: int | None = None,
         *,
         null: bool = False,
-        default: LibraryAny = None,  # pyright: ignore[reportExplicitAny]
+        default: FieldDefaultValue = None,
         description: str | None = None,
-        **kwargs: LibraryAny,  # pyright: ignore[reportExplicitAny]
+        **kwargs: Unpack[FieldInitKwargs],
     ) -> None:
         super().__init__(
             null=null,
@@ -65,26 +66,29 @@ class VectorField(Field[list[float]]):
 
     @override
     def to_db_value(
-        self, value: list[float] | None, instance: LibraryAny  # pyright: ignore[reportExplicitAny]
+        self, value: list[float] | None, instance: Model | None
     ) -> list[float] | None:
         if value is None:
             return None
         return list(value)
 
     @override
-    def to_python_value(self, value: LibraryAny) -> list[float] | None:  # pyright: ignore[reportExplicitAny]
+    def to_python_value(
+        self, value: list[float] | str | bytes | memoryview | tuple[float, ...] | None
+    ) -> list[float] | None:
         if value is None:
             return None
         if isinstance(value, list):
-            return cast(list[float], value)
+            return value
         # asyncpg returns a string like "[0.1,0.2,0.3]"
         if isinstance(value, str):
             return [float(x) for x in value.strip("[]").split(",") if x]
-        if isinstance(value, (bytes, memoryview)):
+        if isinstance(value, memoryview):
             # SQLite BLOB fallback and asyncpg binary codec share the
             # pgvector binary layout: 4-byte header + N * 4-byte floats.
-            raw = value.tobytes() if isinstance(value, memoryview) else value
-            return self._decode_binary(raw)
+            return self._decode_binary(value.tobytes())
+        if isinstance(value, bytes):
+            return self._decode_binary(value)
         return list(value)
 
     @staticmethod

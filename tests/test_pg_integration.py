@@ -544,13 +544,26 @@ class TestGraphVectorSearchIntegration:
         await VecEdge.create(source_id=self.seed.id, target_id=self.far.id)
         await VecEdge.create(source_id=self.near.id, target_id=self.deep.id)
 
-    def _search(self, seed_id: int | None = None, **kwargs: object) -> GraphVectorSearch:
+    def _search(
+        self,
+        seed_id: int | None = None,
+        *,
+        max_hops: int = 2,
+        direction: str = "both",
+        edge_type: str | None = None,
+        distance_metric: str = "l2",
+        min_distance: float | None = None,
+    ) -> GraphVectorSearch:
         return GraphVectorSearch(
             node_model=VecNode,
             edge_model=VecEdge,
             query_vector=[1.0, 0.0, 0.0],
             seed_id=seed_id if seed_id is not None else self.seed.id,
-            **kwargs,
+            max_hops=max_hops,
+            direction=direction,
+            edge_type=edge_type,
+            distance_metric=distance_metric,
+            min_distance=min_distance,
         )
 
     @pytest.mark.asyncio

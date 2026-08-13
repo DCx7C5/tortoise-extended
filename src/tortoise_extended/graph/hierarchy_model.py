@@ -181,7 +181,7 @@ class HierarchyModel(Model):
             ("parent_id", "depth"),
         )
 
-    def __init_subclass__(cls, **kwargs: object) -> None:
+    def __init_subclass__(cls, **kwargs: str | int | float | bool | None) -> None:
         """Guard against silently losing the abstract base indexes.
 
         Tortoise only copies base fields/indexes for abstract bases and does

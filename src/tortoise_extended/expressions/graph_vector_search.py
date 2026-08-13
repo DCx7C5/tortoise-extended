@@ -42,7 +42,7 @@ from uuid import UUID
 import msgspec
 from tortoise import connections
 
-from tortoise_extended._types import RowMapping
+from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import HybridSearchError
 from tortoise_extended.expressions._edge_filter import et_clause as _et_clause
 from tortoise_extended.expressions.graph_filters import vector_encoder
@@ -219,14 +219,14 @@ class GraphVectorSearch:
     # Typing layer — raw rows -> typed model instances
     # ------------------------------------------------------------------
 
-    def _node_kwargs(self, row: RowMapping) -> dict[str, object]:
+    def _node_kwargs(self, row: RowMapping) -> dict[str, RowValue]:
         """Map DB column names in *row* back to model field names.
 
         ``n.*`` returns columns using their DB names; ``_init_from_db`` expects
         model attribute names, which differ only when ``source_field`` /
         ``db_column`` is set on the field.
         """
-        kwargs: dict[str, object] = {}
+        kwargs: dict[str, RowValue] = {}
         for field_name, field_obj in self._node_model._meta.fields_map.items():
             column = field_obj.source_field or field_name
             if column in row:
@@ -250,8 +250,8 @@ class GraphVectorSearch:
         # a node column named "distance" / "hops" in the raw row.
         return GraphVectorHit(
             node=node,
-            distance=float(row["_gvs_distance"]),
-            hops=int(row["_gvs_hops"]),
+            distance=cast(float, row["_gvs_distance"]),
+            hops=cast(int, row["_gvs_hops"]),
         )
 
     # ------------------------------------------------------------------
@@ -308,7 +308,7 @@ class GraphVectorSearch:
             LIMIT $3
         """
 
-        params: list[object] = [
+        params: list[int | str | UUID | float | None] = [
             self._seed_id,
             self._max_hops,
             self._max_results,

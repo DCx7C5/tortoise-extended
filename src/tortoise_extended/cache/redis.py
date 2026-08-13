@@ -8,10 +8,10 @@ Requires: redis[hiredis] >= 5.0.0
 """
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TYPE_CHECKING, NoReturn, Self, TypeAlias, cast, override
 
-from tortoise_extended._types import LibraryAny
+from tortoise_extended._types import CacheValue
 from tortoise_extended.cache.base import CacheBackend, JSONSerializer, Serializer
 from tortoise_extended.exceptions import (
     CacheBackendNotInitializedError,
@@ -66,7 +66,7 @@ class RedisCache:
         cls,
         url: str = "redis://localhost:6379/0",
         max_connections: int = 20,
-        **kwargs: LibraryAny,  # pyright: ignore[reportExplicitAny]
+        **kwargs: CacheValue,
     ) -> None:
         """Initialize Redis connection pool.
 
@@ -159,7 +159,7 @@ class RedisCacheBackend(CacheBackend):
 
     def __init__(
         self,
-        pool: LibraryAny,  # pyright: ignore[reportExplicitAny]
+        pool: "RedisClient",
         namespace: str = "default",
         default_ttl: int = 300,
         serializer: Serializer | None = None,
@@ -175,7 +175,7 @@ class RedisCacheBackend(CacheBackend):
         return f"{self.namespace}:{key}"
 
     @override
-    async def get(self, key: str) -> LibraryAny | None:  # pyright: ignore[reportExplicitAny]
+    async def get(self, key: str) -> CacheValue | None:
         """Get value from Redis."""
         try:
             data = await self.pool.get(self._key(key))
@@ -184,12 +184,12 @@ class RedisCacheBackend(CacheBackend):
         if data is None:
             return None
         try:
-            return self.deserialize(data)
+            return self.deserialize(cast(bytes, data))
         except (TypeError, ValueError) as exc:
             raise CacheSerializationError(str(exc)) from exc
 
     @override
-    async def set(self, key: str, value: LibraryAny, ttl: int | None = None) -> None:  # pyright: ignore[reportExplicitAny]
+    async def set(self, key: str, value: CacheValue, ttl: int | None = None) -> None:
         """Set value in Redis with TTL."""
         ttl = ttl or self.default_ttl
         try:
@@ -200,9 +200,9 @@ class RedisCacheBackend(CacheBackend):
             if ttl > 0:
                 # Modern SET key value PX ttl form (redis-py >= 3.5); avoids
                 # the deprecated setex() which redis-py >= 5 warns on (G24).
-                await self.pool.set(self._key(key), data, ex=ttl)
+                _ = await self.pool.set(self._key(key), data, ex=ttl)
             else:
-                await self.pool.set(self._key(key), data)
+                _ = await self.pool.set(self._key(key), data)
         except _REDIS_INFRA_ERRORS as exc:
             self._raise_redis(exc)
 
@@ -237,9 +237,15 @@ class RedisCacheBackend(CacheBackend):
         full_pattern = self._key(pattern)
         prefix = f"{self.namespace}:"
         result: list[str] = []
+        scan_iter = cast(
+            "Callable[..., AsyncIterator[bytes | str]]",
+            self.pool.scan_iter,
+        )
         try:
-            async for key in self.pool.scan_iter(match=full_pattern, count=100):
-                result.append(cast(bytes, key).decode().removeprefix(prefix))
+            async for key in scan_iter(match=full_pattern, count=100):
+                result.append(
+                    (key.decode() if isinstance(key, bytes) else key).removeprefix(prefix)
+                )
         except _REDIS_INFRA_ERRORS as exc:
             self._raise_redis(exc)
         return result
@@ -249,16 +255,20 @@ class RedisCacheBackend(CacheBackend):
         """Delete all keys matching pattern in namespace using SCAN."""
         full_pattern = self._key(pattern)
         count = 0
+        scan_iter = cast(
+            "Callable[..., AsyncIterator[bytes | str]]",
+            self.pool.scan_iter,
+        )
         try:
-            async for key in self.pool.scan_iter(match=full_pattern, count=100):
-                await self.pool.delete(key)
+            async for key in scan_iter(match=full_pattern, count=100):
+                _ = await self.pool.delete(key)
                 count += 1
         except _REDIS_INFRA_ERRORS as exc:
             self._raise_redis(exc)
         return count
 
     @override
-    async def get_many(self, keys: list[str]) -> dict[str, LibraryAny]:  # pyright: ignore[reportExplicitAny]
+    async def get_many(self, keys: list[str]) -> dict[str, CacheValue]:
         """Get multiple values at once."""
         if not keys:
             return {}
@@ -267,14 +277,14 @@ class RedisCacheBackend(CacheBackend):
             values = await self.pool.mget(full_keys)
         except _REDIS_INFRA_ERRORS as exc:
             self._raise_redis(exc)
-        result: dict[str, LibraryAny] = {}  # pyright: ignore[reportExplicitAny]
+        result: dict[str, CacheValue] = {}
         for raw_key, value in zip(keys, values, strict=True):
             if value is not None:
                 result[raw_key] = self.deserialize(cast(bytes, value))
         return result
 
     @override
-    async def set_many(self, mapping: dict[str, LibraryAny], ttl: int | None = None) -> None:  # pyright: ignore[reportExplicitAny]
+    async def set_many(self, mapping: dict[str, CacheValue], ttl: int | None = None) -> None:
         """Set multiple values at once."""
         if not mapping:
             return
@@ -284,13 +294,13 @@ class RedisCacheBackend(CacheBackend):
             for key, value in mapping.items():
                 data = self.serialize(value)
                 if ttl > 0:
-                    pipe.setex(self._key(key), ttl, data)
+                    _ = pipe.setex(self._key(key), ttl, data)
                 else:
-                    pipe.set(self._key(key), data)
+                    _ = pipe.set(self._key(key), data)
         except (TypeError, ValueError) as exc:
             raise CacheSerializationError(str(exc)) from exc
         try:
-            await pipe.execute()
+            _ = await pipe.execute()
         except _REDIS_INFRA_ERRORS as exc:
             self._raise_redis(exc)
 

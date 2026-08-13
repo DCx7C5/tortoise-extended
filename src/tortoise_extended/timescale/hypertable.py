@@ -18,12 +18,13 @@ Usage::
     is_hypertable = await HypertableManager.is_hypertable("events")
 """
 
+from collections.abc import Sequence
 from typing import cast
 
 from tortoise import connections
 
 from tortoise_extended._quote import quote_ident, quote_literal
-from tortoise_extended._types import LibraryAny, RowMapping
+from tortoise_extended._types import RowMapping, RowValue
 
 
 class HypertableManager:
@@ -128,18 +129,21 @@ class HypertableManager:
         """
 
         result = await conn.execute_query(sql)
-        rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
+        rows = cast(
+            Sequence[RowMapping | tuple[RowValue, ...]],
+            result[1] if isinstance(result, tuple) else result,
+        )
 
         if rows:
-            row: LibraryAny = rows[0]  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
+            row = rows[0]
             if isinstance(row, dict):
-                return row.get("is_hypertable", False)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+                return bool(row.get("is_hypertable", False))
             # Tuple result
-            return bool(row[0]) if row else False  # pyright: ignore[reportUnknownArgumentType]
+            return bool(row[0]) if row else False
         return False
 
     @staticmethod
-    async def list_hypertables() -> list[dict[str, LibraryAny]]:  # pyright: ignore[reportExplicitAny]
+    async def list_hypertables() -> list[RowMapping]:
         """List all hypertables in the database.
 
         Returns:
@@ -166,9 +170,12 @@ class HypertableManager:
         """
 
         result = await conn.execute_query(sql)
-        rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
+        rows = cast(
+            Sequence[RowMapping | tuple[RowValue, ...]],
+            result[1] if isinstance(result, tuple) else result,
+        )
 
-        return [cast(RowMapping, dict(row)) for row in rows]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+        return [dict(cast(RowMapping, row)) for row in rows]
 
     @staticmethod
     async def add_dimension(
@@ -275,6 +282,9 @@ class HypertableManager:
             sql = f"SELECT show_chunks({quote_literal(table_name)})"
 
         result = await conn.execute_query(sql)
-        rows: list[LibraryAny] = result[1] if isinstance(result, tuple) else result  # pyright: ignore[reportExplicitAny, reportUnknownVariableType]
+        rows = cast(
+            Sequence[tuple[RowValue, ...]],
+            result[1] if isinstance(result, tuple) else result,
+        )
 
-        return [row[0] for row in rows]  # pyright: ignore[reportUnknownVariableType]
+        return [cast(str, row[0]) for row in rows]

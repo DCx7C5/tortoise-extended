@@ -3,20 +3,24 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING, cast, override
 
+from pypika_tortoise.terms import Term
+from tortoise.expressions import Expression
 from tortoise.indexes import Index
-from tortoise_extended._types import LibraryAny
+from tortoise.models import Model
+from tortoise_extended._types import RowValue, SchemaGeneratorLike
 from tortoise_extended.exceptions import IndexDefinitionError
 from tortoise_extended.indexes._dialect import assert_postgres_dialect
 
 if TYPE_CHECKING:
     from tortoise.backends.base.schema_generator import BaseSchemaGenerator
-    from tortoise.models import Model
 
 _VALID_HNSW_METRICS = frozenset({"vector_l2_ops", "vector_ip_ops", "vector_cosine_ops"})
 _VALID_IVFFLAT_METRICS = frozenset({"vector_l2_ops", "vector_ip_ops"})
 
 
-def _qualify_table_name(schema_generator: object, table_name: str, schema: str | None) -> str:
+def _qualify_table_name(
+    schema_generator: SchemaGeneratorLike, table_name: str, schema: str | None
+) -> str:
     """Call the schema generator's ``_qualify_table_name`` helper.
 
     ``getattr`` is required because pyright flags protected-member access
@@ -29,15 +33,28 @@ def _qualify_table_name(schema_generator: object, table_name: str, schema: str |
     return method(table_name, schema)
 
 
-def _get_index_name(schema_generator: object, prefix: str, model: object, field_names: list[str]) -> str:
+def _get_index_name(
+    schema_generator: SchemaGeneratorLike,
+    prefix: str,
+    model: type[Model],
+    field_names: list[str],
+) -> str:
     """Call the schema generator's ``_get_index_name`` helper."""
-    method = cast(Callable[[str, object, list[str]], str], getattr(schema_generator, "_get_index_name"))
+    method = cast(
+        Callable[[str, type[Model], list[str]], str],
+        getattr(schema_generator, "_get_index_name"),
+    )
     return method(prefix, model, field_names)
 
 
-def _format_index_fields(schema_generator: object, field_names: list[str]) -> str:
+def _format_index_fields(
+    schema_generator: SchemaGeneratorLike, field_names: list[str]
+) -> str:
     """Call the schema generator's ``_format_index_fields`` helper."""
-    method = cast(Callable[[list[str]], str], getattr(schema_generator, "_format_index_fields"))
+    method = cast(
+        Callable[[list[str]], str],
+        getattr(schema_generator, "_format_index_fields"),
+    )
     return method(field_names)
 
 
@@ -66,7 +83,7 @@ class HNSWIndex(Index):
 
     def __init__(
         self,
-        *args: LibraryAny,  # pyright: ignore[reportExplicitAny]
+        *args: Term | Expression,
         fields: tuple[str, ...] | list[str] | None = None,
         name: str | None = None,
         m: int = 16,
@@ -84,7 +101,7 @@ class HNSWIndex(Index):
         self.dist_metric = dist_metric
 
     @override
-    def describe(self) -> dict[str, LibraryAny]:  # pyright: ignore[reportExplicitAny]
+    def describe(self) -> dict[str, RowValue]:
         desc = super().describe()
         desc["m"] = self.m
         desc["ef_construction"] = self.ef_construction
@@ -92,7 +109,7 @@ class HNSWIndex(Index):
         return desc
 
     @override
-    def deconstruct(self) -> tuple[str, list[LibraryAny], dict[str, LibraryAny]]:  # pyright: ignore[reportExplicitAny]
+    def deconstruct(self) -> tuple[str, list[RowValue], dict[str, RowValue]]:
         path, args, kwargs = super().deconstruct()
         kwargs["m"] = self.m
         kwargs["ef_construction"] = self.ef_construction
@@ -135,7 +152,7 @@ class IVFFlatIndex(Index):
 
     def __init__(
         self,
-        *args: LibraryAny,  # pyright: ignore[reportExplicitAny]
+        *args: Term | Expression,
         fields: tuple[str, ...] | list[str] | None = None,
         name: str | None = None,
         lists: int = 100,
@@ -151,14 +168,14 @@ class IVFFlatIndex(Index):
         self.dist_metric = dist_metric
 
     @override
-    def describe(self) -> dict[str, LibraryAny]:  # pyright: ignore[reportExplicitAny]
+    def describe(self) -> dict[str, RowValue]:
         desc = super().describe()
         desc["lists"] = self.lists
         desc["dist_metric"] = self.dist_metric
         return desc
 
     @override
-    def deconstruct(self) -> tuple[str, list[LibraryAny], dict[str, LibraryAny]]:  # pyright: ignore[reportExplicitAny]
+    def deconstruct(self) -> tuple[str, list[RowValue], dict[str, RowValue]]:
         path, args, kwargs = super().deconstruct()
         kwargs["lists"] = self.lists
         kwargs["dist_metric"] = self.dist_metric

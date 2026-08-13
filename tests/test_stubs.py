@@ -297,9 +297,7 @@ class TestStubExecutable:
             source = stub.read_text(encoding="utf-8")
             try:
                 code = compile(source, str(stub), "exec")
-                namespace: dict[str, object] = {
-                    "__name__": f"tortoise_extended_stubs.{stub.stem}"
-                }
+                namespace = {"__name__": f"tortoise_extended_stubs.{stub.stem}"}
                 exec(code, namespace)
             except Exception as exc:  # pragma: no cover
                 failures.append(

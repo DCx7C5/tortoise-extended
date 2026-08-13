@@ -6,36 +6,48 @@ without a live TimescaleDB. Uses monkeypatch to swap the module-level
 ``connections`` lookup.
 """
 
+from collections.abc import Sequence
+from typing import TypeAlias
+
 import pytest
 
+from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.timescale.compression import CompressionManager
 from tortoise_extended.timescale.continuous_aggregate import ContinuousAggregateManager
 from tortoise_extended.timescale.hypertable import HypertableManager
 from tortoise_extended.timescale.retention import RetentionPolicy
 
 
+QueryResult: TypeAlias = (
+    tuple[int, Sequence[RowMapping | tuple[RowValue, ...]]]
+    | tuple[Sequence[RowMapping | tuple[RowValue, ...]], int]
+    | Sequence[RowMapping | tuple[RowValue, ...]]
+)
+"""Canned ``execute_query`` shapes the timescale managers tolerate."""
+
+
 class FakeConn:
     """Returns a canned ``execute_query`` result."""
 
-    def __init__(self, result: object) -> None:
+    def __init__(self, result: QueryResult) -> None:
         self.result = result
 
-    async def execute_query(self, sql: str, *args: object) -> object:
+    async def execute_query(self, _sql: str, *_args: RowValue) -> QueryResult:
         return self.result
 
 
 class FakeConnections:
     """Stand-in for the module-level ``connections`` singleton."""
 
-    def __init__(self, conn: FakeConn) -> None:
+    def __init__(self, conn: FakeConn | RecordingConn) -> None:
         self.conn = conn
 
-    def get(self, name: str) -> FakeConn:
+    def get(self, name: str) -> FakeConn | RecordingConn:
         return self.conn
 
 
 def _patch_connections(
-    monkeypatch: pytest.MonkeyPatch, result: object
+    monkeypatch: pytest.MonkeyPatch, result: QueryResult
 ) -> FakeConn:
     conn = FakeConn(result)
     holder = FakeConnections(conn)
@@ -56,7 +68,9 @@ class RecordingConn:
     def __init__(self) -> None:
         self.sqls: list[str] = []
 
-    async def execute_query(self, sql: str, *args: object) -> object:
+    async def execute_query(
+        self, sql: str, *_args: RowValue
+    ) -> tuple[int, Sequence[RowMapping]]:
         self.sqls.append(sql)
         return (0, [])
 
@@ -120,7 +134,7 @@ class TestSqlHardening:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> RecordingConn:
         conn = RecordingConn()
-        holder = FakeConnections(conn)  # type: ignore[arg-type]
+        holder = FakeConnections(conn)
         monkeypatch.setattr("tortoise_extended.timescale.hypertable.connections", holder)
         monkeypatch.setattr("tortoise_extended.timescale.compression.connections", holder)
         monkeypatch.setattr("tortoise_extended.timescale.retention.connections", holder)
