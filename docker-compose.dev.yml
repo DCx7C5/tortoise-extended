@@ -37,11 +37,7 @@ services:
       - ./docker/redis-ext/redis.conf:/usr/local/etc/redis/redis.conf:ro
       - /var/run/redis:/var/run/redis
     command: redis-server /usr/local/etc/redis/redis.conf
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+
 
 
 volumes:
