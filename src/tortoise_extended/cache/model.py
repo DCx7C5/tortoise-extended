@@ -4,10 +4,10 @@ Provides automatic Redis caching for model instances.
 
 Usage:
 
-    from tortoise import models, fields
+    from tortoise import fields
     from tortoise_extended.cache import CacheableModel
 
-    class Entity(CacheableModel, models.Model):
+    class Entity(CacheableModel):
         _cache_ttl = 600
         _cache_fields = ["title", "type"]
 
@@ -28,14 +28,22 @@ Usage:
 
 import contextlib
 import logging
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, Self, cast, override
 
 from tortoise import models
 from tortoise.exceptions import DoesNotExist
+from tortoise.queryset import QuerySet
 
-from tortoise_extended._types import LibraryAny, ModelKwargs, SerializedRecord
+from tortoise_extended._types import (
+    CacheValue,
+    CoercedValue,
+    ModelKwargs,
+    RowValue,
+    SerializedRecord,
+)
+from tortoise_extended.cache._coerce import coerce_cache_value
 from tortoise_extended.exceptions import CacheDataError, CacheError
 
 if TYPE_CHECKING:
@@ -49,6 +57,12 @@ logger = logging.getLogger(__name__)
 
 class CacheableModel(models.Model):
     """Model mixin with automatic Redis caching.
+
+    Cache hits are **read-only proxies**: they are built with
+    ``Model.construct()`` (``_saved_in_db = False``), so calling ``.save()``
+    on a cache hit would issue an ``INSERT`` against an existing PK.  Treat
+    cache-hit instances as immutable and use :meth:`rehydrate` before any
+    write.
 
     Class Variables:
         _cache_ttl: Default TTL in seconds (0 = disabled)
@@ -79,7 +93,7 @@ class CacheableModel(models.Model):
         )
 
     @classmethod
-    def _cache_key_for(cls, op: str, **kwargs: LibraryAny) -> str:  # pyright: ignore[reportExplicitAny]
+    def _cache_key_for(cls, op: str, **kwargs: CacheValue) -> str:
         """Build cache key from lookup kwargs.
 
         ``op`` namespaces the operation ("get" vs "filter") so the single
@@ -91,7 +105,7 @@ class CacheableModel(models.Model):
         return key.build()
 
     @classmethod
-    async def get_cached(cls, **kwargs: ModelKwargs) -> Self | None:
+    async def get_cached(cls, **kwargs: CacheValue) -> Self | None:
         """Get instance by kwargs, using cache.
 
         Usage:
@@ -99,35 +113,43 @@ class CacheableModel(models.Model):
             entity = await Entity.get_cached(id="uuid-here")
         """
         if cls._cache_ttl <= 0:
-            return await cls.get(**cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
+            get = cast(Callable[..., Awaitable[Self]], cls.get)
+            return await get(**kwargs)
 
         backend = cls._get_backend()
-        cache_key = cls._cache_key_for("get", **cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
+        cache_key = cls._cache_key_for("get", **kwargs)
 
         # Try cache
         try:
             cached = await backend.get(cache_key)
             if cached is not None:
                 if not isinstance(cached, dict):
-                    raise CacheDataError(f"Expected dict from cache, got {type(cached).__name__}")
+                    raise CacheDataError(
+                        f"Expected dict from cache, got {type(cached).__name__}"
+                    )
                 return cls._from_cache(cast(SerializedRecord, cached))
         except CacheError:
             logger.debug("Cache read error for key %s", cache_key, exc_info=True)
 
         # Query database
         try:
-            instance = await cls.get(**cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
+            get = cast(Callable[..., Awaitable[Self]], cls.get)
+            instance = await get(**kwargs)
         except DoesNotExist:
             return None
 
         # Cache result
         with contextlib.suppress(CacheError):
-            await backend.set(cache_key, cls._to_cache(instance), ttl=cls._cache_ttl)
+            await backend.set(
+                cache_key,
+                cast(CacheValue, cls._to_cache(instance)),
+                ttl=cls._cache_ttl,
+            )
 
         return instance
 
     @classmethod
-    async def filter_cached(cls, **kwargs: ModelKwargs) -> list[Self]:
+    async def filter_cached(cls, **kwargs: CacheValue) -> list[Self]:
         """Filter instances using cache.
 
         Usage:
@@ -135,28 +157,39 @@ class CacheableModel(models.Model):
             entities = await Entity.filter_cached(type="TECHNOLOGY")
         """
         if cls._cache_ttl <= 0:
-            return await cls.filter(**cast(dict[str, LibraryAny], kwargs)).all()  # pyright: ignore[reportExplicitAny]
+            filter_qs = cast(Callable[..., QuerySet[Self]], cls.filter)
+            return await filter_qs(**kwargs).all()
 
         backend = cls._get_backend()
-        cache_key = cls._cache_key_for("filter", **cast(dict[str, LibraryAny], kwargs))  # pyright: ignore[reportExplicitAny]
+        cache_key = cls._cache_key_for("filter", **kwargs)
 
         # Try cache
         try:
             cached = await backend.get(cache_key)
             if cached is not None:
                 if not isinstance(cached, list):
-                    raise CacheDataError(f"Expected list from cache, got {type(cached).__name__}")
-                return [cls._from_cache(item) for item in cast(list[SerializedRecord], cached)]
+                    raise CacheDataError(
+                        f"Expected list from cache, got {type(cached).__name__}"
+                    )
+                return [
+                    cls._from_cache(item)
+                    for item in cast(list[SerializedRecord], cached)
+                ]
         except CacheError:
             logger.debug("Cache read error for key %s", cache_key, exc_info=True)
 
         # Query database
-        instances = await cls.filter(**cast(dict[str, LibraryAny], kwargs)).all()  # pyright: ignore[reportExplicitAny]
+        filter_qs = cast(Callable[..., QuerySet[Self]], cls.filter)
+        instances = await filter_qs(**kwargs).all()
 
         # Cache results
         try:
             serialized = [cls._to_cache(i) for i in instances]
-            await backend.set(cache_key, serialized, ttl=cls._cache_ttl)
+            await backend.set(
+                cache_key,
+                cast(CacheValue, serialized),
+                ttl=cls._cache_ttl,
+            )
         except CacheError:
             logger.debug("Cache write error for key %s", cache_key, exc_info=True)
 
@@ -191,18 +224,40 @@ class CacheableModel(models.Model):
         """
         kwargs: ModelKwargs = {}
 
-        # Restore primary key
+        # Restore primary key (coerced so cache hits expose the DB type)
         pk_field = cls._meta.pk_attr
         if pk_field and "_pk" in data:
-            kwargs[pk_field] = data["_pk"]
+            pk_raw: RowValue = data["_pk"]
+            pk_field_obj = cls._meta.fields_map.get(pk_field)
+            if pk_field_obj is not None:
+                pk_value: CoercedValue = coerce_cache_value(pk_raw, pk_field_obj)
+            else:
+                pk_value = pk_raw
+            kwargs[pk_field] = pk_value
 
-        # Restore cached fields
+        # Restore cached fields, coercing JSON strings back to field types
         for key, value in data.items():
             if key.startswith("_"):
                 continue
+            field_obj = cls._meta.fields_map.get(key)
+            if field_obj is not None:
+                value = coerce_cache_value(value, field_obj)
             kwargs[key] = value
 
-        return cls.construct(**kwargs)
+        construct = cast(Callable[..., Self], cls.construct)
+        return construct(**kwargs)
+
+    async def rehydrate(self) -> Self:
+        """Load this cache-hit instance from the database.
+
+        Cache hits are built with ``Model.construct()`` and are not marked
+        as saved — call this before any write (``save``/``delete``) on a
+        cache-hit instance so the DB sees a normal, saved instance.
+
+        Returns:
+            A freshly-loaded saved instance.
+        """
+        return await type(self).get(pk=self.pk)
 
     async def _invalidate_cache(self) -> None:
         """Invalidate cache entries for this instance.
@@ -258,6 +313,6 @@ class CacheableModel(models.Model):
             with contextlib.suppress(CacheError):
                 await backend.set(
                     cache_key,
-                    self._to_cache(self),
+                    cast(CacheValue, self._to_cache(self)),
                     ttl=self._cache_ttl,
                 )

@@ -24,6 +24,7 @@ from tortoise_extended.cache.base import (
 from tortoise_extended.cache.model import CacheableModel
 from tortoise_extended.cache.queryset import CachedQuerySet
 from tortoise_extended.cache.redis import RedisCache, RedisCacheBackend
+from tortoise_extended._types import CacheValue, RowValue
 from tortoise_extended.exceptions import (
     CacheBackendNotInitializedError,
     CacheError,
@@ -367,7 +368,7 @@ class FakeRedisPipeline:
 
         self._ops.append(run)
 
-    async def execute(self) -> list[object]:
+    async def execute(self) -> list[CacheValue]:
         for op in self._ops:
             await op()
         return []
@@ -379,34 +380,34 @@ class RaisingRedisPool:
     def __init__(self, exc: type[Exception] = ConnectionError) -> None:
         self.exc = exc
 
-    async def _boom(self, *args: object, **kwargs: object) -> None:
+    async def _boom(self, *args: CacheValue, **kwargs: CacheValue) -> None:
         raise self.exc("boom")
 
-    async def get(self, *args: object, **kwargs: object) -> None:
+    async def get(self, *args: CacheValue, **kwargs: CacheValue) -> None:
         await self._boom()
 
-    async def setex(self, *args: object, **kwargs: object) -> None:
+    async def setex(self, *args: CacheValue, **kwargs: CacheValue) -> None:
         await self._boom()
 
-    async def set(self, *args: object, **kwargs: object) -> None:
+    async def set(self, *args: CacheValue, **kwargs: CacheValue) -> None:
         await self._boom()
 
-    async def delete(self, *args: object, **kwargs: object) -> None:
+    async def delete(self, *args: CacheValue, **kwargs: CacheValue) -> None:
         await self._boom()
 
-    async def exists(self, *args: object, **kwargs: object) -> None:
+    async def exists(self, *args: CacheValue, **kwargs: CacheValue) -> None:
         await self._boom()
 
-    async def expire(self, *args: object, **kwargs: object) -> None:
+    async def expire(self, *args: CacheValue, **kwargs: CacheValue) -> None:
         await self._boom()
 
-    async def mget(self, *args: object, **kwargs: object) -> None:
+    async def mget(self, *args: CacheValue, **kwargs: CacheValue) -> None:
         await self._boom()
 
-    async def incrby(self, *args: object, **kwargs: object) -> None:
+    async def incrby(self, *args: CacheValue, **kwargs: CacheValue) -> None:
         await self._boom()
 
-    async def scan_iter(self, *args: object, **kwargs: object):
+    async def scan_iter(self, *args: CacheValue, **kwargs: CacheValue):
         raise self.exc("boom")
         yield  # pragma: no cover
 
@@ -424,7 +425,7 @@ class RaisingRedisPipeline:
     def set(self, key: str, value: bytes) -> None:
         pass
 
-    async def execute(self) -> list[object]:
+    async def execute(self) -> list[CacheValue]:
         raise self._pool.exc("boom")
 
 
@@ -835,7 +836,7 @@ class TestCacheableModel:
         cls = self._model()
 
         class BrokenBackend(MockRedisBackend):
-            async def get(self, key: str) -> object:
+            async def get(self, key: str) -> CacheValue | None:
                 raise CacheError("boom")
 
         cls._cache_backend = BrokenBackend(default_ttl=300)  # type: ignore[assignment]
@@ -850,7 +851,7 @@ class TestCacheableModel:
         cls = self._model()
 
         class BrokenBackend(MockRedisBackend):
-            async def set(self, key: str, value: object, ttl: int | None = None) -> None:
+            async def set(self, key: str, value: CacheValue, ttl: int | None = None) -> None:
                 raise CacheError("boom")
 
         cls._cache_backend = BrokenBackend(default_ttl=300)  # type: ignore[assignment]
@@ -897,7 +898,7 @@ class TestCacheableModel:
         cls = self._model()
 
         class BrokenBackend(MockRedisBackend):
-            async def set(self, key: str, value: object, ttl: int | None = None) -> None:
+            async def set(self, key: str, value: CacheValue, ttl: int | None = None) -> None:
                 raise CacheError("boom")
 
         cls._cache_backend = BrokenBackend(default_ttl=300)  # type: ignore[assignment]
@@ -942,9 +943,11 @@ class TestCacheableModel:
         thing = await cls.create(title="restore")
         data = cls._to_cache(thing)
         restored = cls._from_cache(data)
-        assert str(restored.pk) == str(thing.pk)
+        assert restored.pk == thing.pk
+        assert isinstance(restored.pk, int)
         assert restored.title == "restore"
-        assert restored.created_at == thing.created_at.isoformat()
+        assert isinstance(restored.created_at, datetime)
+        assert restored.created_at == thing.created_at
 
     @pytest.mark.asyncio
     async def test_save_invalidates_cache(self) -> None:
@@ -996,7 +999,7 @@ class TestCachedQuerySet:
     def setup_method(self) -> None:
         self.backend = MockRedisBackend(default_ttl=300)
 
-    def _qs(self, **kwargs: object) -> CachedQuerySet:
+    def _qs(self, **kwargs: RowValue | list[RowValue]) -> CachedQuerySet:
         qs = CachedQuerySet(CacheThing).cache(  # type: ignore[arg-type]
             backend=self.backend,  # type: ignore[arg-type]
             **kwargs,
@@ -1021,8 +1024,10 @@ class TestCachedQuerySet:
         assert key.startswith("CacheThing:hash:")
 
     def test_build_cache_key_includes_query_parts(self) -> None:
+        from tortoise.expressions import Q
+
         qs = self._qs()
-        qs._q_objects = ["a==1", "b==2"]
+        qs._q_objects = [Q(a=1), Q(b=2)]
         qs._annotations = {"cnt": object()}
         qs._orderings = ["-id"]
         qs._limit = 10
@@ -1032,7 +1037,7 @@ class TestCachedQuerySet:
         key1 = qs._build_cache_key()
 
         qs2 = self._qs()
-        qs2._q_objects = ["b==2", "a==1"]
+        qs2._q_objects = [Q(b=2), Q(a=1)]
         qs2._annotations = {"cnt": object()}
         qs2._orderings = ["-id"]
         qs2._limit = 10
@@ -1040,10 +1045,10 @@ class TestCachedQuerySet:
         qs2._distinct = True
         qs2._fields_for_select = ("title",)
         key2 = qs2._build_cache_key()
-        # Reordering filters changes the serialized payload, so keys differ
-        # only when the underlying filter list differs; same list stays same.
+        # Reordering but identical filters normalize to the same signature, so
+        # they share one cache key.
         qs3 = self._qs()
-        qs3._q_objects = ["a==1", "b==2"]
+        qs3._q_objects = [Q(a=1), Q(b=2)]
         qs3._annotations = {"cnt": object()}
         qs3._orderings = ["-id"]
         qs3._limit = 10
@@ -1051,7 +1056,27 @@ class TestCachedQuerySet:
         qs3._distinct = True
         qs3._fields_for_select = ("title",)
         assert qs3._build_cache_key() == key1
-        assert key1 != key2
+        assert key1 == key2
+
+    def test_build_cache_key_q_order_insensitive(self) -> None:
+        """Reordered Q kwargs/children produce the same cache key."""
+        from tortoise.expressions import Q
+
+        qs = self._qs()
+        qs._q_objects = [Q(a=1, b=2)]
+        key1 = qs._build_cache_key()
+
+        qs2 = self._qs()
+        qs2._q_objects = [Q(b=2, a=1)]
+        assert qs2._build_cache_key() == key1
+
+        qs3 = self._qs()
+        qs3._q_objects = [Q(a=1) & Q(b=2)]
+        key3 = qs3._build_cache_key()
+
+        qs4 = self._qs()
+        qs4._q_objects = [Q(b=2) & Q(a=1)]
+        assert qs4._build_cache_key() == key3
 
     @pytest.mark.asyncio
     async def test_execute_miss_then_hit(self) -> None:
@@ -1098,7 +1123,7 @@ class TestCachedQuerySet:
     @pytest.mark.asyncio
     async def test_execute_read_error_falls_back_to_db(self) -> None:
         class BrokenBackend(MockRedisBackend):
-            async def get(self, key: str) -> object:
+            async def get(self, key: str) -> CacheValue | None:
                 raise CacheError("boom")
 
         qs = CachedQuerySet(CacheThing).cache(
@@ -1111,7 +1136,7 @@ class TestCachedQuerySet:
     @pytest.mark.asyncio
     async def test_execute_write_error_suppressed(self) -> None:
         class BrokenBackend(MockRedisBackend):
-            async def set(self, key: str, value: object, ttl: int | None = None) -> None:
+            async def set(self, key: str, value: CacheValue, ttl: int | None = None) -> None:
                 raise CacheError("boom")
 
         qs = CachedQuerySet(CacheThing).cache(
@@ -1149,6 +1174,7 @@ class TestCachedQuerySet:
         )
         assert len(results) == 1
         assert results[0].title == "x"
+        assert results[0].created_at == datetime(2024, 1, 1)
 
     def test_coerce_value_int(self) -> None:
         from tortoise.fields import IntField
@@ -1180,6 +1206,22 @@ class TestCachedQuerySet:
         from tortoise.fields import IntField
 
         assert CachedQuerySet._coerce_value(42, IntField()) == 42
+
+    def test_coerce_value_datetime_family(self) -> None:
+        from datetime import date, time
+
+        from tortoise.fields import DateField, DatetimeField, TimeField
+
+        assert CachedQuerySet._coerce_value(
+            "2024-01-01T10:30:00", DatetimeField()
+        ) == datetime(2024, 1, 1, 10, 30)
+        assert CachedQuerySet._coerce_value("2024-01-01", DateField()) == date(2024, 1, 1)
+        assert CachedQuerySet._coerce_value("10:30:00", TimeField()) == time(10, 30)
+
+    def test_coerce_value_datetime_invalid(self) -> None:
+        from tortoise.fields import DatetimeField
+
+        assert CachedQuerySet._coerce_value("not-a-date", DatetimeField()) == "not-a-date"
 
     def test_resolve_model_found(self) -> None:
         resolved = CachedQuerySet._resolve_model("CacheThing")

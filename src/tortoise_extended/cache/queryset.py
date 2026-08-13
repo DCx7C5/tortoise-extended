@@ -7,18 +7,39 @@ Provides:
 import hashlib
 import json
 import logging
-from datetime import datetime
+from collections.abc import Callable, Sequence
+from datetime import date, datetime, time
 from typing import cast, override
 
+from tortoise.expressions import Q
+from tortoise.fields.base import Field
 from tortoise.models import Model
 from tortoise.queryset import QuerySet
 
-from tortoise_extended._types import LibraryAny
+from tortoise_extended._types import (
+    CacheValue,
+    CoercedValue,
+    ModelKwargs,
+    RowValue,
+    SerializedRecord,
+)
+from tortoise_extended.cache._coerce import coerce_cache_value
 from tortoise_extended.cache.base import CacheBackend, CacheKey
 from tortoise_extended.exceptions import CacheDataError, CacheError
 from tortoise_extended.cache.redis import RedisCache
 
 logger = logging.getLogger(__name__)
+
+
+def _record_as_model(record: Model | SerializedRecord) -> Model:
+    """Pass an already-hydrated model record through as a model instance.
+
+    The defensive deserialization path can receive records that were already
+    model instances at runtime (e.g. after a pickling serializer round-trip).
+    This helper re-widens the statically-narrowed record so the passthrough
+    cast is legal without relying on ``object``/``Any``.
+    """
+    return cast(Model, record)
 
 
 class CachedQuerySet(QuerySet[Model]):
@@ -76,13 +97,17 @@ class CachedQuerySet(QuerySet[Model]):
 
         # Build deterministic key from query
         model_name = self.model.__name__
-        filters: dict[str, LibraryAny] = {}  # pyright: ignore[reportExplicitAny]
+        filters: dict[str, RowValue | list[RowValue]] = {}
         if hasattr(self, "_q_objects") and self._q_objects:
-            filters["q"] = [str(f) for f in self._q_objects]
+            # Sort so reordered-but-identical filters share one cache key.
+            filters["q"] = cast(
+                list[RowValue],
+                sorted(self._q_signature(f) for f in self._q_objects),
+            )
         if self._annotations:
             filters["annotations"] = list(self._annotations.keys())
         if self._orderings:
-            filters["order"] = self._orderings
+            filters["order"] = cast(list[RowValue], self._orderings)
         if self._limit:
             filters["limit"] = self._limit
         if self._offset:
@@ -98,7 +123,7 @@ class CachedQuerySet(QuerySet[Model]):
         return CacheKey.from_dict(model_name, {"hash": key_hash}).build()
 
     @override
-    async def _execute(self) -> list[LibraryAny]:  # pyright: ignore[reportExplicitAny]
+    async def _execute(self) -> list[Model]:
         """Execute query with caching."""
         if self._cache_ttl <= 0 or self._single:
             return await super()._execute()
@@ -117,66 +142,77 @@ class CachedQuerySet(QuerySet[Model]):
             cached_result = await backend.get(cache_key)
             if cached_result is not None:
                 if not isinstance(cached_result, list):
-                    raise CacheDataError(f"Expected list from cache, got {type(cached_result).__name__}")
-                return self._deserialize_results(cached_result)  # pyright: ignore[reportUnknownArgumentType]
+                    raise CacheDataError(
+                        f"Expected list from cache, got {type(cached_result).__name__}"
+                    )
+                return self._deserialize_results(
+                    cast(list[SerializedRecord], cached_result)
+                )
         except CacheError:
             logger.debug("Cache read error for key %s", cache_key, exc_info=True)
 
         # Execute query
-        results: list[LibraryAny] = await super()._execute()  # pyright: ignore[reportExplicitAny]
+        results: list[Model] = await super()._execute()
 
         # Cache results
         try:
             serialized = self._serialize_results(results)
-            await backend.set(cache_key, serialized, ttl=self._cache_ttl)
+            await backend.set(cache_key, cast(CacheValue, serialized), ttl=self._cache_ttl)
         except CacheError:
             logger.debug("Cache write error for key %s", cache_key, exc_info=True)
 
         return results
 
     @staticmethod
-    def _serialize_results(results: list[LibraryAny]) -> list[dict[str, LibraryAny]]:  # pyright: ignore[reportExplicitAny]
+    def _serialize_results(results: Sequence[Model | SerializedRecord]) -> list[SerializedRecord]:
         """Serialize model instances to dicts."""
-        serialized: list[dict[str, LibraryAny]] = []  # pyright: ignore[reportExplicitAny]
+        serialized: list[SerializedRecord] = []
         for instance in results:
-            if hasattr(instance, "_meta"):
-                data: dict[str, LibraryAny] = {  # pyright: ignore[reportExplicitAny]
-                    "_model": instance.__class__.__name__,
-                }
-                for field_name in instance._meta.fields:
-                    value: LibraryAny = getattr(instance, field_name, None)  # pyright: ignore[reportExplicitAny]
-                    if isinstance(value, datetime):
-                        value = value.isoformat()
-                    elif hasattr(value, "pk"):
-                        pk_val = value.pk
-                        value = str(pk_val) if pk_val is not None else None
-                    data[field_name] = value
-                serialized.append(data)
-            else:
+            if not isinstance(instance, Model):
+                # Defensive branch: instance is an already-serialized record.
                 serialized.append(instance)
+                continue
+            data: SerializedRecord = {
+                "_model": instance.__class__.__name__,
+            }
+            for field_name in instance._meta.fields:
+                value: CoercedValue = getattr(instance, field_name, None)
+                if isinstance(value, datetime):
+                    value = value.isoformat()
+                elif value is not None and hasattr(value, "pk"):
+                    pk_val = getattr(value, "pk")
+                    value = str(pk_val) if pk_val is not None else None
+                data[field_name] = cast(RowValue, value)
+            serialized.append(data)
         return serialized
 
-    def _deserialize_results(self, data: list[dict[str, LibraryAny]]) -> list[LibraryAny]:  # pyright: ignore[reportExplicitAny]
+    def _deserialize_results(self, data: Sequence[Model | SerializedRecord]) -> list[Model]:
         """Deserialize dicts back to model instances.
 
         Uses Tortoise ORM's ``construct()`` to create instances without
         hitting the database.
         """
-        results: list[LibraryAny] = []  # pyright: ignore[reportExplicitAny]
-        for record in data:
-            model_name: str | None = record.get("_model")
+        results: list[Model] = []
+        for item in data:
+            if isinstance(item, Model):
+                results.append(item)
+                continue
+
+            model_name = cast(str | None, item.get("_model"))
             if model_name is None:
-                results.append(record)
+                # Defensive: already-hydrated record without a ``_model`` marker.
+                results.append(_record_as_model(item))
                 continue
 
             model_cls = self._resolve_model(model_name)
             if model_cls is None:
-                results.append(record)
+                # Defensive: record whose model class is not registered.
+                results.append(_record_as_model(item))
                 continue
 
-            field_values: dict[str, LibraryAny] = {}  # pyright: ignore[reportExplicitAny]
+            field_values: ModelKwargs = {}
             for field_name in model_cls._meta.fields:
-                raw = record.get(field_name)
+                raw = item.get(field_name)
                 if raw is None:
                     field_values[field_name] = None
                     continue
@@ -184,7 +220,8 @@ class CachedQuerySet(QuerySet[Model]):
                 field_obj = model_cls._meta.fields_map[field_name]
                 field_values[field_name] = self._coerce_value(raw, field_obj)
 
-            results.append(model_cls.construct(**field_values))
+            construct = cast(Callable[..., Model], model_cls.construct)
+            results.append(construct(**field_values))
         return results
 
     @staticmethod
@@ -206,23 +243,50 @@ class CachedQuerySet(QuerySet[Model]):
         return None
 
     @staticmethod
-    def _coerce_value(raw: LibraryAny, field_obj: LibraryAny) -> LibraryAny:  # pyright: ignore[reportExplicitAny]
+    def _q_signature(q: Q) -> str:
+        """Build a canonical, order-insensitive signature for a Q object.
+
+        ``str(q)`` depends on the order filters and children were supplied
+        in, so two semantically identical filters would miss each other's
+        cache entries.  Normalize kwargs by key and children by their own
+        signatures so reordered-but-identical filters share one cache key.
+        """
+        return json.dumps(
+            {
+                "join": q.join_type,
+                "negated": getattr(q, "_is_negated"),
+                "filters": cast(dict[str, RowValue | list[RowValue]], q.filters),
+                "children": sorted(CachedQuerySet._q_signature(c) for c in q.children),
+            },
+            sort_keys=True,
+            default=CachedQuerySet._q_value_default,
+        )
+
+    @staticmethod
+    def _q_value_default(value: CacheValue) -> CacheValue:
+        """Deterministic JSON fallback for non-serializable Q filter values.
+
+        ``str(set)`` / ``str(dict)`` are insertion-ordered, so sets, dicts,
+        and containers are normalized into sorted structures before JSON
+        encoding; datetimes become ISO strings.
+        """
+        if isinstance(value, (set, frozenset)):
+            items = list(cast(set[CacheValue] | frozenset[CacheValue], value))
+            return sorted((CachedQuerySet._q_value_default(v) for v in items), key=str)
+        if isinstance(value, (list, tuple)):
+            items = list(cast(list[CacheValue] | tuple[CacheValue, ...], value))
+            return [CachedQuerySet._q_value_default(v) for v in items]
+        if isinstance(value, dict):
+            items = list(cast(dict[str, CacheValue], value).items())
+            return {str(k): CachedQuerySet._q_value_default(v) for k, v in items}
+        if isinstance(value, (datetime, date, time)):
+            return value.isoformat()
+        return str(value)
+
+    @staticmethod
+    def _coerce_value(raw: RowValue, field_obj: "Field[RowValue]") -> CoercedValue:
         """Coerce a JSON-deserialized value back to the field's Python type."""
-        if isinstance(raw, str) and hasattr(field_obj, "field_type"):
-            ft = field_obj.field_type
-            if ft is int:
-                try:
-                    return int(raw)
-                except (ValueError, TypeError):
-                    pass
-            elif ft is float:
-                try:
-                    return float(raw)
-                except (ValueError, TypeError):
-                    pass
-            elif ft is bool:
-                return raw.lower() in ("true", "1", "yes")
-        return raw
+        return coerce_cache_value(raw, field_obj)
 
     async def invalidate_cache(self) -> int:
         """Invalidate cache for this query.
