@@ -22,12 +22,12 @@ Usage::
             )
 """
 
-from typing import TYPE_CHECKING, Self, override
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Self, cast, override
+from uuid import UUID, uuid4
 
 from tortoise import fields
 from tortoise.models import Model
-
-from tortoise_extended._types import LibraryAny
 
 if TYPE_CHECKING:
     from tortoise.queryset import QuerySet
@@ -43,6 +43,14 @@ class GraphEdge(Model):
     - properties for arbitrary edge metadata
     - namespace for multi-tenancy
     - bidirectional flag for undirected edges
+
+    Orphan policy:
+    ``source_id`` / ``target_id`` are bare columns with no ``ON DELETE``
+    clause.  Deleting a node does not delete edges that reference it — the
+    edges stay in place with a dangling endpoint.  This is deliberate for
+    polymorphic graphs where node types may differ, so no automatic cascade
+    is performed.  Use ``between_any`` / ``outgoing`` / ``incoming`` to find
+    affected edges before deleting a node.
 
     Usage::
 
@@ -63,6 +71,7 @@ class GraphEdge(Model):
 
     id = fields.UUIDField(
         primary_key=True,
+        default=uuid4,
         description="Unique identifier for the edge",
     )
     source_id = fields.UUIDField(
@@ -116,7 +125,7 @@ class GraphEdge(Model):
             ("source_id", "target_id", "edge_type"),
         )
 
-    def __init_subclass__(cls, **kwargs: object) -> None:
+    def __init_subclass__(cls, **kwargs: str | int | float | bool | None) -> None:
         """Guard against silently losing the abstract base indexes.
 
         Tortoise does not propagate ``Meta.indexes`` from abstract bases to
@@ -166,8 +175,8 @@ class GraphEdge(Model):
     @classmethod
     def between(
         cls,
-        source_id: str,
-        target_id: str,
+        source_id: UUID,
+        target_id: UUID,
         edge_type: str | None = None,
         namespace: str = "default",
     ) -> QuerySet[Self]:
@@ -182,19 +191,20 @@ class GraphEdge(Model):
         Returns:
             QuerySet of edges matching the criteria
         """
-        filters: dict[str, LibraryAny] = {  # pyright: ignore[reportExplicitAny]
+        filters: dict[str, str | UUID] = {
             "source_id": source_id,
             "target_id": target_id,
             "namespace": namespace,
         }
         if edge_type is not None:
             filters["edge_type"] = edge_type
-        return cls.filter(**filters)
+        filter_method = cast(Callable[..., "QuerySet[Self]"], cls.filter)
+        return filter_method(**filters)
 
     @classmethod
     def between_any(
         cls,
-        node_id: str,
+        node_id: UUID,
         edge_type: str | None = None,
         namespace: str = "default",
     ) -> QuerySet[Self]:
@@ -220,7 +230,7 @@ class GraphEdge(Model):
     @classmethod
     def outgoing(
         cls,
-        source_id: str,
+        source_id: UUID,
         edge_type: str | None = None,
         namespace: str = "default",
     ) -> QuerySet[Self]:
@@ -234,18 +244,19 @@ class GraphEdge(Model):
         Returns:
             QuerySet of outgoing edges
         """
-        filters: dict[str, LibraryAny] = {  # pyright: ignore[reportExplicitAny]
+        filters: dict[str, str | UUID] = {
             "source_id": source_id,
             "namespace": namespace,
         }
         if edge_type is not None:
             filters["edge_type"] = edge_type
-        return cls.filter(**filters).order_by("created_at")
+        filter_method = cast(Callable[..., "QuerySet[Self]"], cls.filter)
+        return filter_method(**filters).order_by("created_at")
 
     @classmethod
     def incoming(
         cls,
-        target_id: str,
+        target_id: UUID,
         edge_type: str | None = None,
         namespace: str = "default",
     ) -> QuerySet[Self]:
@@ -259,13 +270,14 @@ class GraphEdge(Model):
         Returns:
             QuerySet of incoming edges
         """
-        filters: dict[str, LibraryAny] = {  # pyright: ignore[reportExplicitAny]
+        filters: dict[str, str | UUID] = {
             "target_id": target_id,
             "namespace": namespace,
         }
         if edge_type is not None:
             filters["edge_type"] = edge_type
-        return cls.filter(**filters).order_by("created_at")
+        filter_method = cast(Callable[..., "QuerySet[Self]"], cls.filter)
+        return filter_method(**filters).order_by("created_at")
 
     @property
     def is_self_loop(self) -> bool:

@@ -18,13 +18,15 @@ Usage::
 """
 
 from collections import deque
-from typing import TYPE_CHECKING, Self, override
-from uuid import UUID
-
+from typing import TYPE_CHECKING, ClassVar, Self, override
+from uuid import UUID, uuid4
 from tortoise import fields
 from tortoise.models import Model
 
+from tortoise_extended.exceptions import GraphError
+
 if TYPE_CHECKING:
+    from tortoise.backends.base.client import BaseDBAsyncClient
     from tortoise.queryset import QuerySet
 
 
@@ -38,6 +40,16 @@ class GraphNode(Model):
     - is_root flag for identifying root nodes
     - child_count for denormalized degree tracking
     - namespace for multi-tenancy
+
+    Orphan policy:
+    ``parent_id`` is a bare column with no ``ON DELETE`` clause.  Deleting a
+    node leaves its children (and any edges in ``GraphEdge`` subclasses that
+    reference it) in place with a dangling ``parent_id``.  This is deliberate
+    for polymorphic graphs where the parent and child types may differ, so
+    no automatic cascade is performed.  Set ``_block_orphan_delete = True``
+    on a concrete subclass to make ``delete()`` raise
+    :class:`~tortoise_extended.exceptions.GraphError` instead when the node
+    still has children.
 
     Usage::
 
@@ -54,8 +66,12 @@ class GraphNode(Model):
         child = await Category.create(name="Laptops", parent=root)
     """
 
+    _block_orphan_delete: ClassVar[bool] = False
+    """When True, ``delete()`` refuses to remove a node that has children."""
+
     id = fields.UUIDField(
         primary_key=True,
+        default=uuid4,
         description="Unique identifier for the node",
     )
     name = fields.CharField(
@@ -116,6 +132,30 @@ class GraphNode(Model):
     def is_leaf(self) -> bool:
         """Check if this is a leaf node (no children)."""
         return self.child_count == 0
+
+    @override
+    async def delete(self, using_db: BaseDBAsyncClient | None = None) -> None:
+        """Delete this node.
+
+        Performs the optional orphan guard: when ``_block_orphan_delete`` is
+        set on the concrete class and this node still has children, raises
+        :class:`~tortoise_extended.exceptions.GraphError` instead of
+        deleting.  Edges referencing this node are never cascaded — see the
+        class-level orphan policy.
+
+        Raises:
+            GraphError: If ``_block_orphan_delete`` is set and the node has
+                children.
+        """
+        if self._block_orphan_delete:
+            remaining = await self.__class__.filter(parent_id=self.id).count()
+            if remaining:
+                msg = (
+                    f"Cannot delete {self.__class__.__name__} {self.id}: "
+                    f"{remaining} child node(s) reference it as parent."
+                )
+                raise GraphError(msg)
+        await super().delete(using_db=using_db)
 
     def children(self) -> QuerySet[Self]:
         """Get direct children of this node.
