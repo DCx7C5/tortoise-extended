@@ -17,7 +17,6 @@ from pypika_tortoise.terms import Criterion, Term
 from tortoise.fields import Field
 from tortoise.models import Model
 
-
 class FilterInfoDict(TypedDict):
     field: str
     operator: Callable[..., Any]
@@ -27,22 +26,17 @@ class FilterInfoDict(TypedDict):
     source_field: NotRequired[str]
     is_tsvector: NotRequired[bool]
 
-
 def get_filters_for_field(
     field_name: str, field: Field[object] | None, source_field: str
 ) -> dict[str, FilterInfoDict]: ...
-
-
 def is_in(field: Term, value: Any) -> Criterion: ...
 def not_in(field: Term, value: Any) -> Criterion: ...
 def not_equal(field: Term, value: Any) -> Criterion: ...
 def is_null(field: Term, value: Any) -> Criterion: ...
 def not_null(field: Term, value: Any) -> Criterion: ...
-
-
 def bool_encoder(value: Any, instance: Model, field: Field[object]) -> bool: ...
-def list_encoder(values: Iterable[Any], instance: Model, field: Field[object]) -> list[Any]: ...
-
+def list_encoder(
+    values: Iterable[Any], instance: Model, field: Field[object]
+) -> list[Any]: ...
 
 _tortoise_extended_patched: bool
-

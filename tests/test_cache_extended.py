@@ -45,7 +45,9 @@ class TestCacheKeyEdgeCases:
     def test_valueerror_no_prefix_no_parts(self) -> None:
         """CacheKey.build() should raise ValueError when empty."""
         key = CacheKey()
-        with pytest.raises(CacheKeyError, match="CacheKey requires a prefix or at least one part"):
+        with pytest.raises(
+            CacheKeyError, match="CacheKey requires a prefix or at least one part"
+        ):
             key.build()
 
     def test_hash_different_inputs(self) -> None:
@@ -462,7 +464,9 @@ class TestRedisCacheSingleton:
             _pool: FakeRedisPool | None = None
 
             @classmethod
-            def from_url(cls, url, max_connections=None, decode_responses=None, **kwargs):
+            def from_url(
+                cls, url, max_connections=None, decode_responses=None, **kwargs
+            ):
                 if cls._pool is None:
                     cls._pool = FakeRedisPool()
                 return cls._pool
@@ -495,7 +499,9 @@ class TestRedisCacheSingleton:
 
         class FakeAIORedis:
             @classmethod
-            def from_url(cls, url, max_connections=None, decode_responses=None, **kwargs):
+            def from_url(
+                cls, url, max_connections=None, decode_responses=None, **kwargs
+            ):
                 return ModernPool()
 
         monkeypatch.setattr(redis_module, "aioredis", FakeAIORedis)
@@ -514,7 +520,9 @@ class TestRedisCacheSingleton:
             _pool: FakeRedisPool | None = None
 
             @classmethod
-            def from_url(cls, url, max_connections=None, decode_responses=None, **kwargs):
+            def from_url(
+                cls, url, max_connections=None, decode_responses=None, **kwargs
+            ):
                 return cls._pool
 
         first = FakeRedisPool()
@@ -542,7 +550,9 @@ class TestRedisCacheSingleton:
             _pool: FakeRedisPool | None = None
 
             @classmethod
-            def from_url(cls, url, max_connections=None, decode_responses=None, **kwargs):
+            def from_url(
+                cls, url, max_connections=None, decode_responses=None, **kwargs
+            ):
                 return cls._pool
 
         FakeAIORedis._pool = FakeRedisPool()
@@ -559,9 +569,7 @@ class TestRedisCacheBackend:
 
     def setup_method(self) -> None:
         self.pool = FakeRedisPool()
-        self.backend = RedisCacheBackend(
-            pool=self.pool, namespace="ns", default_ttl=60
-        )
+        self.backend = RedisCacheBackend(pool=self.pool, namespace="ns", default_ttl=60)
 
     @pytest.mark.asyncio
     async def test_get_miss(self) -> None:
@@ -825,7 +833,9 @@ class TestCacheableModel:
         and falls back to the database."""
         cls = self._model()
         thing = await cls.create(title="bad")
-        await self.backend.set(cls._cache_key_for("get", id=str(thing.pk)), "not-a-dict")
+        await self.backend.set(
+            cls._cache_key_for("get", id=str(thing.pk)), "not-a-dict"
+        )
         cached = await cls.get_cached(id=thing.pk)
         assert cached is not None
         assert cached.title == "bad"
@@ -851,7 +861,9 @@ class TestCacheableModel:
         cls = self._model()
 
         class BrokenBackend(MockRedisBackend):
-            async def set(self, key: str, value: CacheValue, ttl: int | None = None) -> None:
+            async def set(
+                self, key: str, value: CacheValue, ttl: int | None = None
+            ) -> None:
                 raise CacheError("boom")
 
         cls._cache_backend = BrokenBackend(default_ttl=300)  # type: ignore[assignment]
@@ -898,7 +910,9 @@ class TestCacheableModel:
         cls = self._model()
 
         class BrokenBackend(MockRedisBackend):
-            async def set(self, key: str, value: CacheValue, ttl: int | None = None) -> None:
+            async def set(
+                self, key: str, value: CacheValue, ttl: int | None = None
+            ) -> None:
                 raise CacheError("boom")
 
         cls._cache_backend = BrokenBackend(default_ttl=300)  # type: ignore[assignment]
@@ -910,7 +924,9 @@ class TestCacheableModel:
     async def test_cache_key_for_sorted_kwargs(self) -> None:
         """Cache keys are deterministic regardless of kwarg order."""
         cls = self._model()
-        assert cls._cache_key_for("get", a="1", b="2") == cls._cache_key_for("get", b="2", a="1")
+        assert cls._cache_key_for("get", a="1", b="2") == cls._cache_key_for(
+            "get", b="2", a="1"
+        )
 
     @pytest.mark.asyncio
     async def test_to_cache_datetime_and_pk(self) -> None:
@@ -1136,7 +1152,9 @@ class TestCachedQuerySet:
     @pytest.mark.asyncio
     async def test_execute_write_error_suppressed(self) -> None:
         class BrokenBackend(MockRedisBackend):
-            async def set(self, key: str, value: CacheValue, ttl: int | None = None) -> None:
+            async def set(
+                self, key: str, value: CacheValue, ttl: int | None = None
+            ) -> None:
                 raise CacheError("boom")
 
         qs = CachedQuerySet(CacheThing).cache(
@@ -1170,7 +1188,13 @@ class TestCachedQuerySet:
     def test_deserialize_results_construct(self) -> None:
         qs = self._qs()
         results = qs._deserialize_results(  # type: ignore[arg-type]
-            [{"_model": "CacheThing", "title": "x", "created_at": "2024-01-01T00:00:00"}]
+            [
+                {
+                    "_model": "CacheThing",
+                    "title": "x",
+                    "created_at": "2024-01-01T00:00:00",
+                }
+            ]
         )
         assert len(results) == 1
         assert results[0].title == "x"
@@ -1215,13 +1239,17 @@ class TestCachedQuerySet:
         assert CachedQuerySet._coerce_value(
             "2024-01-01T10:30:00", DatetimeField()
         ) == datetime(2024, 1, 1, 10, 30)
-        assert CachedQuerySet._coerce_value("2024-01-01", DateField()) == date(2024, 1, 1)
+        assert CachedQuerySet._coerce_value("2024-01-01", DateField()) == date(
+            2024, 1, 1
+        )
         assert CachedQuerySet._coerce_value("10:30:00", TimeField()) == time(10, 30)
 
     def test_coerce_value_datetime_invalid(self) -> None:
         from tortoise.fields import DatetimeField
 
-        assert CachedQuerySet._coerce_value("not-a-date", DatetimeField()) == "not-a-date"
+        assert (
+            CachedQuerySet._coerce_value("not-a-date", DatetimeField()) == "not-a-date"
+        )
 
     def test_resolve_model_found(self) -> None:
         resolved = CachedQuerySet._resolve_model("CacheThing")
@@ -1255,7 +1283,9 @@ class TestCacheDefaultBackend:
             _pool: FakeRedisPool | None = None
 
             @classmethod
-            def from_url(cls, url, max_connections=None, decode_responses=None, **kwargs):
+            def from_url(
+                cls, url, max_connections=None, decode_responses=None, **kwargs
+            ):
                 if cls._pool is None:
                     cls._pool = FakeRedisPool()
                 return cls._pool

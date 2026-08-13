@@ -437,9 +437,7 @@ class BaseEventStreamModel(BaseModel):
         _ = _table_field(cls, cls.stream_field, what="stream")
         if aggregate != "count":
             if field is None:
-                raise ValueError(
-                    f"aggregate={aggregate!r} requires a value field"
-                )
+                raise ValueError(f"aggregate={aggregate!r} requires a value field")
             _ = _table_field(cls, field, what="aggregate")
 
         stream_col = quote_ident(cls.stream_field)
@@ -470,9 +468,7 @@ class BaseEventStreamModel(BaseModel):
         if aggregate == "count":
             value_sql = "COUNT(*) AS value"
         elif aggregate in ("first", "last"):
-            value_sql = (
-                f"{aggregate}(s.{value_col}, s.{time_col}) AS value"
-            )
+            value_sql = f"{aggregate}(s.{value_col}, s.{time_col}) AS value"
         else:
             value_sql = f"{aggregate}(s.{value_col}) AS value"
 

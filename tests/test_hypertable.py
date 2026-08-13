@@ -20,7 +20,9 @@ class TestCreateHypertable:
         assert op.migrate_data is True
 
     def test_deconstruct(self) -> None:
-        op = CreateHypertable(table_name="events", time_column="ts", chunk_time_interval="1 day")
+        op = CreateHypertable(
+            table_name="events", time_column="ts", chunk_time_interval="1 day"
+        )
         class_name, args, kwargs = op.deconstruct()
         assert class_name == "CreateHypertable"
         assert args == ()

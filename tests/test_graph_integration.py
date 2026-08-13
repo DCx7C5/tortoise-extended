@@ -16,7 +16,11 @@ from tortoise.models import Model
 
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.expressions.graph_traversal import GraphTraversal
-from tortoise_extended.expressions.pathfinding import all_paths, find_cycles, shortest_path
+from tortoise_extended.expressions.pathfinding import (
+    all_paths,
+    find_cycles,
+    shortest_path,
+)
 
 # ---------------------------------------------------------------------------
 # Config — skip entire module if PG is not available
@@ -110,7 +114,9 @@ async def _init_db():
 async def _clean_tables():
     """Truncate graph tables before every test."""
     conn = Tortoise.get_connection("default")
-    await conn.execute_query("TRUNCATE graph_it_custom_edges, graph_it_edges, graph_it_nodes CASCADE")
+    await conn.execute_query(
+        "TRUNCATE graph_it_custom_edges, graph_it_edges, graph_it_nodes CASCADE"
+    )
     yield
 
 
@@ -305,15 +311,21 @@ class TestShortestPath:
     async def test_no_path_returns_none(self) -> None:
         a, b, c, d, x = await _make_tree()
         isolated = await ItNode.create(name="iso", depth=0)
-        path = await shortest_path(ItNode, ItEdge, from_id=a.id, to_id=isolated.id, max_hops=6)
+        path = await shortest_path(
+            ItNode, ItEdge, from_id=a.id, to_id=isolated.id, max_hops=6
+        )
         assert path is None
 
     @pytest.mark.asyncio
     async def test_injection_payload_returns_none(self) -> None:
         a, b, c, d, _ = await _make_tree()
         path = await shortest_path(
-            ItNode, ItEdge,
-            from_id=a.id, to_id=d.id, max_hops=6, edge_type="x' OR 1=1 --",
+            ItNode,
+            ItEdge,
+            from_id=a.id,
+            to_id=d.id,
+            max_hops=6,
+            edge_type="x' OR 1=1 --",
         )
         assert path is None
 
@@ -325,8 +337,13 @@ class TestAllPaths:
     async def test_all_paths_with_type_filter(self) -> None:
         a, b, c, d, _ = await _make_tree()
         paths = await all_paths(
-            ItNode, ItEdge,
-            from_id=a.id, to_id=d.id, max_hops=6, max_paths=10, edge_type="parent",
+            ItNode,
+            ItEdge,
+            from_id=a.id,
+            to_id=d.id,
+            max_hops=6,
+            max_paths=10,
+            edge_type="parent",
         )
         names = ["-".join(n["name"] for n in p) for p in paths]
         assert names == ["a-b-c-d"]

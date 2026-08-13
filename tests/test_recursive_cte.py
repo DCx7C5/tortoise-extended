@@ -53,12 +53,8 @@ class TestRecursiveCTE:
         f_id = Field("id")
         cte = (
             RecursiveCTE("ancestors")
-            .anchor(
-                QueryBuilder().from_(t).select(f_id).where(f_id == 42)
-            )
-            .union(
-                QueryBuilder().from_(Table("ancestors")).select(f_id)
-            )
+            .anchor(QueryBuilder().from_(t).select(f_id).where(f_id == 42))
+            .union(QueryBuilder().from_(Table("ancestors")).select(f_id))
             .build()
         )
         assert isinstance(cte, QueryBuilder)
@@ -71,7 +67,10 @@ class TestRecursiveCTE:
         sql = (
             RecursiveCTE("ancestors")
             .anchor(
-                QueryBuilder().from_(t).select(f_id, Field("0").as_("depth")).where(f_id == 42)
+                QueryBuilder()
+                .from_(t)
+                .select(f_id, Field("0").as_("depth"))
+                .where(f_id == 42)
             )
             .union(
                 QueryBuilder()
@@ -104,12 +103,8 @@ class TestRecursiveCTE:
         f_id = Field("id")
         cte = (
             RecursiveCTE("tree")
-            .anchor(
-                QueryBuilder().from_(t).select(f_id).where(f_id == 1)
-            )
-            .union(
-                QueryBuilder().from_(Table("tree")).select(f_id)
-            )
+            .anchor(QueryBuilder().from_(t).select(f_id).where(f_id == 1))
+            .union(QueryBuilder().from_(Table("tree")).select(f_id))
             .build()
         )
         sql = cte.get_sql()
@@ -124,14 +119,9 @@ class TestRecursiveCTE:
         f_id = Field("id")
         cte = (
             RecursiveCTE("ancestors")
-            .anchor(
-                QueryBuilder().from_(t).select(f_id).where(f_id == 42)
-            )
-            .union(
-                QueryBuilder().from_(Table("ancestors")).select(f_id)
-            )
+            .anchor(QueryBuilder().from_(t).select(f_id).where(f_id == 42))
+            .union(QueryBuilder().from_(Table("ancestors")).select(f_id))
             .build()
         )
         sql = cte.get_sql()
         assert 'FROM "ancestors"' in sql
-

@@ -11,7 +11,6 @@ from typing import AsyncContextManager, Protocol
 
 from tortoise_extended._types import RowMapping, RowValue
 
-
 class RawConnection(Protocol):
     """The raw driver connection yielded by ``acquire_connection``.
 
@@ -28,7 +27,6 @@ class RawConnection(Protocol):
         timeout: float | None = None,
     ) -> str: ...
 
-
 class BaseDBAsyncClient:
     """Minimal client surface used by ``tortoise_extended``."""
 
@@ -37,13 +35,10 @@ class BaseDBAsyncClient:
         query: str,
         values: list[str] | None = None,
     ) -> tuple[int, Sequence[RowMapping]]: ...
-
     async def execute_query_dict(
         self,
         query: str,
         values: list[RowValue] | None = None,
     ) -> list[RowMapping]: ...
-
     async def execute_script(self, query: str) -> None: ...
-
     def acquire_connection(self) -> AsyncContextManager[RawConnection]: ...

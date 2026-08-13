@@ -98,19 +98,32 @@ async def _make_tree() -> tuple[Category, Category, Category, Category]:
       - phones
     """
     electronics = await Category.create(
-        path="electronics", name="electronics", parent_id=None, depth=0, namespace="shop"
+        path="electronics",
+        name="electronics",
+        parent_id=None,
+        depth=0,
+        namespace="shop",
     )
     laptops = await Category.create(
-        path="electronics.laptops", name="laptops", parent_id=electronics.pk,
-        depth=1, namespace="shop",
+        path="electronics.laptops",
+        name="laptops",
+        parent_id=electronics.pk,
+        depth=1,
+        namespace="shop",
     )
     macbook = await Category.create(
-        path="electronics.laptops.macbook", name="macbook",
-        parent_id=laptops.pk, depth=2, namespace="shop",
+        path="electronics.laptops.macbook",
+        name="macbook",
+        parent_id=laptops.pk,
+        depth=2,
+        namespace="shop",
     )
     phones = await Category.create(
-        path="electronics.phones", name="phones", parent_id=electronics.pk,
-        depth=1, namespace="shop",
+        path="electronics.phones",
+        name="phones",
+        parent_id=electronics.pk,
+        depth=1,
+        namespace="shop",
     )
     return electronics, laptops, macbook, phones
 
@@ -127,7 +140,9 @@ class TestLTreeFilters:
     async def test_ancestor_of(self) -> None:
         electronics, laptops, macbook, phones = await _make_tree()
         # ltree @> includes self — the path is its own ancestor
-        q = await Category.filter(path__ancestor_of="electronics.laptops.macbook").order_by("path")
+        q = await Category.filter(
+            path__ancestor_of="electronics.laptops.macbook"
+        ).order_by("path")
         assert [n.name for n in q] == ["electronics", "laptops", "macbook"]
 
     @pytest.mark.asyncio
@@ -152,7 +167,9 @@ class TestLTreeFilters:
     @pytest.mark.asyncio
     async def test_in_filter(self) -> None:
         electronics, laptops, macbook, phones = await _make_tree()
-        q = await Category.filter(path__in=["electronics", "electronics.phones"]).order_by("path")
+        q = await Category.filter(
+            path__in=["electronics", "electronics.phones"]
+        ).order_by("path")
         assert [n.name for n in q] == ["electronics", "phones"]
 
     @pytest.mark.asyncio
@@ -198,7 +215,12 @@ class TestHierarchyModelQueries:
     async def test_get_descendants_include_self(self) -> None:
         electronics, laptops, macbook, phones = await _make_tree()
         descendants = await electronics.get_descendants(include_self=True)
-        assert [n.name for n in descendants] == ["electronics", "laptops", "macbook", "phones"]
+        assert [n.name for n in descendants] == [
+            "electronics",
+            "laptops",
+            "macbook",
+            "phones",
+        ]
 
     @pytest.mark.asyncio
     async def test_get_children(self) -> None:
@@ -272,12 +294,24 @@ class TestHierarchyMutations:
         (a -> b -> c -> a -> b) must not have that inner sequence rewritten —
         SQL REPLACE() would corrupt it; _PrefixReplace must not.
         """
-        a = await Category.create(path="a", name="a", parent_id=None, depth=0, namespace="shop")
-        b = await Category.create(path="a.b", name="b", parent_id=a.pk, depth=1, namespace="shop")
-        c = await Category.create(path="a.b.c", name="c", parent_id=b.pk, depth=2, namespace="shop")
-        a2 = await Category.create(path="a.b.c.a", name="a", parent_id=c.pk, depth=3, namespace="shop")
-        b2 = await Category.create(path="a.b.c.a.b", name="b", parent_id=a2.pk, depth=4, namespace="shop")
-        root = await Category.create(path="root", name="root", parent_id=None, depth=0, namespace="shop")
+        a = await Category.create(
+            path="a", name="a", parent_id=None, depth=0, namespace="shop"
+        )
+        b = await Category.create(
+            path="a.b", name="b", parent_id=a.pk, depth=1, namespace="shop"
+        )
+        c = await Category.create(
+            path="a.b.c", name="c", parent_id=b.pk, depth=2, namespace="shop"
+        )
+        a2 = await Category.create(
+            path="a.b.c.a", name="a", parent_id=c.pk, depth=3, namespace="shop"
+        )
+        b2 = await Category.create(
+            path="a.b.c.a.b", name="b", parent_id=a2.pk, depth=4, namespace="shop"
+        )
+        root = await Category.create(
+            path="root", name="root", parent_id=None, depth=0, namespace="shop"
+        )
 
         await b.move_to(root)
 
@@ -295,8 +329,11 @@ class TestHierarchyMutations:
         )
         # Same paths in another namespace must be left untouched.
         other_phones = await Category.create(
-            path="electronics.phones", name="phones", parent_id=None,
-            depth=1, namespace="other",
+            path="electronics.phones",
+            name="phones",
+            parent_id=None,
+            depth=1,
+            namespace="other",
         )
         await phones.move_to(kitchen)
         untouched = await Category.get(pk=other_phones.pk)
@@ -311,7 +348,9 @@ class TestHierarchyMutations:
     @pytest.mark.asyncio
     async def test_validate_hierarchy_detects_bad_path(self) -> None:
         electronics, laptops, macbook, phones = await _make_tree()
-        await Category.filter(pk=macbook.pk).update(path="electronics.laptops.notmacbook")
+        await Category.filter(pk=macbook.pk).update(
+            path="electronics.laptops.notmacbook"
+        )
         bad = await Category.get(pk=macbook.pk)
         errors = await bad.validate_hierarchy()
         assert any("Path mismatch" in e for e in errors), errors
@@ -320,7 +359,11 @@ class TestHierarchyMutations:
     async def test_namespace_isolation(self) -> None:
         electronics, laptops, macbook, phones = await _make_tree()
         await Category.create(
-            path="electronics", name="electronics", parent_id=None, depth=0, namespace="other"
+            path="electronics",
+            name="electronics",
+            parent_id=None,
+            depth=0,
+            namespace="other",
         )
         roots = await Category.filter(path="electronics", namespace="shop")
         assert [r.namespace for r in roots] == ["shop"]
@@ -330,8 +373,11 @@ class TestHierarchyMutations:
         """G5 — ancestors must not leak nodes from another namespace."""
         electronics, laptops, macbook, phones = await _make_tree()
         await Category.create(
-            path="electronics.laptops.macbook", name="macbook", parent_id=None,
-            depth=2, namespace="other",
+            path="electronics.laptops.macbook",
+            name="macbook",
+            parent_id=None,
+            depth=2,
+            namespace="other",
         )
         ancestors = await macbook.get_ancestors()
         assert [n.namespace for n in ancestors] == ["shop", "shop"]
@@ -341,8 +387,11 @@ class TestHierarchyMutations:
         """G5 — descendants must not leak nodes from another namespace."""
         electronics, laptops, macbook, phones = await _make_tree()
         await Category.create(
-            path="electronics.phones", name="phones", parent_id=None,
-            depth=1, namespace="other",
+            path="electronics.phones",
+            name="phones",
+            parent_id=None,
+            depth=1,
+            namespace="other",
         )
         descendants = await electronics.get_descendants()
         assert [n.namespace for n in descendants] == ["shop", "shop", "shop"]
@@ -352,8 +401,11 @@ class TestHierarchyMutations:
         """G5 — the namespace param can query a different tenant explicitly."""
         _electronics, _laptops, _macbook, _phones = await _make_tree()
         other = await Category.create(
-            path="electronics.laptops.macbook", name="macbook", parent_id=None,
-            depth=2, namespace="other",
+            path="electronics.laptops.macbook",
+            name="macbook",
+            parent_id=None,
+            depth=2,
+            namespace="other",
         )
         ancestors = await other.get_ancestors(namespace="shop")
         assert [n.namespace for n in ancestors] == ["shop", "shop", "shop"]
@@ -408,7 +460,9 @@ class TestHierarchyEdgeBranches:
     async def test_move_to_missing_path_raises(self) -> None:
         electronics, _laptops, _macbook, _phones = await _make_tree()
         detached = Category.construct(path=None, name="detached", depth=0)
-        with pytest.raises(HierarchyError, match="Both source and target must have paths"):
+        with pytest.raises(
+            HierarchyError, match="Both source and target must have paths"
+        ):
             await detached.move_to(electronics)
 
     @pytest.mark.asyncio
@@ -421,8 +475,11 @@ class TestHierarchyEdgeBranches:
     async def test_validate_hierarchy_depth_mismatch(self) -> None:
         _electronics, _laptops, _macbook, _phones = await _make_tree()
         wrong = await Category.create(
-            path="electronics.laptops.macbook", name="macbook",
-            parent_id=_laptops.pk, depth=5, namespace="shop",
+            path="electronics.laptops.macbook",
+            name="macbook",
+            parent_id=_laptops.pk,
+            depth=5,
+            namespace="shop",
         )
         errors = await wrong.validate_hierarchy()
         assert any("Depth mismatch" in e for e in errors)
@@ -431,8 +488,11 @@ class TestHierarchyEdgeBranches:
     async def test_validate_hierarchy_missing_parent(self) -> None:
         _electronics, _laptops, _macbook, _phones = await _make_tree()
         orphan = await Category.create(
-            path="electronics.ghost", name="ghost",
-            parent_id=999999999, depth=1, namespace="shop",
+            path="electronics.ghost",
+            name="ghost",
+            parent_id=999999999,
+            depth=1,
+            namespace="shop",
         )
         errors = await orphan.validate_hierarchy()
         assert any("does not exist" in e for e in errors)
@@ -441,8 +501,11 @@ class TestHierarchyEdgeBranches:
     async def test_validate_hierarchy_non_prefix_parent(self) -> None:
         _electronics, _laptops, _macbook, _phones = await _make_tree()
         bad = await Category.create(
-            path="electronics.laptops.macbook", name="macbook",
-            parent_id=_phones.pk, depth=2, namespace="shop",
+            path="electronics.laptops.macbook",
+            name="macbook",
+            parent_id=_phones.pk,
+            depth=2,
+            namespace="shop",
         )
         errors = await bad.validate_hierarchy()
         assert any("is not a prefix" in e for e in errors)

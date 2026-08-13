@@ -44,7 +44,9 @@ class CacheKey:
         return self.separator.join(components)
 
     @staticmethod
-    def from_dict(prefix: str, data: dict[str, str | int | float | bool | None]) -> CacheKey:
+    def from_dict(
+        prefix: str, data: dict[str, str | int | float | bool | None]
+    ) -> CacheKey:
         """Build a key from a dictionary (sorted, deterministic)."""
         key = CacheKey(prefix)
         for k, v in sorted(data.items()):

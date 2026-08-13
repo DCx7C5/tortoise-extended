@@ -220,9 +220,7 @@ class BaseSoftDeleteModel(Model):
         return cls._db_queryset(using_db).only_deleted()
 
     @override
-    async def delete(
-        self, using_db: BaseDBAsyncClient | None = None
-    ) -> None:
+    async def delete(self, using_db: BaseDBAsyncClient | None = None) -> None:
         """Soft-delete this row by setting ``deleted_at``.
 
         Uses ``save(update_fields=...)`` so ``pre_save``/``post_save``

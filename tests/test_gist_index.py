@@ -21,7 +21,9 @@ class FakeSchemaGenerator:
             return f'"{table_name}"'
         return f'"{schema}"."{table_name}"'
 
-    def _get_index_name(self, prefix: str, model: FakeModel, field_names: list[str]) -> str:
+    def _get_index_name(
+        self, prefix: str, model: FakeModel, field_names: list[str]
+    ) -> str:
         return f"{prefix}_{type(model).__name__}_{'_'.join(field_names)}"
 
     def _format_index_fields(self, field_names: list[str]) -> str:
@@ -90,7 +92,7 @@ class TestGiSTIndexSql:
         sql = idx.get_sql(FakeSchemaGenerator(), FakeModel("categories"), safe=True)
         assert sql.startswith('CREATE INDEX IF NOT EXISTS "gist_FakeModel_path"')
         assert '"categories"' in sql
-        assert "USING gist (\"path\");" in sql
+        assert 'USING gist ("path");' in sql
 
     def test_get_sql_default_name_unsafe(self) -> None:
         idx = GiSTIndex(fields=("path",))

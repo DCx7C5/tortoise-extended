@@ -211,9 +211,13 @@ class BaseGraphNodeModel(Model):
         Returns:
             QuerySet of sibling nodes excluding self
         """
-        return self.__class__.filter(
-            parent_id=self.parent_id,
-        ).exclude(id=self.id).order_by("name")
+        return (
+            self.__class__.filter(
+                parent_id=self.parent_id,
+            )
+            .exclude(id=self.id)
+            .order_by("name")
+        )
 
     async def path_to_root(self) -> list[Self]:
         """Get path from this node to root by walking ``parent_id`` links.

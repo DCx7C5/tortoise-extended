@@ -210,7 +210,9 @@ class TestHypertableManager:
         hypertables = await HypertableManager.list_hypertables()
         names = {ht["table_name"] for ht in hypertables}
         assert "public.test_events" in names
-        event = next(ht for ht in hypertables if ht["table_name"] == "public.test_events")
+        event = next(
+            ht for ht in hypertables if ht["table_name"] == "public.test_events"
+        )
         assert event["num_chunks"] == 35
         assert event["compression_enabled"] is False
 
@@ -296,7 +298,9 @@ class TestHypertableManager:
     @pytest.mark.asyncio
     async def test_add_dimension_requires_config(self) -> None:
         await _make_hypertable()
-        with pytest.raises(ValueError, match="chunk_time_interval or number_partitions"):
+        with pytest.raises(
+            ValueError, match="chunk_time_interval or number_partitions"
+        ):
             await HypertableManager.add_dimension("test_events", "tenant_id")
 
     @pytest.mark.asyncio
@@ -404,7 +408,9 @@ class TestContinuousAggregateManager:
 
     @pytest.mark.asyncio
     async def test_create_refresh_list_drop(self) -> None:
-        await ContinuousAggregateManager.create("test_daily_events", "test_events", AGG_QUERY)
+        await ContinuousAggregateManager.create(
+            "test_daily_events", "test_events", AGG_QUERY
+        )
         await ContinuousAggregateManager.refresh("test_daily_events")
         aggregates = await ContinuousAggregateManager.list()
         names = {agg["view_name"] for agg in aggregates}
@@ -412,7 +418,9 @@ class TestContinuousAggregateManager:
 
     @pytest.mark.asyncio
     async def test_refresh_with_window(self) -> None:
-        await ContinuousAggregateManager.create("test_daily_events", "test_events", AGG_QUERY)
+        await ContinuousAggregateManager.create(
+            "test_daily_events", "test_events", AGG_QUERY
+        )
         await ContinuousAggregateManager.refresh(
             "test_daily_events",
             start_time="2026-07-01",
@@ -421,13 +429,17 @@ class TestContinuousAggregateManager:
 
     @pytest.mark.asyncio
     async def test_refresh_policy_roundtrip(self) -> None:
-        await ContinuousAggregateManager.create("test_daily_events", "test_events", AGG_QUERY)
+        await ContinuousAggregateManager.create(
+            "test_daily_events", "test_events", AGG_QUERY
+        )
         await ContinuousAggregateManager.set_refresh_policy("test_daily_events")
         await ContinuousAggregateManager.remove_refresh_policy("test_daily_events")
 
     @pytest.mark.asyncio
     async def test_add_realtime_aggregate(self) -> None:
-        await ContinuousAggregateManager.create("test_daily_events", "test_events", AGG_QUERY)
+        await ContinuousAggregateManager.create(
+            "test_daily_events", "test_events", AGG_QUERY
+        )
         await ContinuousAggregateManager.add_realtime_aggregate("test_daily_events")
         conn = Tortoise.get_connection("default")
         result = await conn.execute_query(
@@ -442,14 +454,18 @@ class TestContinuousAggregateManager:
 
     @pytest.mark.asyncio
     async def test_drop(self) -> None:
-        await ContinuousAggregateManager.create("test_daily_events", "test_events", AGG_QUERY)
+        await ContinuousAggregateManager.create(
+            "test_daily_events", "test_events", AGG_QUERY
+        )
         await ContinuousAggregateManager.drop("test_daily_events")
         aggregates = await ContinuousAggregateManager.list()
         assert all(a["view_name"] != "test_daily_events" for a in aggregates)
 
     @pytest.mark.asyncio
     async def test_create_with_full_statement(self) -> None:
-        await ContinuousAggregateManager.create("test_daily_events2", "test_events", AGG_FULL)
+        await ContinuousAggregateManager.create(
+            "test_daily_events2", "test_events", AGG_FULL
+        )
         aggregates = await ContinuousAggregateManager.list()
         names = {agg["view_name"] for agg in aggregates}
         assert "test_daily_events2" in names
@@ -515,7 +531,13 @@ class TestEventStream:
         await StreamEvent.setup()
         with pytest.raises(ValueError):
             await StreamEvent.bulk_insert(
-                [StreamEvent(created_at=datetime.datetime.now(datetime.timezone.utc), stream_id=1, value=1.0)]
+                [
+                    StreamEvent(
+                        created_at=datetime.datetime.now(datetime.timezone.utc),
+                        stream_id=1,
+                        value=1.0,
+                    )
+                ]
             )
 
     @pytest.mark.asyncio
@@ -526,7 +548,12 @@ class TestEventStream:
         await StreamEvent.bulk_insert(
             [
                 StreamEvent(id=1, created_at=base, stream_id=1, value=1.0),
-                StreamEvent(id=2, created_at=base + datetime.timedelta(seconds=10), stream_id=1, value=2.0),
+                StreamEvent(
+                    id=2,
+                    created_at=base + datetime.timedelta(seconds=10),
+                    stream_id=1,
+                    value=2.0,
+                ),
                 StreamEvent(id=3, created_at=base, stream_id=2, value=3.0),
                 StreamEvent(id=4, created_at=base, stream_id=3, value=4.0),
             ]
@@ -545,8 +572,18 @@ class TestEventStream:
         await StreamEvent.bulk_insert(
             [
                 StreamEvent(id=1, created_at=base, stream_id=1, value=1.0),
-                StreamEvent(id=2, created_at=base + datetime.timedelta(minutes=5), stream_id=1, value=2.0),
-                StreamEvent(id=3, created_at=base + datetime.timedelta(minutes=10), stream_id=2, value=3.0),
+                StreamEvent(
+                    id=2,
+                    created_at=base + datetime.timedelta(minutes=5),
+                    stream_id=1,
+                    value=2.0,
+                ),
+                StreamEvent(
+                    id=3,
+                    created_at=base + datetime.timedelta(minutes=10),
+                    stream_id=2,
+                    value=3.0,
+                ),
             ]
         )
         latest = await StreamEvent.latest_per_stream(
@@ -564,8 +601,18 @@ class TestEventStream:
         await StreamEvent.bulk_insert(
             [
                 StreamEvent(id=1, created_at=base, stream_id=1, value=2.0),
-                StreamEvent(id=2, created_at=base + datetime.timedelta(minutes=30), stream_id=1, value=4.0),
-                StreamEvent(id=3, created_at=base + datetime.timedelta(minutes=90), stream_id=1, value=8.0),
+                StreamEvent(
+                    id=2,
+                    created_at=base + datetime.timedelta(minutes=30),
+                    stream_id=1,
+                    value=4.0,
+                ),
+                StreamEvent(
+                    id=3,
+                    created_at=base + datetime.timedelta(minutes=90),
+                    stream_id=1,
+                    value=8.0,
+                ),
                 StreamEvent(id=4, created_at=base, stream_id=2, value=10.0),
             ]
         )
@@ -576,7 +623,7 @@ class TestEventStream:
             stream_ids=[1, 2],
         )
         assert isinstance(counts[0], TimeBucketRow)
-        by_key = {(r.stream_id, r.bucket) : r for r in counts}
+        by_key = {(r.stream_id, r.bucket): r for r in counts}
         assert by_key[(1, base)].count == 2
         assert by_key[(1, base + datetime.timedelta(hours=1))].count == 1
         assert by_key[(2, base)].count == 1
@@ -601,8 +648,18 @@ class TestEventStream:
         await StreamEvent.bulk_insert(
             [
                 StreamEvent(id=1, created_at=base, stream_id=1, value=1.0),
-                StreamEvent(id=2, created_at=base + datetime.timedelta(minutes=10), stream_id=1, value=2.0),
-                StreamEvent(id=3, created_at=base + datetime.timedelta(minutes=20), stream_id=1, value=3.0),
+                StreamEvent(
+                    id=2,
+                    created_at=base + datetime.timedelta(minutes=10),
+                    stream_id=1,
+                    value=2.0,
+                ),
+                StreamEvent(
+                    id=3,
+                    created_at=base + datetime.timedelta(minutes=20),
+                    stream_id=1,
+                    value=3.0,
+                ),
             ]
         )
         firsts = await StreamEvent.time_series(
@@ -642,8 +699,18 @@ class TestEventStream:
         await StreamEvent.bulk_insert(
             [
                 StreamEvent(id=1, created_at=base, stream_id=1, value=1.0),
-                StreamEvent(id=2, created_at=base + datetime.timedelta(hours=2), stream_id=2, value=2.0),
-                StreamEvent(id=3, created_at=base + datetime.timedelta(hours=4), stream_id=1, value=3.0),
+                StreamEvent(
+                    id=2,
+                    created_at=base + datetime.timedelta(hours=2),
+                    stream_id=2,
+                    value=2.0,
+                ),
+                StreamEvent(
+                    id=3,
+                    created_at=base + datetime.timedelta(hours=4),
+                    stream_id=1,
+                    value=3.0,
+                ),
             ]
         )
         rows = await StreamEvent.in_range(

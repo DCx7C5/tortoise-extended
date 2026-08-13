@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 # ltree operator comparators
 
+
 class LTreeAncestorOfOp(Comparator):
     ancestor_of = " @> "
 
@@ -45,6 +46,7 @@ class LTreeDescendantMatchOp(Comparator):
 
 
 # Criterion wrappers
+
 
 class LTreeAncestorOf(BasicCriterion):
     """@> operator: is ancestor of (left is ancestor of right)."""
@@ -88,10 +90,13 @@ class LTreeDescendantMatch(BasicCriterion):
     def __init__(self, left: Term | str, right: Term, alias: str | None = None) -> None:
         if isinstance(left, str):
             left = Field(left)
-        super().__init__(LTreeDescendantMatchOp.descendant_match, left, right, alias=alias)
+        super().__init__(
+            LTreeDescendantMatchOp.descendant_match, left, right, alias=alias
+        )
 
 
 # ltree-specific encoders
+
 
 def ltree_encoder(
     value: RowValue | list[str | int | float] | tuple[str | int | float, ...],
@@ -138,6 +143,7 @@ def _lquery_encoder(
 
 
 # Filter definitions for LTreeField
+
 
 def get_ltree_filters(field_name: str, source_field: str) -> dict[str, FilterInfoDict]:
     """Return filter definitions for an LTreeField.
@@ -228,6 +234,7 @@ def get_ltree_filters(field_name: str, source_field: str) -> dict[str, FilterInf
 
 
 # Filter operator functions
+
 
 def _ancestor_of_filter(field: Term, value: RowValue) -> BasicCriterion:
     """Filter: field @> value (is ancestor of)."""

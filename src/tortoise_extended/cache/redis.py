@@ -244,7 +244,9 @@ class RedisCacheBackend(CacheBackend):
         try:
             async for key in scan_iter(match=full_pattern, count=100):
                 result.append(
-                    (key.decode() if isinstance(key, bytes) else key).removeprefix(prefix)
+                    (key.decode() if isinstance(key, bytes) else key).removeprefix(
+                        prefix
+                    )
                 )
         except _REDIS_INFRA_ERRORS as exc:
             self._raise_redis(exc)
@@ -284,7 +286,9 @@ class RedisCacheBackend(CacheBackend):
         return result
 
     @override
-    async def set_many(self, mapping: dict[str, CacheValue], ttl: int | None = None) -> None:
+    async def set_many(
+        self, mapping: dict[str, CacheValue], ttl: int | None = None
+    ) -> None:
         """Set multiple values at once."""
         if not mapping:
             return

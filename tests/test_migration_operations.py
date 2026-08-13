@@ -304,7 +304,7 @@ class TestCreateContinuousAggregateRun:
         editor = FakeSchemaEditor()
         await op.run("app", FakeState(), dry_run=False, state_editor=editor)
         assert len(editor.statements) == 2
-        assert "CREATE MATERIALIZED VIEW IF NOT EXISTS \"hourly\"" in editor.statements[0]
+        assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "hourly"' in editor.statements[0]
         assert "AS SELECT 1" in editor.statements[0]
         assert "add_continuous_aggregate_policy" in editor.statements[1]
         assert "INTERVAL '30 minutes'" in editor.statements[1]
@@ -327,7 +327,7 @@ class TestCreateContinuousAggregateRun:
         op = CreateContinuousAggregate(view_name="v", query="SELECT 1")
         editor = FakeSchemaEditor()
         await op.database_backward("app", FakeState(), FakeState(), editor)
-        assert editor.statements == ["DROP MATERIALIZED VIEW IF EXISTS \"v\""]
+        assert editor.statements == ['DROP MATERIALIZED VIEW IF EXISTS "v"']
 
 
 # ---------------------------------------------------------------------------

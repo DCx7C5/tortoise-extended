@@ -157,14 +157,18 @@ class CachedQuerySet(QuerySet[Model]):
         # Cache results
         try:
             serialized = self._serialize_results(results)
-            await backend.set(cache_key, cast(CacheValue, serialized), ttl=self._cache_ttl)
+            await backend.set(
+                cache_key, cast(CacheValue, serialized), ttl=self._cache_ttl
+            )
         except CacheError:
             logger.debug("Cache write error for key %s", cache_key, exc_info=True)
 
         return results
 
     @staticmethod
-    def _serialize_results(results: Sequence[Model | SerializedRecord]) -> list[SerializedRecord]:
+    def _serialize_results(
+        results: Sequence[Model | SerializedRecord],
+    ) -> list[SerializedRecord]:
         """Serialize model instances to dicts."""
         serialized: list[SerializedRecord] = []
         for instance in results:
@@ -186,7 +190,9 @@ class CachedQuerySet(QuerySet[Model]):
             serialized.append(data)
         return serialized
 
-    def _deserialize_results(self, data: Sequence[Model | SerializedRecord]) -> list[Model]:
+    def _deserialize_results(
+        self, data: Sequence[Model | SerializedRecord]
+    ) -> list[Model]:
         """Deserialize dicts back to model instances.
 
         Uses Tortoise ORM's ``construct()`` to create instances without

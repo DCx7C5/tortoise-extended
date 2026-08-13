@@ -12,7 +12,6 @@ from typing import Any, Protocol, TypeVar
 
 _FT = TypeVar("_FT", bound=Callable[..., Any])
 
-
 class TransactionContext(Protocol):
     """Async context manager returned by ``in_transaction``.
 
@@ -22,11 +21,7 @@ class TransactionContext(Protocol):
     """
 
     async def __aenter__(self) -> "TransactionContext": ...
-
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None: ...
 
-
 def in_transaction(connection_name: str | None = None) -> TransactionContext: ...
-
-
 def atomic(connection_name: str | None = None) -> Callable[[_FT], _FT]: ...

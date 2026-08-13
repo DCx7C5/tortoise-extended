@@ -34,6 +34,5 @@ class BaseModel(Model):
         description="64-bit auto-increment primary key",
     )
 
-
     class Meta:
         abstract = True

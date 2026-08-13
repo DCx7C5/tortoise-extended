@@ -195,6 +195,7 @@ class MockRedisBackend(CacheBackend):
 
     async def keys(self, pattern: str = "*") -> list[str]:
         import fnmatch
+
         # For flush("*"), return all keys
         if pattern == "*":
             return list(self._store.keys())
@@ -364,10 +365,12 @@ class TestCachedDecorator:
 
         # We need to mock RedisCache at the module level where it's imported
         import tortoise_extended.cache.redis as redis_module
+
         original_cls = redis_module.RedisCache
 
         class MockRedisCache:
             _pool = True
+
             @classmethod
             def get_backend(cls, **kwargs):
                 return backend
@@ -401,10 +404,12 @@ class TestInvalidateDecorator:
 
         # Mock RedisCache at the module level where it's imported in invalidate
         import tortoise_extended.cache.redis as redis_module
+
         original_cls = redis_module.RedisCache
 
         class MockRedisCache:
             _pool = True
+
             @classmethod
             def get_backend(cls, **kwargs):
                 return backend

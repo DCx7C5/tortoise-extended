@@ -130,13 +130,15 @@ class TestGetCompressionStats:
 class TestSqlHardening:
     """G7 — identifiers are quoted, literals escaped, private catalogs avoided."""
 
-    def _recording_conn(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> RecordingConn:
+    def _recording_conn(self, monkeypatch: pytest.MonkeyPatch) -> RecordingConn:
         conn = RecordingConn()
         holder = FakeConnections(conn)
-        monkeypatch.setattr("tortoise_extended.timescale.hypertable.connections", holder)
-        monkeypatch.setattr("tortoise_extended.timescale.compression.connections", holder)
+        monkeypatch.setattr(
+            "tortoise_extended.timescale.hypertable.connections", holder
+        )
+        monkeypatch.setattr(
+            "tortoise_extended.timescale.compression.connections", holder
+        )
         monkeypatch.setattr("tortoise_extended.timescale.retention.connections", holder)
         monkeypatch.setattr(
             "tortoise_extended.timescale.continuous_aggregate.connections", holder
@@ -149,7 +151,7 @@ class TestSqlHardening:
     ) -> None:
         conn = self._recording_conn(monkeypatch)
         await HypertableManager.create_hypertable(
-            'events; DROP TABLE x',
+            "events; DROP TABLE x",
             time_column="when",
             chunk_time_interval="7 days",
         )
@@ -249,7 +251,9 @@ class TestSqlHardening:
         with pytest.raises(ValueError, match="single bare SELECT"):
             await ContinuousAggregateManager.create("v", "events", "DROP TABLE events")
         with pytest.raises(ValueError, match="single bare SELECT"):
-            await ContinuousAggregateManager.create("v", "events", "SELECT 1; DROP TABLE x")
+            await ContinuousAggregateManager.create(
+                "v", "events", "SELECT 1; DROP TABLE x"
+            )
         assert conn.sqls == []
 
     @pytest.mark.asyncio

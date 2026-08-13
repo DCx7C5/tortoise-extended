@@ -231,9 +231,7 @@ class TestVectorFieldIntegration:
     async def test_vector_in_raw_sql(self) -> None:
         """Raw SQL with vector literal roundtrips correctly."""
         conn = Tortoise.get_connection("default")
-        row = await conn.execute_query(
-            "SELECT '[1,2,3]'::vector::text AS v"
-        )
+        row = await conn.execute_query("SELECT '[1,2,3]'::vector::text AS v")
         assert row[1][0]["v"] == "[1,2,3]"
 
 
@@ -269,9 +267,7 @@ class TestPgvectorCodec:
         raw = header + data
 
         conn = Tortoise.get_connection("default")
-        result = await conn.execute_query(
-            "SELECT $1::vector AS v", [raw]
-        )
+        result = await conn.execute_query("SELECT $1::vector AS v", [raw])
         # The codec should decode it
         val = result[1][0]["v"]
         if isinstance(val, memoryview):
@@ -407,27 +403,21 @@ class TestVectorSimilarityQueries:
     @pytest.mark.asyncio
     async def test_l2_distance_filter_lte(self) -> None:
         """Filter with l2_distance threshold."""
-        results = await Chunk.filter(
-            embedding__l2_distance=[[1.0, 0.0, 0.0], 0.5]
-        )
+        results = await Chunk.filter(embedding__l2_distance=[[1.0, 0.0, 0.0], 0.5])
         texts = {r.text for r in results}
         assert "alpha" in texts  # distance 0 < 0.5
 
     @pytest.mark.asyncio
     async def test_cosine_distance_filter_lte(self) -> None:
         """Filter with cosine distance threshold."""
-        results = await Chunk.filter(
-            embedding__cosine_distance=[[1.0, 0.0, 0.0], 0.5]
-        )
+        results = await Chunk.filter(embedding__cosine_distance=[[1.0, 0.0, 0.0], 0.5])
         texts = {r.text for r in results}
         assert "alpha" in texts
 
     @pytest.mark.asyncio
     async def test_inner_product_filter_gte(self) -> None:
         """Filter with inner product threshold (higher = more similar)."""
-        results = await Chunk.filter(
-            embedding__inner_product=[[1.0, 0.0, 0.0], 0.5]
-        )
+        results = await Chunk.filter(embedding__inner_product=[[1.0, 0.0, 0.0], 0.5])
         texts = {r.text for r in results}
         assert "alpha" in texts  # inner product = 1.0 > 0.5
 
@@ -470,9 +460,13 @@ class TestBareEqualityGuard:
     @pytest.mark.asyncio
     async def test_bare_non_none_raises(self) -> None:
         """Previously returned rows silently via IS NULL; now raises."""
-        with pytest.raises(VectorFieldError, match="Bare equality filters are not supported"):
+        with pytest.raises(
+            VectorFieldError, match="Bare equality filters are not supported"
+        ):
             await Chunk.filter(embedding=[1.0, 0.0, 0.0]).all()
-        with pytest.raises(VectorFieldError, match="Bare equality filters are not supported"):
+        with pytest.raises(
+            VectorFieldError, match="Bare equality filters are not supported"
+        ):
             await Article.filter(body_embedding=[1.0, 0.0, 0.0]).all()
 
     @pytest.mark.asyncio
@@ -482,13 +476,18 @@ class TestBareEqualityGuard:
 
     @pytest.mark.asyncio
     async def test_isnull_and_not_isnull_unchanged(self) -> None:
-        assert [r.title for r in await Article.filter(body_embedding__isnull=True)] == ["nullvec"]
-        assert [r.title for r in await Article.filter(body_embedding__not_isnull=True)] == ["vec"]
+        assert [r.title for r in await Article.filter(body_embedding__isnull=True)] == [
+            "nullvec"
+        ]
+        assert [
+            r.title for r in await Article.filter(body_embedding__not_isnull=True)
+        ] == ["vec"]
 
 
 # ---------------------------------------------------------------------------
 # 6. Relational join + vector filter — cross-feature regression
 # ---------------------------------------------------------------------------
+
 
 class TestRelationalVectorFilter:
     """Vector filters must work through Tortoise relational joins (``parent__embedding__l2_distance``)."""
@@ -606,9 +605,9 @@ class TestGraphVectorSearchIntegration:
     @pytest.mark.asyncio
     async def test_edge_type_filter(self) -> None:
         """edge_type='rel' excludes edges retagged to another type."""
-        await VecEdge.filter(
-            source_id=self.seed.id, target_id=self.far.id
-        ).update(edge_type="far_type")
+        await VecEdge.filter(source_id=self.seed.id, target_id=self.far.id).update(
+            edge_type="far_type"
+        )
         hits = await self._search(edge_type="rel", max_hops=1).search()
         names = {h.node.name for h in hits}
         assert names == {"seed", "near"}  # far edge now has edge_type='far_type'
@@ -625,9 +624,9 @@ class TestGraphVectorSearchIntegration:
     @pytest.mark.asyncio
     async def test_edge_type_and_threshold_combined(self) -> None:
         """edge_type ($5) and min_distance ($6) parameters coexist correctly."""
-        await VecEdge.filter(
-            source_id=self.seed.id, target_id=self.far.id
-        ).update(edge_type="far_type")
+        await VecEdge.filter(source_id=self.seed.id, target_id=self.far.id).update(
+            edge_type="far_type"
+        )
         hits = await self._search(edge_type="rel", min_distance=0.5).search()
         names = {h.node.name for h in hits}
         assert names == {"seed", "near"}  # far excluded by type AND by distance
@@ -702,15 +701,12 @@ class TestRecursiveCTEIntegration:
         nodes = Table("test_nodes")
         cte_table = Table("tree")
 
-        anchor = (
-            nodes.select(
-                nodes.id.as_("id"),
-                nodes.name.as_("name"),
-                nodes.parent_id.as_("parent_id"),
-                ValueWrapper(0).as_("depth"),
-            )
-            .where(nodes.name == "root")
-        )
+        anchor = nodes.select(
+            nodes.id.as_("id"),
+            nodes.name.as_("name"),
+            nodes.parent_id.as_("parent_id"),
+            ValueWrapper(0).as_("depth"),
+        ).where(nodes.name == "root")
 
         step = (
             nodes.select(
@@ -747,15 +743,12 @@ class TestRecursiveCTEIntegration:
         nodes = Table("test_nodes")
         cte_table = Table("subtree")
 
-        anchor = (
-            nodes.select(
-                nodes.id.as_("id"),
-                nodes.name.as_("name"),
-                nodes.parent_id.as_("parent_id"),
-                ValueWrapper(0).as_("depth"),
-            )
-            .where(nodes.name == "child1")
-        )
+        anchor = nodes.select(
+            nodes.id.as_("id"),
+            nodes.name.as_("name"),
+            nodes.parent_id.as_("parent_id"),
+            ValueWrapper(0).as_("depth"),
+        ).where(nodes.name == "child1")
 
         step = (
             nodes.select(

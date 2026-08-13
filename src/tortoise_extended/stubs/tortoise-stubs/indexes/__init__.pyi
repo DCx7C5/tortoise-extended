@@ -12,7 +12,6 @@ from typing import Any, override
 from tortoise.backends.base.schema_generator import BaseSchemaGenerator
 from tortoise.models import Model
 
-
 class Index:
     """Base class for all index types (mirrors upstream ``tortoise.indexes.Index``)."""
 
@@ -30,13 +29,15 @@ class Index:
     ) -> None: ...
     def describe(self) -> dict[str, Any]: ...
     def deconstruct(self) -> tuple[str, list[Any], dict[str, Any]]: ...
-    def index_name(self, schema_generator: BaseSchemaGenerator, model: type[Model]) -> str: ...
-    def get_sql(self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool) -> str: ...
+    def index_name(
+        self, schema_generator: BaseSchemaGenerator, model: type[Model]
+    ) -> str: ...
+    def get_sql(
+        self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool
+    ) -> str: ...
     def resolve_expressions(self, model: type[Model]) -> None: ...
-
     @property
     def field_names(self) -> list[str]: ...
-
 
 class HNSWIndex(Index):
     """pgvector HNSW index (registered by ``tortoise_extended``)."""
@@ -60,8 +61,9 @@ class HNSWIndex(Index):
     @override
     def deconstruct(self) -> tuple[str, list[Any], dict[str, Any]]: ...
     @override
-    def get_sql(self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool) -> str: ...
-
+    def get_sql(
+        self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool
+    ) -> str: ...
 
 class IVFFlatIndex(Index):
     """pgvector IVFFlat index (registered by ``tortoise_extended``)."""
@@ -83,8 +85,9 @@ class IVFFlatIndex(Index):
     @override
     def deconstruct(self) -> tuple[str, list[Any], dict[str, Any]]: ...
     @override
-    def get_sql(self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool) -> str: ...
-
+    def get_sql(
+        self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool
+    ) -> str: ...
 
 class GiSTIndex(Index):
     """PostgreSQL GiST index for ltree columns (registered by ``tortoise_extended``)."""
@@ -98,4 +101,6 @@ class GiSTIndex(Index):
         name: str | None = None,
     ) -> None: ...
     @override
-    def get_sql(self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool) -> str: ...
+    def get_sql(
+        self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool
+    ) -> str: ...

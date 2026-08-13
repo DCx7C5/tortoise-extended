@@ -13,7 +13,6 @@ from typing import TypeVar
 
 _T = TypeVar("_T")
 
-
 class Signals(Enum):
     """Signal event types (mirrors the runtime ``Enum`` declaration)."""
 
@@ -22,14 +21,7 @@ class Signals(Enum):
     pre_delete = "pre_delete"
     post_delete = "post_delete"
 
-
 def post_save(*senders: object) -> Callable[[_T], _T]: ...
-
-
 def pre_save(*senders: object) -> Callable[[_T], _T]: ...
-
-
 def pre_delete(*senders: object) -> Callable[[_T], _T]: ...
-
-
 def post_delete(*senders: object) -> Callable[[_T], _T]: ...

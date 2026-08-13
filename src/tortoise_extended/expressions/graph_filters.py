@@ -21,11 +21,14 @@ if TYPE_CHECKING:
 _VectorValue: TypeAlias = list[float] | tuple[float, ...] | str
 """A query vector: a sequence of floats or a pgvector literal string."""
 
-_VectorFilterValue: TypeAlias = list[_VectorValue | float] | tuple[_VectorValue | float, ...] | str
+_VectorFilterValue: TypeAlias = (
+    list[_VectorValue | float] | tuple[_VectorValue | float, ...] | str
+)
 """A similarity-filter value: plain vector or ``[vector, threshold]`` compound."""
 
 
 # pgvector operator comparators — define as simple value holders for BasicCriterion
+
 
 class L2DistanceOp(Comparator):
     l2_distance = " <-> "
@@ -48,6 +51,7 @@ class JaccardDistanceOp(Comparator):
 
 
 # Criterion wrappers — these generate the actual SQL
+
 
 class L2Distance(BasicCriterion):
     """<-> operator: L2 (Euclidean) distance between vectors."""
@@ -136,6 +140,7 @@ def _vector_value_passthrough(
 
 
 # Filter definitions for VectorField
+
 
 def _vector_eq_guard(_field: Term, _value: bool) -> BasicCriterion:
     """Reject bare equality filters on vector columns.

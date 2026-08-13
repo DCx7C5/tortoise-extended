@@ -210,7 +210,11 @@ class TestGetVectorFilters:
     def test_distance_filters_use_passthrough_encoder(self) -> None:
         """Distance filters should use _vector_value_passthrough."""
         filters = get_vector_filters("embedding", "embedding")
-        for key in ("embedding__l2_distance", "embedding__cosine_distance", "embedding__inner_product"):
+        for key in (
+            "embedding__l2_distance",
+            "embedding__cosine_distance",
+            "embedding__inner_product",
+        ):
             assert filters[key]["value_encoder"] is _vector_value_passthrough
 
 

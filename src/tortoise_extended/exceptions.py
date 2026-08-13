@@ -25,6 +25,7 @@ Usage::
         logger.warning("Cache unavailable; falling back to database")
 """
 
+
 class TortoiseExtendedError(Exception):
     """Base class for all ``tortoise-extended`` errors."""
 

@@ -191,14 +191,10 @@ class GraphVectorSearch:
         tgt = self._target_field
         if self._has_bidirectional:
             if self._direction == "outgoing":
-                join = (
-                    f"e.{src} = b.node_id OR (e.is_bidirectional AND e.{tgt} = b.node_id)"
-                )
+                join = f"e.{src} = b.node_id OR (e.is_bidirectional AND e.{tgt} = b.node_id)"
                 nxt = f"CASE WHEN e.{src} = b.node_id THEN e.{tgt} ELSE e.{src} END"
             elif self._direction == "incoming":
-                join = (
-                    f"e.{tgt} = b.node_id OR (e.is_bidirectional AND e.{src} = b.node_id)"
-                )
+                join = f"e.{tgt} = b.node_id OR (e.is_bidirectional AND e.{src} = b.node_id)"
                 nxt = f"CASE WHEN e.{tgt} = b.node_id THEN e.{src} ELSE e.{tgt} END"
             else:
                 join = f"e.{src} = b.node_id OR e.{tgt} = b.node_id"

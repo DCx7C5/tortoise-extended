@@ -122,7 +122,9 @@ class SchemaGeneratorLike(Protocol):
     silent (see module note above).
     """
 
-    def _qualify_table_name(self, table_name: str, schema: str | None = None) -> str: ...
+    def _qualify_table_name(
+        self, table_name: str, schema: str | None = None
+    ) -> str: ...
     def _get_index_name(
         self, prefix: str, model: type[Model] | str, field_names: Sequence[str]
     ) -> str: ...

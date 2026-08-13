@@ -49,7 +49,7 @@ class SoftThing(BaseSoftDeleteModel, BaseModel):  # pyright: ignore[reportIncomp
 
 
 @pytest.fixture(autouse=True)
-async def _db() -> AsyncGenerator[None, None]: # pyright: ignore[reportUnusedFunction]
+async def _db() -> AsyncGenerator[None, None]:  # pyright: ignore[reportUnusedFunction]
     _ = await Tortoise.init(
         db_url="sqlite://:memory:",
         modules={"models": ["tests.test_base_models"]},

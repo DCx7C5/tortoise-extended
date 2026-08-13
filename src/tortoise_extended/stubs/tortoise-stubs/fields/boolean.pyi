@@ -15,7 +15,6 @@ from tortoise.fields.base import Field
 
 T_BOOL = TypeVar("T_BOOL")
 
-
 class BooleanField(Field[T_BOOL]):
     """Boolean Tortoise field (stored as 0/1, exposed as ``bool``)."""
 
@@ -29,10 +28,8 @@ class BooleanField(Field[T_BOOL]):
     def __init__(
         self: BooleanField[bool], *, null: Literal[False] = False, **kwargs: object
     ) -> None: ...
-
     @overload
     def __init__(
         self: BooleanField[bool | None], *, null: Literal[True], **kwargs: object
     ) -> None: ...
-
     def __init__(self, **kwargs: object) -> None: ...

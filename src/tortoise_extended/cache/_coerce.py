@@ -35,12 +35,12 @@ def coerce_cache_value(raw: RowValue, field_obj: "Field[RowValue]") -> CoercedVa
     if field_type is int:
         try:
             return int(raw)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return raw
     if field_type is float:
         try:
             return float(raw)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return raw
     if field_type is bool:
         return raw.lower() in ("true", "1", "yes")

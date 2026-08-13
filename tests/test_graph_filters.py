@@ -72,6 +72,7 @@ class TestDistanceOperators:
         from pypika_tortoise import Table
         from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
         from pypika_tortoise.terms import ValueWrapper
+
         t = Table("test")
         op = L2Distance(t.embedding, ValueWrapper("[0.1,0.2]"))
         sql = op.get_sql(DEFAULT_SQL_CONTEXT)
@@ -81,6 +82,7 @@ class TestDistanceOperators:
         from pypika_tortoise import Table
         from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
         from pypika_tortoise.terms import ValueWrapper
+
         t = Table("test")
         op = CosineDistance(t.embedding, ValueWrapper("[0.1,0.2]"))
         sql = op.get_sql(DEFAULT_SQL_CONTEXT)
@@ -90,6 +92,7 @@ class TestDistanceOperators:
         from pypika_tortoise import Table
         from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
         from pypika_tortoise.terms import ValueWrapper
+
         t = Table("test")
         op = InnerProduct(t.embedding, ValueWrapper("[0.1,0.2]"))
         sql = op.get_sql(DEFAULT_SQL_CONTEXT)
@@ -115,7 +118,9 @@ class TestBareEqualityGuard:
     def test_guard_raises_for_non_none(self) -> None:
         from pypika_tortoise.terms import Field
 
-        with pytest.raises(VectorFieldError, match="Bare equality filters are not supported"):
+        with pytest.raises(
+            VectorFieldError, match="Bare equality filters are not supported"
+        ):
             _vector_eq_guard(Field("embedding"), True)
 
 
@@ -123,12 +128,16 @@ class TestParseVectorThreshold:
     """G20 — compound value validation."""
 
     def test_plain_vector_uses_default(self) -> None:
-        query_vector, threshold = _parse_vector_threshold([0.1, 0.2], 1.0, "__cosine_distance")
+        query_vector, threshold = _parse_vector_threshold(
+            [0.1, 0.2], 1.0, "__cosine_distance"
+        )
         assert query_vector == [0.1, 0.2]
         assert threshold == 1.0
 
     def test_compound_vector_uses_threshold(self) -> None:
-        query_vector, threshold = _parse_vector_threshold([[0.1, 0.2], 0.5], 1.0, "__cosine_distance")
+        query_vector, threshold = _parse_vector_threshold(
+            [[0.1, 0.2], 0.5], 1.0, "__cosine_distance"
+        )
         assert query_vector == [0.1, 0.2]
         assert threshold == 0.5
 
@@ -203,7 +212,9 @@ class TestBareEqualityFilterIntegration:
     @pytest.mark.asyncio
     async def test_bare_non_none_raises(self) -> None:
         await self._seed("a", b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
-        with pytest.raises(VectorFieldError, match="Bare equality filters are not supported"):
+        with pytest.raises(
+            VectorFieldError, match="Bare equality filters are not supported"
+        ):
             await _VecDoc.filter(embedding=[0.1, 0.2]).all()
 
     @pytest.mark.asyncio
@@ -217,8 +228,12 @@ class TestBareEqualityFilterIntegration:
     async def test_isnull_and_not_isnull_unchanged(self) -> None:
         await self._seed("has_vec", b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
         await self._seed("no_vec", None)
-        assert [r.name for r in await _VecDoc.filter(embedding__isnull=True)] == ["no_vec"]
-        assert [r.name for r in await _VecDoc.filter(embedding__not_isnull=True)] == ["has_vec"]
+        assert [r.name for r in await _VecDoc.filter(embedding__isnull=True)] == [
+            "no_vec"
+        ]
+        assert [r.name for r in await _VecDoc.filter(embedding__not_isnull=True)] == [
+            "has_vec"
+        ]
 
     @pytest.mark.asyncio
     async def test_sqlite_blob_roundtrip_decodes_floats(self) -> None:

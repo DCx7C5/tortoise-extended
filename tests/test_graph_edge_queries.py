@@ -13,7 +13,6 @@ import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.models import BaseGraphEdgeModel, BaseGraphNodeModel
 
 
-
 class QueryEdge(BaseGraphEdgeModel):
     """Concrete BaseGraphEdgeModel subclass used by the SQLite test."""
 

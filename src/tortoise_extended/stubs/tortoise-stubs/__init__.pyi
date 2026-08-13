@@ -31,7 +31,6 @@ from tortoise.connection import (
 from tortoise.context import TortoiseContext
 from tortoise.models import Model as Model, ModelMeta as ModelMeta
 
-
 class Tortoise:
     """Tortoise ORM entry point (``tortoise_extended`` surface)."""
 
@@ -52,19 +51,14 @@ class Tortoise:
         routers: list[str] | None = None,
         init_connections: bool = True,
     ) -> TortoiseContext: ...
-
     @classmethod
     def get_connection(cls, connection_name: str) -> BaseDBAsyncClient: ...
-
     @classmethod
     async def close_connections(cls) -> None: ...
-
     @classmethod
     async def generate_schemas(cls, safe: bool = True) -> None: ...
-
     @classmethod
     def is_inited(cls) -> bool: ...
-
     @classmethod
     def init_models(
         cls,
@@ -72,7 +66,6 @@ class Tortoise:
         app_label: str,
         _init_relations: bool = True,
     ) -> None: ...
-
     @classmethod
     def init_app(
         cls,
@@ -80,18 +73,15 @@ class Tortoise:
         model_paths: Iterable[ModuleType | str],
         _init_relations: bool = True,
     ) -> dict[str, type[Model]]: ...
-
     @classmethod
     def describe_model(
         cls, model: type[Model], serializable: bool = True
     ) -> dict[str, Any]: ...
-
     @classmethod
     def describe_models(
         cls,
         models: list[type[Model]] | None = None,
         serializable: bool = True,
     ) -> dict[str, dict[str, Any]]: ...
-
     @classmethod
     def _drop_database(cls, connection_name: str = "default") -> None: ...

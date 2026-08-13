@@ -32,9 +32,9 @@ from tortoise import fields
 
 from tortoise_extended.models.base import BaseModel
 
-_ARGON2_TIME_COST = 3          # t
-_ARGON2_MEMORY_COST = 65536    # m = 64 MiB
-_ARGON2_PARALLELISM = 4        # p
+_ARGON2_TIME_COST = 3  # t
+_ARGON2_MEMORY_COST = 65536  # m = 64 MiB
+_ARGON2_PARALLELISM = 4  # p
 _ARGON2_HASH_LEN = 32
 _ARGON2_SALT_BYTES = 16
 _PASSWORD_HASHER = argon2.PasswordHasher(
@@ -100,9 +100,7 @@ class BaseUserModel(BaseModel):
         abstract = True
 
     @classmethod
-    async def create_user(
-        cls, email: str, password: str, **kwargs: object
-    ) -> Self:
+    async def create_user(cls, email: str, password: str, **kwargs: object) -> Self:
         """Create and persist a regular user.
 
         Normalizes the email to lowercase, hashes the password, and saves the
@@ -227,7 +225,7 @@ class BaseUserModel(BaseModel):
             return await asyncio.to_thread(
                 _PASSWORD_HASHER.verify, encoded, raw_password
             )
-        except (VerificationError, InvalidHashError):
+        except VerificationError, InvalidHashError:
             return False
 
     @staticmethod

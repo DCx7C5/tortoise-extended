@@ -10,7 +10,6 @@ from typing import Any
 
 from asyncpg import Pool
 
-
 class AsyncpgDBClient:
     _tortoise_extended_codec_patched: bool
 

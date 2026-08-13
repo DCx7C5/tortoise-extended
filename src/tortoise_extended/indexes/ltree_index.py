@@ -89,11 +89,17 @@ class GiSTIndex(Index):
     INDEX_TYPE = "gist"
 
     @override
-    def get_sql(self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool) -> str:
+    def get_sql(
+        self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool
+    ) -> str:
         assert_postgres_dialect(schema_generator, "GiSTIndex")
         self.resolve_expressions(model)
-        table_name = _qualify_table_name(schema_generator, model._meta.db_table, model._meta.schema)
-        index_name = self.name or _get_index_name(schema_generator, "gist", model, self.field_names)
+        table_name = _qualify_table_name(
+            schema_generator, model._meta.db_table, model._meta.schema
+        )
+        index_name = self.name or _get_index_name(
+            schema_generator, "gist", model, self.field_names
+        )
         fields = _format_index_fields(schema_generator, self.field_names)
         exists = "IF NOT EXISTS " if safe else ""
         return (

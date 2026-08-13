@@ -67,7 +67,9 @@ def _patch_format_operation() -> None:
         # protocol).  Dispatch through ``getattr`` — the ``hasattr`` guard
         # above guarantees the method exists at runtime.
         dc_method = cast(
-            Callable[[], tuple[str, tuple[()], dict[str, str | int | float | bool | None]]],
+            Callable[
+                [], tuple[str, tuple[()], dict[str, str | int | float | bool | None]]
+            ],
             getattr(operation, "deconstruct"),
         )
         class_name, args, kwargs = dc_method()

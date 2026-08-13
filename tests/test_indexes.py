@@ -150,7 +150,9 @@ class TestIVFFlatIndexParams:
 
     def test_custom_params(self) -> None:
         """Custom parameters should be stored."""
-        idx = IVFFlatIndex(fields=("embedding",), lists=200, dist_metric="vector_ip_ops")
+        idx = IVFFlatIndex(
+            fields=("embedding",), lists=200, dist_metric="vector_ip_ops"
+        )
         assert idx.lists == 200
         assert idx.dist_metric == "vector_ip_ops"
 

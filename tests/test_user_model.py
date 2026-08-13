@@ -61,7 +61,10 @@ class TestModelShape:
         assert TopBase is BaseUserModel
 
     async def test_normalize_email(self) -> None:
-        assert BaseUserModel.normalize_email("  Alice@Example.COM  ") == "alice@example.com"
+        assert (
+            BaseUserModel.normalize_email("  Alice@Example.COM  ")
+            == "alice@example.com"
+        )
 
 
 class TestUserCreation:

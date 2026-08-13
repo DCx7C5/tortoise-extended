@@ -17,10 +17,8 @@ from tortoise.models import Model
 
 VALUE = TypeVar("VALUE")
 
-
 class OnDelete:
     """Enum of ON DELETE behaviours (mirrors ``tortoise.fields.base``)."""
-
 
 CASCADE: OnDelete = ...
 RESTRICT: OnDelete = ...
@@ -28,15 +26,12 @@ SET_NULL: OnDelete = ...
 SET_DEFAULT: OnDelete = ...
 NO_ACTION: OnDelete = ...
 
-
 class DatabaseDefault:
     """A database-computed default value."""
 
     def __init__(self, field: Field[Any]) -> None: ...
 
-
 DB_DEFAULT_NOT_SET: Any = ...
-
 
 class Field(Generic[VALUE]):
     """Base Tortoise field type (generic over the stored Python value)."""
@@ -86,10 +81,10 @@ class Field(Generic[VALUE]):
         db_index: bool | None = None,
         description: str | None = None,
         model: Any = None,
-        validators: list[tortoise.validators.Validator | Callable[..., Any]] | None = None,
+        validators: list[tortoise.validators.Validator | Callable[..., Any]]
+        | None = None,
         **kwargs: Any,
     ) -> None: ...
-
     @overload
     def __get__(self, instance: None, owner: type[Model]) -> Field[VALUE]: ...
     @overload
@@ -97,14 +92,9 @@ class Field(Generic[VALUE]):
     def __get__(
         self, instance: Model | None, owner: type[Model]
     ) -> Field[VALUE] | VALUE: ...
-
     def __set__(self, instance: Model, value: VALUE) -> None: ...
-
     def to_db_value(self, value: Any, instance: Any) -> Any: ...
-
     def to_python_value(self, value: Any) -> Any: ...
-
     def validate(self, value: Any) -> None: ...
-
     @override
     def __repr__(self) -> str: ...

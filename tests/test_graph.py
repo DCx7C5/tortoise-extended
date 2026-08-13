@@ -10,7 +10,6 @@ from tortoise_extended.models import BaseGraphEdgeModel, BaseGraphNodeModel
 from tortoise_extended.models import BaseHierarchyModel
 
 
-
 class TestGraphNode:
     """Tests for BaseGraphNodeModel base class."""
 
@@ -109,9 +108,20 @@ class TestHierarchyModel:
 
     def test_has_all_fields(self) -> None:
         """BaseHierarchyModel should declare all hierarchy fields in _meta."""
-        expected_fields = ["id", "path", "name", "parent_id", "depth", "namespace", "created_at", "updated_at"]
+        expected_fields = [
+            "id",
+            "path",
+            "name",
+            "parent_id",
+            "depth",
+            "namespace",
+            "created_at",
+            "updated_at",
+        ]
         for field_name in expected_fields:
-            assert field_name in BaseHierarchyModel._meta.fields_map, f"Missing field: {field_name}"
+            assert field_name in BaseHierarchyModel._meta.fields_map, (
+                f"Missing field: {field_name}"
+            )
 
     def test_has_all_methods(self) -> None:
         """BaseHierarchyModel should expose all tree operation methods."""
@@ -200,9 +210,7 @@ class TestHierarchyModelProperties:
 
     def test_path_str_with_none(self) -> None:
         """path_str should return empty string for None path."""
-        node = BaseHierarchyModel.construct(
-            id=1, path=None, name="Orphan", depth=0
-        )
+        node = BaseHierarchyModel.construct(id=1, path=None, name="Orphan", depth=0)
         assert node.path_str == ""
 
 
@@ -227,9 +235,7 @@ class TestHierarchyModelDunder:
 
     def test_str_with_none_path(self) -> None:
         """__str__ should show empty path for None."""
-        node = BaseHierarchyModel.construct(
-            id=1, path=None, name="Orphan", depth=0
-        )
+        node = BaseHierarchyModel.construct(id=1, path=None, name="Orphan", depth=0)
         result = str(node)
         assert result == "Orphan ()"
 
@@ -245,9 +251,7 @@ class TestHierarchyModelDunder:
 
     def test_repr_with_none_path(self) -> None:
         """__repr__ should show empty string for None path."""
-        node = BaseHierarchyModel.construct(
-            id=1, path=None, name="Orphan", depth=0
-        )
+        node = BaseHierarchyModel.construct(id=1, path=None, name="Orphan", depth=0)
         result = repr(node)
         assert "BaseHierarchyModel" in result
         assert "id=1" in result

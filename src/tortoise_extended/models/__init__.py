@@ -24,6 +24,7 @@ convention and lives under ``tortoise_extended.models``:
 
 All are opt-in abstract bases — nothing is forced on any model.
 """
+
 from .base import BaseModel
 from .cacheable_model import BaseCacheableModel
 from .event_stream import BaseEventStreamModel

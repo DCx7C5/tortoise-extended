@@ -84,7 +84,6 @@ __all__ = [
 
 type _ValidatorType = list[tortoise.validators.Validator | Callable[..., Any]]
 
-
 # ── BigIntField ─────────────────────────────────────────────────────────
 
 class BigIntField(Field[int | None]):
@@ -94,7 +93,6 @@ class BigIntField(Field[int | None]):
     ``parent_id``) must keep ``is None`` comparisons type-checking; the
     class-level alternative ``Field[int]`` would flag those as unnecessary.
     """
-
 
 # ── BinaryField ─────────────────────────────────────────────────────────
 
@@ -113,7 +111,6 @@ def BinaryField(
     validators: _ValidatorType | None = None,
     **kwargs: Any,
 ) -> Field[bytes]: ...
-
 @overload
 def BinaryField(
     source_field: str | None = None,
@@ -129,7 +126,6 @@ def BinaryField(
     validators: _ValidatorType | None = None,
     **kwargs: Any,
 ) -> Field[bytes | None]: ...
-
 
 # ── CharEnumField ───────────────────────────────────────────────────────
 
@@ -154,16 +150,18 @@ def CharEnumField(
     **kwargs: Any,
 ) -> Field[CharEnumType | None]: ...
 
-
 # ── CharField ───────────────────────────────────────────────────────────
 
 @overload
-def CharField(max_length: int, *, null: Literal[False] = False, **kwargs: Any) -> Field[str]:
+def CharField(
+    max_length: int, *, null: Literal[False] = False, **kwargs: Any
+) -> Field[str]:
     """Character field."""
 
 @overload
-def CharField(max_length: int, *, null: Literal[True], **kwargs: Any) -> Field[str | None]: ...
-
+def CharField(
+    max_length: int, *, null: Literal[True], **kwargs: Any
+) -> Field[str | None]: ...
 
 # ── DateField ───────────────────────────────────────────────────────────
 
@@ -182,7 +180,6 @@ def DateField(
     validators: _ValidatorType | None = None,
     **kwargs: Any,
 ) -> Field[datetime.date]: ...
-
 @overload
 def DateField(
     source_field: str | None = None,
@@ -199,7 +196,6 @@ def DateField(
     **kwargs: Any,
 ) -> Field[datetime.date | None]: ...
 
-
 # ── DatetimeField ───────────────────────────────────────────────────────
 
 @overload
@@ -210,7 +206,6 @@ def DatetimeField(
     null: Literal[False] = False,
     **kwargs: Any,
 ) -> Field[datetime.datetime]: ...
-
 @overload
 def DatetimeField(
     auto_now: bool = False,
@@ -220,19 +215,16 @@ def DatetimeField(
     **kwargs: Any,
 ) -> Field[datetime.datetime | None]: ...
 
-
 # ── DecimalField ────────────────────────────────────────────────────────
 
 @overload
 def DecimalField(
     max_digits: int, decimal_places: int, *, null: Literal[False] = False, **kwargs: Any
 ) -> Field[decimal.Decimal]: ...
-
 @overload
 def DecimalField(
     max_digits: int, decimal_places: int, *, null: Literal[True], **kwargs: Any
 ) -> Field[decimal.Decimal | None]: ...
-
 
 # ── FloatField ──────────────────────────────────────────────────────────
 
@@ -251,7 +243,6 @@ def FloatField(
     validators: _ValidatorType | None = None,
     **kwargs: Any,
 ) -> Field[float]: ...
-
 @overload
 def FloatField(
     source_field: str | None = None,
@@ -268,7 +259,6 @@ def FloatField(
     **kwargs: Any,
 ) -> Field[float | None]: ...
 
-
 # ── IntEnumField ────────────────────────────────────────────────────────
 
 @overload
@@ -279,7 +269,6 @@ def IntEnumField(
     null: Literal[False] = False,
     **kwargs: Any,
 ) -> Field[IntEnumType]: ...
-
 @overload
 def IntEnumField(
     enum_type: type[IntEnumType],
@@ -289,12 +278,10 @@ def IntEnumField(
     **kwargs: Any,
 ) -> Field[IntEnumType | None]: ...
 
-
 # ── IntField ────────────────────────────────────────────────────────────
 
 class IntField(Field[int]):
     """Integer field — a runtime CLASS (``isinstance``-safe)."""
-
 
 # ── JSONField ───────────────────────────────────────────────────────────
 
@@ -306,7 +293,6 @@ def JSONField(
     null: Literal[False] = False,
     **kwargs: Any,
 ) -> Field[Any]: ...
-
 @overload
 def JSONField(
     encoder: Callable[[Any], str] = ...,
@@ -316,12 +302,10 @@ def JSONField(
     **kwargs: Any,
 ) -> Field[Any | None]: ...
 
-
 # ── SmallIntField ───────────────────────────────────────────────────────
 
 class SmallIntField(Field[int]):
     """Small integer field — a runtime CLASS (``isinstance``-safe)."""
-
 
 # ── TextField ───────────────────────────────────────────────────────────
 
@@ -334,7 +318,6 @@ def TextField(
     null: Literal[False] = False,
     **kwargs: Any,
 ) -> Field[str]: ...
-
 @overload
 def TextField(
     pk: bool = False,
@@ -344,7 +327,6 @@ def TextField(
     null: Literal[True],
     **kwargs: Any,
 ) -> Field[str | None]: ...
-
 
 # ── TimeDeltaField ──────────────────────────────────────────────────────
 
@@ -363,7 +345,6 @@ def TimeDeltaField(
     validators: _ValidatorType | None = None,
     **kwargs: Any,
 ) -> Field[datetime.timedelta]: ...
-
 @overload
 def TimeDeltaField(
     source_field: str | None = None,
@@ -380,7 +361,6 @@ def TimeDeltaField(
     **kwargs: Any,
 ) -> Field[datetime.timedelta | None]: ...
 
-
 # ── TimeField ───────────────────────────────────────────────────────────
 
 @overload
@@ -391,7 +371,6 @@ def TimeField(
     null: Literal[False] = False,
     **kwargs: Any,
 ) -> Field[datetime.time]: ...
-
 @overload
 def TimeField(
     auto_now: bool = False,
@@ -401,11 +380,9 @@ def TimeField(
     **kwargs: Any,
 ) -> Field[datetime.time | None]: ...
 
-
 # ── UUIDField ───────────────────────────────────────────────────────────
 
 @overload
 def UUIDField(*, null: Literal[False] = False, **kwargs: Any) -> Field[uuid.UUID]: ...
-
 @overload
 def UUIDField(*, null: Literal[True], **kwargs: Any) -> Field[uuid.UUID | None]: ...

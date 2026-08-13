@@ -19,7 +19,6 @@ from tortoise.queryset import QuerySet
 
 _MODEL = TypeVar("_MODEL", bound=Model)
 
-
 # ── containers ───────────────────────────────────────────────────────────
 
 class ReverseRelation(Generic[_MODEL]):
@@ -55,7 +54,6 @@ class ReverseRelation(Generic[_MODEL]):
         self, using_db: BaseDBAsyncClient | None = None, **kwargs: Any
     ) -> _MODEL: ...
 
-
 class ManyToManyRelation(ReverseRelation[_MODEL]):
     """Relation container for :func:`.ManyToManyField`."""
 
@@ -72,7 +70,6 @@ class ManyToManyRelation(ReverseRelation[_MODEL]):
     async def remove(
         self, *instances: _MODEL, using_db: BaseDBAsyncClient | None = None
     ) -> None: ...
-
 
 # ── fields ───────────────────────────────────────────────────────────────
 
@@ -102,16 +99,13 @@ class RelationalField(Field[_MODEL]):
     ) -> RelationalField[_MODEL]: ...
     # noinspection PyMethodOverriding
     @overload
-    def __get__(
-        self, instance: Model, owner: type[Model]
-    ) -> _MODEL: ...
+    def __get__(self, instance: Model, owner: type[Model]) -> _MODEL: ...
     @override
     def __get__(
         self, instance: Model | None, owner: type[Model]
     ) -> RelationalField[_MODEL] | _MODEL: ...
     @override
     def __set__(self, instance: Model, value: _MODEL) -> None: ...
-
 
 class ForeignKeyFieldInstance(RelationalField[_MODEL]):
     model_name: type[Model] | str
@@ -125,8 +119,6 @@ class ForeignKeyFieldInstance(RelationalField[_MODEL]):
         on_delete: OnDelete = CASCADE,
         **kwargs: Any,
     ) -> None: ...
-
-
 
 class BackwardFKRelation(RelationalField[_MODEL]):
     relation_field: str
@@ -143,12 +135,8 @@ class BackwardFKRelation(RelationalField[_MODEL]):
         **kwargs: Any,
     ) -> None: ...
 
-
 class OneToOneFieldInstance(ForeignKeyFieldInstance[_MODEL]): ...
-
-
 class BackwardOneToOneRelation(BackwardFKRelation[_MODEL]): ...
-
 
 class ManyToManyFieldInstance(RelationalField[_MODEL]):
     model_name: type[Model] | str
@@ -173,7 +161,6 @@ class ManyToManyFieldInstance(RelationalField[_MODEL]):
         **kwargs: Any,
     ) -> None: ...
 
-
 # ── factory functions (with proper _MODEL inference) ───────────────────────
 
 @overload
@@ -186,7 +173,6 @@ def ForeignKeyField(
     null: Literal[True],
     **kwargs: Any,
 ) -> ForeignKeyFieldInstance[_MODEL] | None: ...
-
 @overload
 def ForeignKeyField(
     to: type[_MODEL],
@@ -196,7 +182,6 @@ def ForeignKeyField(
     null: Literal[False] = False,
     **kwargs: Any,
 ) -> ForeignKeyFieldInstance[_MODEL]: ...
-
 @overload
 def ForeignKeyField(
     to: str,
@@ -206,8 +191,6 @@ def ForeignKeyField(
     null: bool = False,
     **kwargs: Any,
 ) -> ForeignKeyFieldInstance[Any]: ...
-
-
 @overload
 def OneToOneField(
     to: type[_MODEL],
@@ -218,7 +201,6 @@ def OneToOneField(
     null: Literal[True],
     **kwargs: Any,
 ) -> OneToOneFieldInstance[_MODEL] | None: ...
-
 @overload
 def OneToOneField(
     to: type[_MODEL],
@@ -228,7 +210,6 @@ def OneToOneField(
     null: Literal[False] = False,
     **kwargs: Any,
 ) -> OneToOneFieldInstance[_MODEL]: ...
-
 @overload
 def OneToOneField(
     to: str,
@@ -238,8 +219,6 @@ def OneToOneField(
     null: bool = False,
     **kwargs: Any,
 ) -> OneToOneFieldInstance[Any]: ...
-
-
 def ManyToManyField(
     to: type[_MODEL] | str,
     through: str | None = None,
@@ -251,7 +230,6 @@ def ManyToManyField(
     unique: bool = True,
     **kwargs: Any,
 ) -> ManyToManyRelation[_MODEL]: ...
-
 
 # ── type aliases ──────────────────────────────────────────────────────────
 

@@ -32,7 +32,6 @@ if TYPE_CHECKING:
     from tortoise.models import Model
 
 
-
 class GraphTraversal:
     """CTE-based graph traversal with depth limits and cycle detection.
 
@@ -219,7 +218,9 @@ class GraphTraversal:
             )
         else:
             # "both" — follow edges in either direction.
-            edge_join = f"e.{self._source_field} = b.id OR e.{self._target_field} = b.id"
+            edge_join = (
+                f"e.{self._source_field} = b.id OR e.{self._target_field} = b.id"
+            )
             node_join = (
                 f"(e.{self._source_field} = b.id AND n.id = e.{self._target_field}) "
                 f"OR (e.{self._target_field} = b.id AND n.id = e.{self._source_field})"
@@ -267,9 +268,7 @@ class GraphTraversal:
         :returns: True if a cycle is detected.
         """
         et_clause, et_params = _et_clause(edge_type, 2)
-        anchor_filter = (
-            "WHERE e.edge_type = $2" if edge_type is not None else ""
-        )
+        anchor_filter = "WHERE e.edge_type = $2" if edge_type is not None else ""
 
         sql = f"""
             SELECT EXISTS (

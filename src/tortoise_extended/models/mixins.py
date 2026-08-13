@@ -43,6 +43,7 @@ class TimestampMixin:
 
 class TimestampEndMixin:
     """Add ``created_at``/``ended_at`` timestamp columns to a model."""
+
     created_at = fields.DatetimeField(
         auto_now_add=True,
         use_tz=True,

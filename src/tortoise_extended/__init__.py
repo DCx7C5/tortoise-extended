@@ -163,7 +163,7 @@ async def _pgvector_codec_init(conn: AsyncpgConnection) -> None:
             decoder=_decode_vector,
             schema=schema,
         )
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         # ValueError: "unknown type: pgvector.vector" — extension not loaded
         # AttributeError: conn doesn't support set_type_codec
         pass

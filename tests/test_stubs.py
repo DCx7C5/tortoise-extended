@@ -207,7 +207,11 @@ class TestStubPatchSurface:
         declared = _stub_names(
             TORTOISE_STUBS_DIR / "backends" / "asyncpg" / "client.pyi"
         )
-        for name in ("AsyncpgDBClient", "create_pool", "_tortoise_extended_codec_patched"):
+        for name in (
+            "AsyncpgDBClient",
+            "create_pool",
+            "_tortoise_extended_codec_patched",
+        ):
             assert name in declared
 
 
@@ -305,12 +309,10 @@ class TestStubExecutable:
                 exec(code, namespace)
             except Exception as exc:  # pragma: no cover
                 failures.append(
-                    f"{stub.relative_to(PROJECT_ROOT)}: "
-                    f"{type(exc).__name__}: {exc}"
+                    f"{stub.relative_to(PROJECT_ROOT)}: {type(exc).__name__}: {exc}"
                 )
         assert not failures, (
-            "stub files must compile and execute cleanly:\n  "
-            + "\n  ".join(failures)
+            "stub files must compile and execute cleanly:\n  " + "\n  ".join(failures)
         )
 
 

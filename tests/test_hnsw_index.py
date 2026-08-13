@@ -16,7 +16,9 @@ class FakeSchemaGenerator:
             return f'"{table_name}"'
         return f'"{schema}"."{table_name}"'
 
-    def _get_index_name(self, prefix: str, model: FakeModel, field_names: list[str]) -> str:
+    def _get_index_name(
+        self, prefix: str, model: FakeModel, field_names: list[str]
+    ) -> str:
         return f"{prefix}_{type(model).__name__}_{'_'.join(field_names)}"
 
     def _format_index_fields(self, field_names: list[str]) -> str:
@@ -39,7 +41,12 @@ class TestHNSWIndex:
         assert idx.dist_metric == "vector_l2_ops"
 
     def test_custom_params(self) -> None:
-        idx = HNSWIndex(fields=("embedding",), m=32, ef_construction=400, dist_metric="vector_cosine_ops")
+        idx = HNSWIndex(
+            fields=("embedding",),
+            m=32,
+            ef_construction=400,
+            dist_metric="vector_cosine_ops",
+        )
         assert idx.m == 32
         assert idx.ef_construction == 400
         assert idx.dist_metric == "vector_cosine_ops"
@@ -81,7 +88,9 @@ class TestIVFFlatIndex:
         assert idx.dist_metric == "vector_l2_ops"
 
     def test_custom_params(self) -> None:
-        idx = IVFFlatIndex(fields=("embedding",), lists=200, dist_metric="vector_ip_ops")
+        idx = IVFFlatIndex(
+            fields=("embedding",), lists=200, dist_metric="vector_ip_ops"
+        )
         assert idx.lists == 200
         assert idx.dist_metric == "vector_ip_ops"
 
@@ -116,7 +125,7 @@ class TestHNSWIndexSql:
         sql = idx.get_sql(FakeSchemaGenerator(), FakeModel("chunks"), safe=True)
         assert sql.startswith('CREATE INDEX IF NOT EXISTS "hnsw_FakeModel_embedding"')
         assert '"chunks"' in sql
-        assert "USING hnsw (\"embedding\" vector_l2_ops)" in sql
+        assert 'USING hnsw ("embedding" vector_l2_ops)' in sql
         assert "WITH (m = 32, ef_construction = 400);" in sql
 
     def test_get_sql_unsafe_custom(self) -> None:
@@ -137,8 +146,10 @@ class TestIVFFlatIndexSql:
     def test_get_sql_safe(self) -> None:
         idx = IVFFlatIndex(fields=("embedding",), lists=200)
         sql = idx.get_sql(FakeSchemaGenerator(), FakeModel("chunks"), safe=True)
-        assert sql.startswith('CREATE INDEX IF NOT EXISTS "ivfflat_FakeModel_embedding"')
-        assert "USING ivfflat (\"embedding\" vector_l2_ops)" in sql
+        assert sql.startswith(
+            'CREATE INDEX IF NOT EXISTS "ivfflat_FakeModel_embedding"'
+        )
+        assert 'USING ivfflat ("embedding" vector_l2_ops)' in sql
         assert "WITH (lists = 200);" in sql
 
     def test_get_sql_unsafe_custom(self) -> None:

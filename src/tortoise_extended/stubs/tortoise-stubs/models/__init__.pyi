@@ -38,11 +38,9 @@ from tortoise.queryset import (
 )
 from tortoise.signals import Signals
 
-
 def get_filters_for_field(
     field_name: str, field: Field[object] | None, source_field: str
 ) -> dict[str, object]: ...
-
 
 class MetaInfo:
     """Metadata container attached to every Tortoise model as ``_meta``."""
@@ -63,10 +61,8 @@ class MetaInfo:
     manager: Manager
     db_pk_column: str
 
-
 class ModelMeta(type):
     """Metaclass for all Tortoise models (mirrors the runtime metaclass)."""
-
 
 class Model:
     """Base class for all Tortoise ORM models."""
@@ -77,15 +73,12 @@ class Model:
     pk: Any
 
     def __init__(self, **kwargs: Any) -> None: ...
-
     @override
     def __str__(self) -> str: ...
     @override
     def __repr__(self) -> str: ...
-
     def update_from_dict(self, data: dict[str, object]) -> Self: ...
     def clone(self, pk: Any = ...) -> Self: ...
-
     async def save(
         self,
         using_db: BaseDBAsyncClient | None = None,
@@ -93,22 +86,19 @@ class Model:
         force_create: bool = False,
         force_update: bool = False,
     ) -> None: ...
-
     async def delete(self, using_db: BaseDBAsyncClient | None = None) -> None: ...
-
-    async def fetch_related(self, *args: Any, using_db: BaseDBAsyncClient | None = None) -> None: ...
-
+    async def fetch_related(
+        self, *args: Any, using_db: BaseDBAsyncClient | None = None
+    ) -> None: ...
     async def refresh_from_db(
         self,
         fields: Iterable[str] | None = None,
         using_db: BaseDBAsyncClient | None = None,
     ) -> None: ...
-
     @classmethod
     def filter(
         cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any
     ) -> QuerySet[Self]: ...
-
     @classmethod
     def _init_from_db(cls: type[Self], **kwargs: Any) -> Self:
         """Hydrate a raw DB row (model-field kwargs) into a model instance."""
@@ -117,39 +107,32 @@ class Model:
     def exclude(
         cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any
     ) -> QuerySet[Self]: ...
-
     @classmethod
     def annotate(cls, **kwargs: Expression | Term) -> QuerySet[Self]: ...
-
     @classmethod
     def all(cls, using_db: BaseDBAsyncClient | None = None) -> QuerySet[Self]: ...
-
     @classmethod
     def _choose_db(cls, for_write: bool = False) -> BaseDBAsyncClient: ...
-
     @classmethod
     def _db_queryset(
         cls, using_db: BaseDBAsyncClient | None = None, for_write: bool = False
     ) -> QuerySet[Self]: ...
-
     @classmethod
     def get(
         cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any
     ) -> QuerySetSingle[Self]: ...
-
     @classmethod
     def get_or_none(
         cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any
     ) -> QuerySetSingle[Self | None]: ...
-
     @classmethod
     def exists(
         cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any
     ) -> ExistsQuery: ...
-
     @classmethod
-    async def create(cls, using_db: BaseDBAsyncClient | None = None, **kwargs: Any) -> Self: ...
-
+    async def create(
+        cls, using_db: BaseDBAsyncClient | None = None, **kwargs: Any
+    ) -> Self: ...
     @classmethod
     async def get_or_create(
         cls,
@@ -157,7 +140,6 @@ class Model:
         using_db: BaseDBAsyncClient | None = None,
         **kwargs: Any,
     ) -> tuple[Self, bool]: ...
-
     @classmethod
     async def update_or_create(
         cls,
@@ -165,7 +147,6 @@ class Model:
         using_db: BaseDBAsyncClient | None = None,
         **kwargs: Any,
     ) -> tuple[Self, bool]: ...
-
     @classmethod
     def bulk_create(
         cls,
@@ -176,7 +157,6 @@ class Model:
         on_conflict: Iterable[str] | None = None,
         using_db: BaseDBAsyncClient | None = None,
     ) -> BulkCreateQuery[Self]: ...
-
     @classmethod
     def bulk_update(
         cls,
@@ -185,7 +165,6 @@ class Model:
         batch_size: int | None = None,
         using_db: BaseDBAsyncClient | None = None,
     ) -> BulkUpdateQuery[Self]: ...
-
     @classmethod
     async def in_bulk(
         cls,
@@ -193,19 +172,18 @@ class Model:
         field_name: str = "pk",
         using_db: BaseDBAsyncClient | None = None,
     ) -> dict[Any, Self]: ...
-
     @classmethod
-    def first(cls, using_db: BaseDBAsyncClient | None = None) -> QuerySetSingle[Self | None]: ...
-
+    def first(
+        cls, using_db: BaseDBAsyncClient | None = None
+    ) -> QuerySetSingle[Self | None]: ...
     @classmethod
-    def last(cls, using_db: BaseDBAsyncClient | None = None) -> QuerySetSingle[Self | None]: ...
-
+    def last(
+        cls, using_db: BaseDBAsyncClient | None = None
+    ) -> QuerySetSingle[Self | None]: ...
     @classmethod
     def latest(cls, *orderings: str) -> QuerySetSingle[Self | None]: ...
-
     @classmethod
     def earliest(cls, *orderings: str) -> QuerySetSingle[Self | None]: ...
-
     @classmethod
     def select_for_update(
         cls,
@@ -215,12 +193,10 @@ class Model:
         using_db: BaseDBAsyncClient | None = None,
         no_key: bool = False,
     ) -> QuerySet[Self]: ...
-
     @classmethod
     def raw(
         cls, raw_query: str, using_db: BaseDBAsyncClient | None = None
     ) -> RawSQLQuery: ...
-
     @classmethod
     async def fetch_for_list(
         cls,
@@ -228,15 +204,13 @@ class Model:
         *args: Any,
         using_db: BaseDBAsyncClient | None = None,
     ) -> None: ...
-
     @classmethod
     def construct(cls, _saved_in_db: bool = False, **kwargs: Any) -> Self: ...
-
     @classmethod
     def get_table(cls) -> Table: ...
-
     @classmethod
-    def register_listener(cls, signal: Signals, listener: Callable[..., Any]) -> None: ...
-
+    def register_listener(
+        cls, signal: Signals, listener: Callable[..., Any]
+    ) -> None: ...
     @classmethod
     def describe(cls, serializable: bool = True) -> dict[str, Any]: ...
