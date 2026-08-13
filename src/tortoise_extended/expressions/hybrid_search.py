@@ -105,6 +105,19 @@ class HybridSearch:
             return f"{field} <-> ${param_index}::vector"
         return f"(-1) * ({field} <#> ${param_index}::vector)"
 
+    async def _execute(
+        self, sql: str, params: list[str | int | float | None]
+    ) -> list[RowMapping]:
+        """Run a parameterized query on the default connection.
+
+        :param sql: SQL statement.
+        :param params: Query parameters.
+        :returns: Result rows as dicts.
+        """
+        conn = connections.get("default")
+        _, results = await conn.execute_query(sql, params)
+        return [dict(r) for r in results]
+
     async def search(
         self,
         query_vector: list[float] | str,
@@ -182,6 +195,4 @@ class HybridSearch:
             if min_distance is not None:
                 params.append(min_distance)
 
-        conn = connections.get("default")
-        _, results = await conn.execute_query(sql, params)
-        return [dict(r) for r in results]
+        return await self._execute(sql, params)

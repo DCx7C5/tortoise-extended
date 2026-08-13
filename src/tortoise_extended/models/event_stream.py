@@ -215,6 +215,108 @@ class BaseEventStreamModel(BaseModel):
     # ── Ingestion ─────────────────────────────────────────────────────────
 
     @classmethod
+    def _assert_pk_present(cls, instances: Sequence[Self]) -> None:
+        """Raise when any instance lacks an explicit primary key.
+
+        asyncpg ``COPY`` cannot use identity/serial defaults, so every
+        instance must carry its id before insertion.
+
+        :param instances: Instances to check.
+        :raises ValueError: If any instance's primary key is ``None``.
+        """
+        pk_attr = cls._meta.pk_attr
+        for inst in instances:
+            if getattr(inst, pk_attr) is None:
+                raise ValueError(
+                    "bulk_insert requires explicit primary keys on every "
+                    "instance (asyncpg COPY cannot use identity defaults); "
+                    "assign ids before calling"
+                )
+
+    @classmethod
+    def _copy_db_fields(cls) -> list[str]:
+        """Return the database columns a COPY statement should target.
+
+        Excludes relation fields (FK, M2M, backward FK) — they are not
+        physical columns on the stream table.
+
+        :returns: Column names in declaration order.
+        """
+        fields_map = cls._meta.fields_map
+        skip = (
+            set(cls._meta.fk_fields)
+            | set(cls._meta.m2m_fields)
+            | cls._meta.backward_fk_fields
+        )
+        return [
+            name
+            for name in fields_map
+            if name in cls._meta.db_fields and name not in skip
+        ]
+
+    @classmethod
+    def _omit_db_default_fields(
+        cls, instances: Sequence[Self], db_fields: list[str]
+    ) -> set[str]:
+        """Find ``db_default`` columns that COPY must omit for this batch.
+
+        Mirrors Tortoise ``bulk_create``: a column is omitted when *every*
+        instance leaves it at the database default, and mixed usage (some
+        instances explicit, some defaulted) raises because a single COPY
+        statement cannot represent both.
+
+        :param instances: Instances being inserted.
+        :param db_fields: Candidate column names (pre-omission).
+        :returns: Columns to drop from the COPY statement.
+        :raises OperationalError: If a ``db_default`` column has mixed usage.
+        """
+        fields_map = cls._meta.fields_map
+        db_default_fields = [
+            name for name in db_fields if fields_map[name].has_db_default()
+        ]
+        omit_fields: set[str] = set()
+        for field_name in db_default_fields:
+            has_default = False
+            has_value = False
+            for inst in instances:
+                if isinstance(getattr(inst, field_name), DatabaseDefault):
+                    has_default = True
+                else:
+                    has_value = True
+                if has_default and has_value:
+                    raise OperationalError(
+                        f"Cannot use bulk_insert() when field {field_name!r} "
+                        f"has db_default and some instances provide explicit "
+                        f"values while others rely on the database default. "
+                        f"Either: (a) set the value explicitly on ALL "
+                        f"instances, (b) omit it from ALL instances to use "
+                        f"the database default, or (c) split into separate "
+                        f"bulk_insert() calls."
+                    )
+            if has_default and not has_value:
+                omit_fields.add(field_name)
+        return omit_fields
+
+    @classmethod
+    def _copy_records(
+        cls, instances: Sequence[Self], db_fields: list[str]
+    ) -> list[list[CoercedValue]]:
+        """Coerce field values to the COPY row layout.
+
+        :param instances: Instances being inserted.
+        :param db_fields: Column names in declaration order.
+        :returns: Per-instance value rows, one value per column.
+        """
+        fields_map = cls._meta.fields_map
+        return [
+            [
+                fields_map[name].to_db_value(getattr(inst, name), inst)
+                for name in db_fields
+            ]
+            for inst in instances
+        ]
+
+    @classmethod
     async def bulk_insert(cls, instances: Sequence[Self]) -> int:
         """Insert *instances* via a single asyncpg ``COPY`` statement.
 
@@ -248,66 +350,15 @@ class BaseEventStreamModel(BaseModel):
         if not instances:
             return 0
 
-        pk_attr = cls._meta.pk_attr
-        for inst in instances:
-            if getattr(inst, pk_attr) is None:
-                raise ValueError(
-                    "bulk_insert requires explicit primary keys on every "
-                    "instance (asyncpg COPY cannot use identity defaults); "
-                    "assign ids before calling"
-                )
+        cls._assert_pk_present(instances)
+
+        db_fields = cls._copy_db_fields()
+        omit_fields = cls._omit_db_default_fields(instances, db_fields)
+        db_fields = [name for name in db_fields if name not in omit_fields]
 
         fields_map = cls._meta.fields_map
-        skip = (
-            set(cls._meta.fk_fields)
-            | set(cls._meta.m2m_fields)
-            | cls._meta.backward_fk_fields
-        )
-        # Deterministic declaration order — fields_map is insertion-ordered.
-        db_fields = [
-            name
-            for name in fields_map
-            if name in cls._meta.db_fields and name not in skip
-        ]
-
-        # Mirror Tortoise bulk_create: omit db_default columns that are unset
-        # on every instance (COPY must not bind the DatabaseDefault sentinel),
-        # and refuse mixed usage within a single COPY statement.
-        db_default_fields = [
-            name for name in db_fields if fields_map[name].has_db_default()
-        ]
-        omit_fields: set[str] = set()
-        if db_default_fields:
-            for field_name in db_default_fields:
-                has_default = False
-                has_value = False
-                for inst in instances:
-                    if isinstance(getattr(inst, field_name), DatabaseDefault):
-                        has_default = True
-                    else:
-                        has_value = True
-                    if has_default and has_value:
-                        raise OperationalError(
-                            f"Cannot use bulk_insert() when field {field_name!r} "
-                            f"has db_default and some instances provide explicit "
-                            f"values while others rely on the database default. "
-                            f"Either: (a) set the value explicitly on ALL "
-                            f"instances, (b) omit it from ALL instances to use "
-                            f"the database default, or (c) split into separate "
-                            f"bulk_insert() calls."
-                        )
-                if has_default and not has_value:
-                    omit_fields.add(field_name)
-        db_fields = [name for name in db_fields if name not in omit_fields]
         columns = [_field_db_column(fields_map[name], name) for name in db_fields]
-
-        records: list[list[CoercedValue]] = []
-        for inst in instances:
-            values: list[CoercedValue] = [
-                fields_map[name].to_db_value(getattr(inst, name), inst)
-                for name in db_fields
-            ]
-            records.append(values)
+        records = cls._copy_records(instances, db_fields)
 
         conn = connections.get("default")
         async with conn.acquire_connection() as raw:

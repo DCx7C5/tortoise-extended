@@ -11,7 +11,7 @@ Usage::
     paths = await all_paths(NodeModel, EdgeModel, from_id=1, to_id=42, max_hops=5)
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict, cast
 from uuid import UUID
 
 from tortoise import connections
@@ -21,6 +21,92 @@ from tortoise_extended.expressions._edge_filter import et_clause as _et_clause
 
 if TYPE_CHECKING:
     from tortoise.models import Model
+
+
+class PathRow(TypedDict):
+    """One result row from a recursive-CTE path query.
+
+    ``path_ids`` / ``path_names`` are parallel PostgreSQL arrays; ``hops``
+    is the path length.
+    """
+
+    path_ids: list[int | str]
+    path_names: list[str]
+    hops: int
+
+
+def _as_path_row(row: RowMapping | PathRow) -> PathRow:
+    """Narrow a raw result row to :class:`PathRow`.
+
+    asyncpg returns PostgreSQL arrays as Python lists, so the concrete
+    ``list[int | str]`` / ``list[str]`` shapes are guaranteed by the query.
+
+    :param row: Raw row from ``execute_query``.
+    :returns: The same row, statically narrowed.
+    """
+    return cast(PathRow, row)
+
+
+def _walk_cte(node_table: str, edge_table: str, et_clause: str) -> str:
+    """Build the shared recursive-CTE walk used by pathfinding queries.
+
+    Walks the edge table from the anchor node (``$1``) up to ``$2`` hops,
+    tracking ``path_ids`` / ``path_names`` arrays and rejecting revisits.
+    The optional ``et_clause`` (already parameterized) restricts the edge
+    type; its placeholder offset is baked in by the caller.
+
+    :param node_table: Node table name.
+    :param edge_table: Edge table name.
+    :param et_clause: Optional edge-type filter fragment (empty when unused).
+    :returns: The ``WITH RECURSIVE paths AS (...)`` statement body.
+    """
+    return f"""
+        WITH RECURSIVE paths AS (
+            SELECT
+                n.id, n.name, n.depth,
+                ARRAY[n.id] AS path_ids,
+                ARRAY[n.name::text] AS path_names,
+                0 AS hops
+            FROM {node_table} n
+            WHERE n.id = $1
+
+            UNION
+
+            SELECT
+                n.id, n.name, n.depth,
+                p.path_ids || n.id,
+                p.path_names || n.name,
+                p.hops + 1
+            FROM paths p
+            JOIN {edge_table} e ON (
+                e.source_id = p.id
+                OR (e.is_bidirectional AND e.target_id = p.id)
+            )
+            JOIN {node_table} n ON (
+                (e.source_id = p.id AND n.id = e.target_id)
+                OR (e.is_bidirectional AND e.target_id = p.id AND n.id = e.source_id)
+            )
+            WHERE p.hops < $2
+            AND NOT (n.id = ANY(p.path_ids))
+            {et_clause}
+        )
+    """
+
+
+def _path_from_row(row: PathRow, *, strip_closing: bool = False) -> list[RowMapping]:
+    """Convert a pathfinding result row into a list of node dicts.
+
+    :param row: Result row with parallel ``path_ids`` / ``path_names`` arrays.
+    :param strip_closing: Drop the trailing entry — used for cycles, whose
+        walk repeats the start node to close the loop.
+    :returns: ``[{"id": ..., "name": ...}, ...]`` node list.
+    """
+    ids = row["path_ids"]
+    names = row["path_names"]
+    if strip_closing:
+        ids = ids[:-1]
+        names = names[:-1]
+    return [{"id": pid, "name": pname} for pid, pname in zip(ids, names, strict=False)]
 
 
 async def shortest_path(
@@ -61,35 +147,7 @@ async def shortest_path(
     et_clause, et_params = _et_clause(edge_type, 4)
 
     sql = f"""
-        WITH RECURSIVE paths AS (
-            SELECT
-                n.id, n.name, n.depth,
-                ARRAY[n.id] AS path_ids,
-                ARRAY[n.name::text] AS path_names,
-                0 AS hops
-            FROM {node_table} n
-            WHERE n.id = $1
-
-            UNION
-
-            SELECT
-                n.id, n.name, n.depth,
-                p.path_ids || n.id,
-                p.path_names || n.name,
-                p.hops + 1
-            FROM paths p
-            JOIN {edge_table} e ON (
-                e.source_id = p.id
-                OR (e.is_bidirectional AND e.target_id = p.id)
-            )
-            JOIN {node_table} n ON (
-                (e.source_id = p.id AND n.id = e.target_id)
-                OR (e.is_bidirectional AND e.target_id = p.id AND n.id = e.source_id)
-            )
-            WHERE p.hops < $2
-            AND NOT (n.id = ANY(p.path_ids))
-            {et_clause}
-        )
+        {_walk_cte(node_table, edge_table, et_clause)}
         SELECT path_ids, path_names, hops
         FROM paths
         WHERE id = $3
@@ -102,11 +160,7 @@ async def shortest_path(
     _, results = await conn.execute_query(sql, params)
     if not results:
         return None
-    row = results[0]
-    return [
-        {"id": pid, "name": pname}
-        for pid, pname in zip(row["path_ids"], row["path_names"], strict=False)
-    ]
+    return _path_from_row(_as_path_row(results[0]))
 
 
 async def all_paths(
@@ -149,35 +203,7 @@ async def all_paths(
     et_clause, et_params = _et_clause(edge_type, 5)
 
     sql = f"""
-        WITH RECURSIVE paths AS (
-            SELECT
-                n.id, n.name, n.depth,
-                ARRAY[n.id] AS path_ids,
-                ARRAY[n.name::text] AS path_names,
-                0 AS hops
-            FROM {node_table} n
-            WHERE n.id = $1
-
-            UNION
-
-            SELECT
-                n.id, n.name, n.depth,
-                p.path_ids || n.id,
-                p.path_names || n.name,
-                p.hops + 1
-            FROM paths p
-            JOIN {edge_table} e ON (
-                e.source_id = p.id
-                OR (e.is_bidirectional AND e.target_id = p.id)
-            )
-            JOIN {node_table} n ON (
-                (e.source_id = p.id AND n.id = e.target_id)
-                OR (e.is_bidirectional AND e.target_id = p.id AND n.id = e.source_id)
-            )
-            WHERE p.hops < $2
-            AND NOT (n.id = ANY(p.path_ids))
-            {et_clause}
-        )
+        {_walk_cte(node_table, edge_table, et_clause)}
         SELECT DISTINCT path_ids, path_names, hops
         FROM paths
         WHERE id = $3
@@ -189,14 +215,7 @@ async def all_paths(
     params: list[int | str | UUID] = [from_id, max_hops, to_id, max_paths, *et_params]
     _, results = await conn.execute_query(sql, params)
 
-    paths: list[list[RowMapping]] = []
-    for row in results:
-        path = [
-            {"id": pid, "name": pname}
-            for pid, pname in zip(row["path_ids"], row["path_names"], strict=False)
-        ]
-        paths.append(path)
-    return paths
+    return [_path_from_row(_as_path_row(row)) for row in results]
 
 
 async def find_cycles(
@@ -277,15 +296,9 @@ async def find_cycles(
     params: list[int | str] = [max_depth, *et_params]
     _, results = await conn.execute_query(sql, params)
 
-    cycles: list[list[RowMapping]] = []
-    for row in results:
+    return [
         # The closing start node is repeated at the end of the walk —
         # strip it so the printed cycle reads "a → b → a".
-        path_ids = row["path_ids"][:-1]
-        path_names = row["path_names"][:-1]
-        cycle = [
-            {"id": cid, "name": cname}
-            for cid, cname in zip(path_ids, path_names, strict=False)
-        ]
-        cycles.append(cycle)
-    return cycles
+        _path_from_row(_as_path_row(row), strip_closing=True)
+        for row in results
+    ]
