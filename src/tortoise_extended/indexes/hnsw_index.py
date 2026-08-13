@@ -102,6 +102,13 @@ class HNSWIndex(Index):
 
     @override
     def describe(self) -> dict[str, RowValue]:
+        """Return the index definition as a serializable dict.
+
+        Extends the base description with the HNSW build parameters.
+
+        :returns: Dict of index metadata including ``m``, ``ef_construction``
+            and ``dist_metric``.
+        """
         desc = super().describe()
         desc["m"] = self.m
         desc["ef_construction"] = self.ef_construction
@@ -110,6 +117,14 @@ class HNSWIndex(Index):
 
     @override
     def deconstruct(self) -> tuple[str, list[RowValue], dict[str, RowValue]]:
+        """Deconstruct the index into a path, args and kwargs.
+
+        Used by the migration writer to serialize the index definition.
+        Includes ``m``, ``ef_construction`` and ``dist_metric`` so the
+        definition round-trips exactly.
+
+        :returns: ``(import_path, args, kwargs)`` tuple.
+        """
         path, args, kwargs = super().deconstruct()
         kwargs["m"] = self.m
         kwargs["ef_construction"] = self.ef_construction
@@ -120,6 +135,14 @@ class HNSWIndex(Index):
     def get_sql(
         self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool
     ) -> str:
+        """Generate the ``CREATE INDEX ... USING hnsw`` DDL.
+
+        :param schema_generator: Active schema generator (PostgreSQL only).
+        :param model: The model the index belongs to.
+        :param safe: Whether to emit ``IF NOT EXISTS``.
+        :returns: The index DDL statement.
+        :raises IndexDefinitionError: If the active dialect is not PostgreSQL.
+        """
         # NOTE: Can't use _get_index_sql() — pgvector's USING ... WITH ()
         # syntax doesn't match INDEX_CREATE_TEMPLATE. If Tortoise adds a
         # hook for custom index SQL, migrate to that.
@@ -173,6 +196,13 @@ class IVFFlatIndex(Index):
 
     @override
     def describe(self) -> dict[str, RowValue]:
+        """Return the index definition as a serializable dict.
+
+        Extends the base description with the IVFFlat build parameters.
+
+        :returns: Dict of index metadata including ``lists`` and
+            ``dist_metric``.
+        """
         desc = super().describe()
         desc["lists"] = self.lists
         desc["dist_metric"] = self.dist_metric
@@ -180,6 +210,14 @@ class IVFFlatIndex(Index):
 
     @override
     def deconstruct(self) -> tuple[str, list[RowValue], dict[str, RowValue]]:
+        """Deconstruct the index into a path, args and kwargs.
+
+        Used by the migration writer to serialize the index definition.
+        Includes ``lists`` and ``dist_metric`` so the definition round-trips
+        exactly.
+
+        :returns: ``(import_path, args, kwargs)`` tuple.
+        """
         path, args, kwargs = super().deconstruct()
         kwargs["lists"] = self.lists
         kwargs["dist_metric"] = self.dist_metric
@@ -189,6 +227,14 @@ class IVFFlatIndex(Index):
     def get_sql(
         self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool
     ) -> str:
+        """Generate the ``CREATE INDEX ... USING ivfflat`` DDL.
+
+        :param schema_generator: Active schema generator (PostgreSQL only).
+        :param model: The model the index belongs to.
+        :param safe: Whether to emit ``IF NOT EXISTS``.
+        :returns: The index DDL statement.
+        :raises IndexDefinitionError: If the active dialect is not PostgreSQL.
+        """
         # NOTE: Can't use _get_index_sql() — pgvector's USING ... WITH ()
         # syntax doesn't match INDEX_CREATE_TEMPLATE. If Tortoise adds a
         # hook for custom index SQL, migrate to that.

@@ -68,6 +68,15 @@ class VectorField(Field[list[float]]):
     def to_db_value(
         self, value: list[float] | None, instance: Model | None
     ) -> list[float] | None:
+        """Convert a Python vector to the database representation.
+
+        The vector is stored as a plain float list; pgvector's asyncpg codec
+        serializes it to the wire format at execution time.
+
+        :param value: The vector value, or ``None``.
+        :param instance: The model instance being saved (unused).
+        :returns: A copy of the vector, or ``None``.
+        """
         if value is None:
             return None
         return list(value)
@@ -76,6 +85,16 @@ class VectorField(Field[list[float]]):
     def to_python_value(
         self, value: list[float] | str | bytes | memoryview | tuple[float, ...] | None
     ) -> list[float] | None:
+        """Convert a database value to a Python ``list[float]``.
+
+        Accepts every format the supported drivers produce: asyncpg's
+        ``"[0.1,0.2]"`` text form, the pgvector binary layout (bytes /
+        memoryview, shared by the asyncpg binary codec and the SQLite BLOB
+        fallback), or a native list/tuple.
+
+        :param value: Raw value from the driver, or ``None``.
+        :returns: A float list, or ``None``.
+        """
         if value is None:
             return None
         if isinstance(value, list):

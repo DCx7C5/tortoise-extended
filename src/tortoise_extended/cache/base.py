@@ -22,6 +22,12 @@ class CacheKey:
     """Build cache keys from components."""
 
     def __init__(self, prefix: str = "", separator: str = ":"):
+        """Create a key builder.
+
+        Args:
+            prefix: Leading key component (may be empty).
+            separator: String joining key components.
+        """
         self.prefix = prefix
         self.separator = separator
         self._parts: list[str] = []
@@ -63,6 +69,12 @@ class CacheNamespace:
     """Namespace prefix for cache keys."""
 
     def __init__(self, name: str, separator: str = ":"):
+        """Create a namespace prefix.
+
+        Args:
+            name: Namespace name (leading key component).
+            separator: String joining key components.
+        """
         self.name = name
         self.separator = separator
 
@@ -95,6 +107,12 @@ class JSONSerializer(Serializer):
     """JSON serializer (safe, human-readable)."""
 
     def __init__(self, default: Callable[[CacheValue], CacheValue] | None = None):
+        """Create a JSON serializer.
+
+        Args:
+            default: Fallback callable for values ``json.dumps`` cannot
+                encode directly (defaults to ``str``).
+        """
         self.default = default
 
     @override
@@ -154,6 +172,12 @@ class CacheBackend(ABC):
         default_ttl: int = 300,
         serializer: Serializer | None = None,
     ) -> None:
+        """Create a cache backend.
+
+        Args:
+            default_ttl: Default time-to-live in seconds (0 = no expiry).
+            serializer: Serialization strategy (defaults to JSON).
+        """
         self.default_ttl = default_ttl
         self.serializer = serializer or JSONSerializer()
 

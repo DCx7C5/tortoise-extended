@@ -76,8 +76,11 @@ def cached(
     def decorator(
         func: Callable[P, Awaitable[R]],
     ) -> Callable[P, Awaitable[R]]:
+        """Decorate an async function with cache read/write logic."""
+
         @functools.wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            """Call ``func``, serving cached results when available."""
             nonlocal backend
             if backend is None:
                 from tortoise_extended.cache.redis import RedisCache
@@ -159,8 +162,11 @@ def cached_method(
     def decorator(
         func: Callable[Concatenate[T, P], Awaitable[R]],
     ) -> Callable[Concatenate[T, P], Awaitable[R]]:
+        """Decorate an async method with cache read/write logic."""
+
         @functools.wraps(func)
         async def wrapper(self: T, *args: P.args, **kwargs: P.kwargs) -> R:
+            """Call ``func``, serving cached results when available."""
             from tortoise_extended.cache.redis import RedisCache
 
             backend = RedisCache.get_backend(namespace=namespace, default_ttl=ttl)
@@ -238,8 +244,11 @@ def invalidate(
     def decorator(
         func: Callable[P, Awaitable[R]],
     ) -> Callable[P, Awaitable[R]]:
+        """Decorate an async function with post-call cache invalidation."""
+
         @functools.wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            """Call ``func``, then invalidate matching cache entries."""
             from tortoise_extended.cache.redis import RedisCache
 
             backend = RedisCache.get_backend(namespace=namespace)

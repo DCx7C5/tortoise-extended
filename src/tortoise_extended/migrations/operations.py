@@ -111,6 +111,10 @@ class CreateHypertable(Operation):
 
     @override
     def describe(self) -> str:
+        """Return a human-readable description of the operation.
+
+        :returns: Description string with the table and time-column config.
+        """
         return (
             f"CreateHypertable(table_name={self.table_name!r}, "
             f"time_column={self.time_column!r}, "
@@ -118,6 +122,11 @@ class CreateHypertable(Operation):
         )
 
     def deconstruct(self) -> tuple[str, tuple[()], dict[str, str | bool]]:
+        """Serialize the operation for migration files.
+
+        :returns: ``(class_name, args, kwargs)`` tuple used by the migration
+            writer's generic serializer.
+        """
         return (
             "CreateHypertable",
             (),
@@ -137,6 +146,16 @@ class CreateHypertable(Operation):
         dry_run: bool,
         state_editor: BaseSchemaEditor | None = None,
     ) -> None:
+        """Execute the hypertable conversion on the live database.
+
+        Calls ``create_hypertable`` and, when a non-default chunk interval is
+        configured, adjusts ``timescaledb.chunk_time_interval`` afterwards.
+
+        :param app_label: App the migration belongs to (unused).
+        :param state: Current model state (unused).
+        :param dry_run: Skip execution when ``True``.
+        :param state_editor: Active schema editor for DDL execution.
+        """
         if dry_run or state_editor is None:
             return
 
@@ -157,7 +176,14 @@ class CreateHypertable(Operation):
 
     @override
     def state_forward(self, app_label: str, state: State) -> None:
-        pass
+        """Update the model state for the forward direction.
+
+        The hypertable conversion does not change the model schema, so the
+        state is left untouched.
+
+        :param app_label: App the migration belongs to (unused).
+        :param state: Current model state (unused).
+        """
 
     @override
     async def database_forward(
@@ -167,6 +193,13 @@ class CreateHypertable(Operation):
         new_state: State,
         state_editor: BaseSchemaEditor | None = None,
     ) -> None:
+        """Apply the hypertable conversion during a forward migration.
+
+        :param app_label: App the migration belongs to (unused).
+        :param old_state: State before the migration (unused).
+        :param new_state: State after the migration (unused).
+        :param state_editor: Active schema editor for DDL execution.
+        """
         await self.run(app_label, new_state, False, state_editor)
 
     @override
@@ -177,6 +210,15 @@ class CreateHypertable(Operation):
         new_state: State,
         state_editor: BaseSchemaEditor | None = None,
     ) -> None:
+        """Reverse the conversion by removing the hypertable.
+
+        ``remove_hypertable`` keeps the underlying table and data intact.
+
+        :param app_label: App the migration belongs to (unused).
+        :param old_state: State before the migration (unused).
+        :param new_state: State after the migration (unused).
+        :param state_editor: Active schema editor for DDL execution.
+        """
         if state_editor is None:
             return
         sql = (
@@ -209,12 +251,21 @@ class CreateContinuousAggregate(Operation):
 
     @override
     def describe(self) -> str:
+        """Return a human-readable description of the operation.
+
+        :returns: Description string with the view and refresh config.
+        """
         return (
             f"CreateContinuousAggregate(view_name={self.view_name!r}, "
             f"refresh_interval={self.refresh_interval!r})"
         )
 
     def deconstruct(self) -> tuple[str, tuple[()], dict[str, str]]:
+        """Serialize the operation for migration files.
+
+        :returns: ``(class_name, args, kwargs)`` tuple used by the migration
+            writer's generic serializer.
+        """
         return (
             "CreateContinuousAggregate",
             (),
@@ -234,6 +285,16 @@ class CreateContinuousAggregate(Operation):
         dry_run: bool,
         state_editor: BaseSchemaEditor | None = None,
     ) -> None:
+        """Create the continuous aggregate view and its refresh policy.
+
+        Creates the materialized view with ``timescaledb.continuous`` and
+        registers an ``add_continuous_aggregate_policy`` refresh schedule.
+
+        :param app_label: App the migration belongs to (unused).
+        :param state: Current model state (unused).
+        :param dry_run: Skip execution when ``True``.
+        :param state_editor: Active schema editor for DDL execution.
+        """
         if dry_run or state_editor is None:
             return
 
@@ -256,7 +317,14 @@ class CreateContinuousAggregate(Operation):
 
     @override
     def state_forward(self, app_label: str, state: State) -> None:
-        pass
+        """Update the model state for the forward direction.
+
+        The view creation does not change the model schema, so the state is
+        left untouched.
+
+        :param app_label: App the migration belongs to (unused).
+        :param state: Current model state (unused).
+        """
 
     @override
     async def database_forward(
@@ -266,6 +334,13 @@ class CreateContinuousAggregate(Operation):
         new_state: State,
         state_editor: BaseSchemaEditor | None = None,
     ) -> None:
+        """Create the continuous aggregate during a forward migration.
+
+        :param app_label: App the migration belongs to (unused).
+        :param old_state: State before the migration (unused).
+        :param new_state: State after the migration (unused).
+        :param state_editor: Active schema editor for DDL execution.
+        """
         await self.run(app_label, new_state, False, state_editor)
 
     @override
@@ -276,6 +351,13 @@ class CreateContinuousAggregate(Operation):
         new_state: State,
         state_editor: BaseSchemaEditor | None = None,
     ) -> None:
+        """Reverse the operation by dropping the materialized view.
+
+        :param app_label: App the migration belongs to (unused).
+        :param old_state: State before the migration (unused).
+        :param new_state: State after the migration (unused).
+        :param state_editor: Active schema editor for DDL execution.
+        """
         if state_editor is None:
             return
         sql = f"DROP MATERIALIZED VIEW IF EXISTS {_quote_ident(self.view_name)}"

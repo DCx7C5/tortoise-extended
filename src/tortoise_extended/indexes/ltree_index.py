@@ -92,6 +92,14 @@ class GiSTIndex(Index):
     def get_sql(
         self, schema_generator: BaseSchemaGenerator, model: type[Model], safe: bool
     ) -> str:
+        """Generate the ``CREATE INDEX ... USING gist`` DDL.
+
+        :param schema_generator: Active schema generator (PostgreSQL only).
+        :param model: The model the index belongs to.
+        :param safe: Whether to emit ``IF NOT EXISTS``.
+        :returns: The index DDL statement.
+        :raises IndexDefinitionError: If the active dialect is not PostgreSQL.
+        """
         assert_postgres_dialect(schema_generator, "GiSTIndex")
         self.resolve_expressions(model)
         table_name = _qualify_table_name(
