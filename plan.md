@@ -7,7 +7,10 @@
 
 ## A. Roadmap — Tortoise gaps we can fill
 
-### Tier 1 — model primitives (low risk, no new deps) — `todo`
+### Tier 1 — model primitives (low risk, no new deps) — `done`
+> **Status (2026-08-13):** items 1–3 shipped in `6a308d9` (BaseModel,
+> TimestampMixin, BaseSoftDeleteModel + SoftDeleteQuerySet). `UnifiedIdModel`
+> still waits on Tier 1b (`UUID7Field`).
 1. **Base-model family** (user picks per model, nothing forced):
    - **`BaseModel`** — abstract, `id = BigIntField(primary_key=True)` only.
      Default for internal-only tables (JOIN-fast ints, no extra index).
@@ -24,7 +27,7 @@
 2. **`TimestampMixin`** — `created_at`/`updated_at` (`DatetimeField`,
    `use_tz=True`, `auto_now_add`/`auto_now`). Tortoise only shows this as a
    docs example, never ships it. Stackable with any base above.
-3. **`SoftDeleteModel` + `SoftDeleteQuerySet`** — `deleted_at` column,
+3. **`BaseSoftDeleteModel` + `SoftDeleteQuerySet`** — `deleted_at` column,
    manager auto-filters `deleted_at IS NULL`, helpers `.with_deleted()`,
    `.only_deleted()`, async `.restore()`. Verified: no soft-delete in
    Tortoise core.
@@ -52,13 +55,16 @@
 10. **`.paginate(page, page_size)` → `PageInfo`** — Tortoise has only
     `offset`/`limit`; return items + total + total_pages.
 11. **`bulk_copy(rows)`** — generalized COPY-based bulk insert; infra
-    already exists in `timescale/stream.py` (`EventStreamMixin.bulk_insert`);
+    already exists in `models/event_stream.py` (`BaseEventStreamModel.bulk_insert`);
     expose for any model (PG only).
 
 ### Tier 4 — model behavior — `todo`
-12. **`UserModel` / `AdminUserModel`** — abstract auth kit: `email`,
-    `password_hash`, `is_active`, `is_staff`, `is_superuser`; stdlib-only
-    `scrypt`/`pbkdf2_hmac` hashing (no new deps); `set_password`,
+> **Status (2026-08-14):** item 12 (`BaseUserModel`, Django-style email/password
+> auth with argon2id hashing) shipped; item 13 (optimistic locking) still `todo`.
+12. **`BaseUserModel`** (shipped; supersedes `UserModel`/`AdminUserModel`
+    naming — single-table Django pattern) — abstract auth kit: `email`,
+    `password_hash`, `is_active`, `is_staff`, `is_superuser`; argon2id
+    hashing via `argon2-cffi`; `set_password`,
     `check_password`, `create_user`, `create_superuser` classmethods.
     ⚠️ Tortoise copies base fields **only for abstract classes** — concrete
     inheritance silently yields an empty child table. Provide two documented
@@ -71,14 +77,14 @@
 ### Tier 1b/4 — Python 3.14 stdlib notes
 - **`UUID7Field`** (Tier 1b) should use `uuid.uuid7()` as its default — Python
   3.14 stdlib, time-ordered + sortable (see §F unified-id design).
-- **Auth kit** (Tier 4.12): `scrypt`/`pbkdf2_hmac` are sync CPU-bound — run
-  them in `asyncio.to_thread` inside `set_password`/`check_password`; never
+- **Auth kit** (Tier 4.12): argon2 hashing is sync CPU-bound — run
+  it in `asyncio.to_thread` inside `set_password`/`check_password`; never
   block the event loop with hashing.
 - **Async helpers**: prefer `asyncio.timeout` over `asyncio.wait_for` and
   `asyncio.TaskGroup` over manual gather, in all new async code.
 
 ### Guardrails
-- **Zero new deps** (auth uses stdlib `hashlib`).
+- **Argon2id auth dependency only** (argon2-cffi is the single auth-related runtime dep; no other new deps).
 - **Idempotent monkey-patches** — every new field/index/filter goes through
   `_apply_patches()` discipline + `get_filters_for_field` care.
 - **Don't duplicate what exists** — `Meta.constraints` (check constraints)
@@ -112,7 +118,7 @@ Two shapes, used together (see `doc/guides/project-file-tree.md` for the
 wiring guide):
 
 ```python
-class FileNode(HierarchyModel):
+class FileNode(BaseHierarchyModel):
     """File/dir tree. ltree path = materialized path from project root."""
     project = fields.ForeignKeyField("models.Project", related_name="files",
                                      on_delete=fields.CASCADE)
@@ -128,7 +134,7 @@ class FileNode(HierarchyModel):
                          where=Q(is_directory=False), name="idx_files_only"),
         ]
 
-class FileLink(GraphEdge):
+class FileLink(BaseGraphEdgeModel):
     """Cross-file edges (imports/deps/copies) — arbitrary, not a tree."""
     class Meta:
         table = "file_links"
@@ -137,7 +143,7 @@ class FileLink(GraphEdge):
 - **Why both:** tree structure (subtree moves, ancestors) = ltree;
   cross-references (import graphs, dependency cycles) = edge table. The two
   are joined by `(project, path)` ↔ `(source_id, target_id)`.
-- **`namespace`** (from `HierarchyModel`) mirrors `project.id` → partition
+- **`namespace`** (from `BaseHierarchyModel`) mirrors `project.id` → partition
   safe without joins; every inherited helper filters it automatically.
 - **Moves:** `move_to()` cascades path+depth to descendants and validates
   cycles — this is the invalidation trigger for caches (see D).
@@ -149,14 +155,14 @@ Four layers (Redis):
 | Layer | Key | Invalidation |
 |-------|-----|--------------|
 | Content blob | `fs:{ns}:blob:{content_hash}` | never (immutable, GC/refcount) |
-| Stat/metadata | `fs:{ns}:path:{path}` (`CacheableModel`) | on write/move/delete |
+| Stat/metadata | `fs:{ns}:path:{path}` (`BaseCacheableModel`) | on write/move/delete |
 | Tree listing | `fs:{ns}:tree:{path_prefix}*` (`CachedQuerySet`) | subtree invalidation |
 | Search results | `fs:{ns}:search:{vec_query_hash}` (`@cached`) | on embedding writes |
 
 - **Content cache is rename-safe** — keyed by `content_hash`, not path.
 - **Metadata/listing are path-keyed** — cheap, short TTL, invalidated on
   structural change.
-- `RedisCache.init()` once; `CacheableModel._cache_namespace` per model.
+- `RedisCache.init()` once; `BaseCacheableModel._cache_namespace` per model.
 
 ## D. Path ↔ cache ↔ index relations
 
@@ -184,8 +190,8 @@ Four layers (Redis):
 
 ## E. Order of work
 
-1. Tier 1 (`BaseModel`, `TimestampMixin`, `SoftDeleteModel`) — unlocks the
-   rest (BaseModel becomes the parent of `FileNode`).
+1. ✅ Tier 1 (`BaseModel`, `TimestampMixin`, `BaseSoftDeleteModel`) — landed
+   (`6a308d9`). Unlocks the rest (BaseModel becomes the parent of `FileNode`).
 2. Tier 2 (`PartialIndex`/`ExpressionIndex`, PG fields) — `FileNode` needs
    the partial index in section B.
 3. B + C + D — files/ltree/cache feature as a vertical slice (models, cache
@@ -198,7 +204,7 @@ Four layers (Redis):
 
 **Problem:** per-table `BigInt` auto-increment collides (`FileNode` and
 `User` can both have `id=42`) → a plain `source_id`/`ref_id` column cannot
-safely point at "any table". `GraphEdge` already sidesteps this with UUID
+safely point at "any table". `BaseGraphEdgeModel` already sidesteps this with UUID
 (verified: `id`/`source_id`/`target_id` are `UUIDField`) — the gap is every
 other model.
 
@@ -236,13 +242,13 @@ other model.
   - `UnifiedIdModel` — models referenced cross-table / externally:
     `uid` is the unified id (graph edges, polymorphic refs, cache keys,
     cross-table lookups; path = alias, not identity).
-- **`GraphNode(UnifiedIdModel)` / `GraphEdge(UnifiedIdModel)`** — BigInt pk
+- **`BaseGraphNodeModel(UnifiedIdModel)` / `BaseGraphEdgeModel(UnifiedIdModel)`** — BigInt pk
   **plus** `uid`; the old UUID pk column becomes `uid`. Edges are uniform:
   **`source_id`/`target_id` always reference `uid`** (UUID7) — no
   "depends on target family" polymorphism, and graph nodes gain faster
-  BigInt JOINs consistent with `HierarchyModel`. One-time repo-internal
+  BigInt JOINs consistent with `BaseHierarchyModel`. One-time repo-internal
   code change only (no shipped data to migrate).
-- **`HierarchyModel(BaseModel)`** stays BigInt pk (internal trees); derive
+- **`BaseHierarchyModel(BaseModel)`** stays BigInt pk (internal trees); derive
   `UnifiedIdModel` when cross-tree refs are needed.
 - **Polymorphic refs** (audit/notifications "on any object"):
   `ref_uid: UUID7Field` + `ref_type: CharField` pair — natural on
@@ -256,7 +262,7 @@ class UUID7Field(fields.UUIDField):
 ```
 
 **Upgrades:** no shipped data → no migration. Tier-1b adds `UUID7Field` +
-`UnifiedIdModel`, re-points `GraphNode`/`GraphEdge` (UUID pk → uid, BigInt
+`UnifiedIdModel`, re-points `BaseGraphNodeModel`/`BaseGraphEdgeModel` (UUID pk → uid, BigInt
 pk) and `FileNode` (§B) at it in one repo-internal change.
 
 **Boundaries:**
@@ -264,7 +270,7 @@ pk) and `FileNode` (§B) at it in one repo-internal change.
   unique-index write per insert on hot tables; two-ID confusion on
   internal-only tables). Documented rule: `id` = internal FK target, `uid`
   = cross-table/external references.
-- `EventStreamMixin` keeps its composite pk (`stream_id`, `time_field`);
+- `BaseEventStreamModel` keeps its composite pk (`stream_id`, `time_field`);
   no `uid` on the stream hot path.
 - SQLite fallback (uuid7 stored as string) keeps non-PG tests green.
 - New roadmap item: **Tier 1b — `UUID7Field` + `UnifiedIdModel`** (sits
@@ -278,20 +284,20 @@ Review of the current graph/cache model layer. Fixes below land *before*
 Tier 1 (they touch the bases Tier 1 derives from).
 
 ### G1. HIGH — cache-hit instances are detached `construct()` objects — `done`
-`CacheableModel._from_cache` / `CachedQuerySet._deserialize_results` build
+`BaseCacheableModel._from_cache` / `CachedQuerySet._deserialize_results` build
 instances via `Model.construct()`, which sets `_saved_in_db = False`.
 `.save()` on a cache hit issues an `INSERT` with an existing PK →
 `IntegrityError`. Contract fix: document cache-hit instances as read-only
 proxies + provide a `rehydrate()` helper (DB `get(pk=...)`).
 
-### G2. HIGH — GraphNode/GraphEdge UUID PKs have no default — `done`
+### G2. HIGH — BaseGraphNodeModel/BaseGraphEdgeModel UUID PKs have no default — `done`
 `id = fields.UUIDField(primary_key=True)` without `default=uuid.uuid4`
 forces every `create()` to supply an id manually. Add the default to both
 bases (superseded by `UUID7Field`/`UnifiedIdModel` in Tier 1b, but fix now
 for current users).
 
 ### G3. HIGH — bare UUID adjacency columns, no ON DELETE — `done`
-`GraphNode.parent_id`, `GraphEdge.source_id/target_id` are plain
+`BaseGraphNodeModel.parent_id`, `BaseGraphEdgeModel.source_id/target_id` are plain
 `UUIDField`s — deleting a node silently orphans children/edges. Deliberate
 (polymorphic graph), but add a documented cascade policy + optional
 `pre_delete` guard. Tier 1b re-points these at `uid`.
@@ -308,9 +314,9 @@ Uses `str(f)` for Q objects; reordered but identical filters miss cache.
 Hash a normalized Q structure instead.
 
 ### G6. LOW — docstrings/typing nits — `done`
-- `CacheableModel` docstring shows `class Entity(CacheableModel, models.Model)`
-  — `models.Model` base is redundant; use `class Entity(CacheableModel):`.
-- `GraphEdge.between/outgoing/incoming` annotate `source_id: str` but
+- `BaseCacheableModel` docstring shows `class Entity(BaseCacheableModel, models.Model)`
+  — `models.Model` base is redundant; use `class Entity(BaseCacheableModel):`.
+- `BaseGraphEdgeModel.between/outgoing/incoming` annotate `source_id: str` but
   values are `UUID` — use `UUID`.
 - Single-column indexes (`source_id`, `target_id`, `edge_type`,
   `namespace`) partially overlap the composite trio — acceptable for
@@ -320,14 +326,14 @@ Hash a normalized Q structure instead.
 independent cache-layer fixes; G6 trivia bundled with other edits.
 
 **Status (2026-08-04):** G1–G6 all `done`.
-- G1: `rehydrate()` + read-only-proxy contract on `CacheableModel`.
-- G2: `default=uuid4` on `GraphNode.id` / `GraphEdge.id`.
-- G3: orphan policy documented on `GraphNode`/`GraphEdge`;
-  `GraphNode._block_orphan_delete` opt-in guard raises `GraphError`.
+- G1: `rehydrate()` + read-only-proxy contract on `BaseCacheableModel`.
+- G2: `default=uuid4` on `BaseGraphNodeModel.id` / `BaseGraphEdgeModel.id`.
+- G3: orphan policy documented on `BaseGraphNodeModel`/`BaseGraphEdgeModel`;
+  `BaseGraphNodeModel._block_orphan_delete` opt-in guard raises `GraphError`.
 - G4: shared `cache/_coerce.py` `coerce_cache_value()` (datetime/date/time
-  + int/float/bool) wired into `CacheableModel._from_cache` and
+  + int/float/bool) wired into `BaseCacheableModel._from_cache` and
   `CachedQuerySet._coerce_value`; tests assert typed datetimes.
 - G5: `CachedQuerySet._q_signature()` normalizes Q kwargs/children;
   `_build_cache_key` sorts signatures — reordered identical filters share
   one cache key.
-- G6: `Entity(CacheableModel)` docstring; GraphEdge helpers annotate `UUID`.
+- G6: `Entity(BaseCacheableModel)` docstring; BaseGraphEdgeModel helpers annotate `UUID`.

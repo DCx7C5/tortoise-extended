@@ -57,7 +57,7 @@ TortoiseExtendedError
 
 ## Fail-open cache behavior
 
-Cache reads and writes are fail-open: the cache decorators, `CacheableModel`,
+Cache reads and writes are fail-open: the cache decorators, `BaseCacheableModel`,
 and `CachedQuerySet` catch `CacheError` (covering both domain errors and
 translated Redis infrastructure failures) and fall back to the database —
 they never fail the primary operation because of a cache problem.

@@ -7,7 +7,7 @@ Advanced Redis caching for Tortoise ORM models, queries, and functions.
 The cache module provides:
 
 - **RedisCache** — Singleton connection manager with connection pooling
-- **CacheableModel** — Mixin for model-level caching
+- **BaseCacheableModel** — Abstract base for model-level caching
 - **CachedQuerySet** — QuerySet with automatic caching
 - **@cached** — Function-level caching decorator
 - **@cached_method** — Method-level caching decorator
@@ -29,8 +29,8 @@ uv add 'redis[hiredis]'
 
 ```python
 import tortoise_extended  # noqa: F401 — apply patches
-from tortoise import Tortoise, fields, models
-from tortoise_extended.cache import RedisCache, CacheableModel, cached
+from tortoise import Tortoise, fields
+from tortoise_extended.cache import RedisCache, BaseCacheableModel, cached
 
 # Initialize Redis
 await RedisCache.init(url="redis://localhost:6379/0")
@@ -42,7 +42,7 @@ await Tortoise.init(
 )
 
 # Use cached model
-class Entity(CacheableModel, models.Model):
+class Entity(BaseCacheableModel):
     _cache_ttl = 600
     title = fields.CharField(max_length=512)
 
@@ -99,9 +99,10 @@ backend = RedisCache.get_backend(
 await RedisCache.close()
 ```
 
-## CacheableModel
+## BaseCacheableModel
 
-Mixin for model-level caching.
+Abstract base for model-level caching. Extends `Model` directly — subclass it
+and add your own columns.
 
 ### Class Variables
 
@@ -116,10 +117,10 @@ Mixin for model-level caching.
 ### Usage
 
 ```python
-from tortoise import models, fields
-from tortoise_extended.cache import CacheableModel
+from tortoise import fields
+from tortoise_extended.cache import BaseCacheableModel
 
-class Entity(CacheableModel, models.Model):
+class Entity(BaseCacheableModel):
     _cache_ttl = 600
     _cache_fields = ["title", "entity_type"]
 

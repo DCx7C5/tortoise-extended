@@ -68,12 +68,12 @@ async def vector_search():
 ## 5. Graph Traversal
 
 ```python
-from tortoise_extended import GraphEdge
+from tortoise_extended import BaseGraphEdgeModel
 
 async def graph_traversal():
     entity = await Entity.get(title="Python")
 
-    # Outgoing / incoming relationships via the GraphEdge base-class helpers.
+    # Outgoing / incoming relationships via the BaseGraphEdgeModel base-class helpers.
     # These return QuerySets, so `.all()` is optional:
     outgoing = await Relationship.outgoing(source_id=entity.id).all()
     incoming = await Relationship.incoming(target_id=entity.id).all()
@@ -87,10 +87,10 @@ async def graph_traversal():
     return outgoing, incoming
 ```
 
-> **Note:** `GraphEdge` stores `source_id` / `target_id` as plain UUID columns (no
-> database FK constraint), and `GraphNode` keeps `parent_id` the same way — this
+> **Note:** `BaseGraphEdgeModel` stores `source_id` / `target_id` as plain UUID columns (no
+> database FK constraint), and `BaseGraphNodeModel` keeps `parent_id` the same way — this
 > lets one edge table link nodes of different types. Traverse edges with the
-> `GraphEdge.outgoing(...)` / `GraphEdge.incoming(...)` classmethods above, or use
+> `BaseGraphEdgeModel.outgoing(...)` / `BaseGraphEdgeModel.incoming(...)` classmethods above, or use
 > `GraphTraversal` for multi-hop traversal. If you instead declare real
 > `ForeignKeyField` relations on your own models (as in
 > `doc/architecture/schema.md`), Tortoise's `related_name` back-references work

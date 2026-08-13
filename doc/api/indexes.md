@@ -242,7 +242,7 @@ class Category(models.Model):
 CREATE INDEX "gist_categories_path" ON categories USING gist (path);
 ```
 
-`HierarchyModel` already declares `GiSTIndex(fields=("path",))` on its
+`BaseHierarchyModel` already declares `GiSTIndex(fields=("path",))` on its
 abstract `Meta` — subclass it instead of re-declaring the index.
 
 ### Requirements

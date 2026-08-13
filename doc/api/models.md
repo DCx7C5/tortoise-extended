@@ -1,13 +1,25 @@
-# Model Bases (Tier 1)
+# Model Bases
 
 Reusable abstract model primitives: a `BigInt` primary-key base, a timestamp
-mixin, and a soft-delete model + queryset. All are opt-in — nothing is forced
-on a model that doesn't need it.
+mixin, soft delete, graph node/edge/hierarchy bases, model-level Redis
+caching, and a TimescaleDB event-stream base. All are opt-in — nothing is
+forced on a model that doesn't need it.
 
 ## Imports
 
 ```python
-from tortoise_extended import BaseModel, TimestampMixin, SoftDeleteModel, SoftDeleteQuerySet
+from tortoise_extended import (
+    BaseModel,
+    TimestampMixin,
+    BaseSoftDeleteModel,
+    SoftDeleteQuerySet,
+    BaseGraphNodeModel,
+    BaseGraphEdgeModel,
+    BaseHierarchyModel,
+    BaseCacheableModel,
+    BaseEventStreamModel,
+    BaseUserModel,
+)
 ```
 
 ## Choosing a Base
@@ -17,18 +29,18 @@ from tortoise_extended import BaseModel, TimestampMixin, SoftDeleteModel, SoftDe
 | No extra columns, Tortoise default | plain `tortoise.models.Model` | auto `IntField` pk |
 | 64-bit JOIN-fast primary key | `BaseModel` | internal-only tables |
 | `created_at` / `updated_at` columns | `TimestampMixin` | stackable with any base |
-| Soft delete (`deleted_at`, auto-filtered) | `SoftDeleteModel` | pairs with `SoftDeleteQuerySet` |
-| Graph nodes / edges | `GraphNode` / `GraphEdge` | see [Graph](graph.md) |
-| ltree trees | `HierarchyModel` | see [Graph](graph.md) |
-| Redis row caching | `CacheableModel` | see [Cache](cache.md) |
-| Time-series stream tables | `EventStreamMixin` | composite pk, see [Event Streams](event-streams.md) |
-| Django-style email/password auth | `BaseUserModel` | stdlib scrypt, extends `BaseModel` | stack with `TimestampMixin` |
+| Soft delete (`deleted_at`, auto-filtered) | `BaseSoftDeleteModel` | pairs with `SoftDeleteQuerySet` |
+| Graph nodes / edges | `BaseGraphNodeModel` / `BaseGraphEdgeModel` | see [Graph](graph.md) |
+| ltree trees | `BaseHierarchyModel` | see [Graph](graph.md) |
+| Redis row caching | `BaseCacheableModel` | see [Cache](cache.md) |
+| Time-series stream tables | `BaseEventStreamModel` | composite pk, see [Event Streams](event-streams.md) |
+| Django-style email/password auth | `BaseUserModel` | argon2id, extends `BaseModel` | stack with `TimestampMixin` |
 
-> **Dependency note:** `BaseModel`, `TimestampMixin`, and `SoftDeleteModel` are
-> independent of the graph/cache/timescale features — they extend plain
-> Tortoise `Model`. `GraphNode`, `HierarchyModel`, and `EventStreamMixin`
-> declare their own primary keys; do **not** combine them with `BaseModel`
-> (two `id` definitions = field collision).
+> **Dependency note:** `BaseModel`, `TimestampMixin`, and `BaseSoftDeleteModel`
+> are independent of the graph/cache/timescale features — they extend plain
+> Tortoise `Model`. `BaseGraphNodeModel`, `BaseHierarchyModel`, and
+> `BaseEventStreamModel` declare their own primary keys; do **not** combine
+> them with `BaseModel` (two `id` definitions = field collision).
 >
 > `UnifiedIdModel` (BigInt pk + UUID7 `uid` for cross-table references) is
 > planned but **not yet shipped**.
@@ -103,16 +115,16 @@ Django-style email/password auth base. Extends `BaseModel` (BigInt pk);
 email is the login identifier (normalized to lowercase), admins are
 distinguished by `is_staff` / `is_superuser` flags on the same table
 (single-table Django pattern) rather than a separate admin model. Django's
-`username` field is deliberately omitted. Hashing uses the stdlib only
-(`hashlib.scrypt` + `hmac.compare_digest`) and runs in `asyncio.to_thread` —
-the event loop is never blocked. Zero new dependencies.
+`username` field is deliberately omitted. Hashing uses `argon2-cffi`
+(PHC format) and runs in `asyncio.to_thread` — the event loop is never
+blocked.
 
 ### Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `email` | `CharField(255, unique=True, index=True)` | Login identifier, normalized to lowercase |
-| `password_hash` | `CharField(512)` | scrypt hash, `scrypt$N$r$p$salt_hex$hash_hex` |
+| `password_hash` | `CharField(255)` | argon2id hash, PHC format `$argon2id$v=19$m=...,t=...,p=...$salt$hash` |
 | `is_active` | `BooleanField(default=True)` | Login allowed |
 | `is_staff` | `BooleanField(default=False)` | Admin-area access |
 | `is_superuser` | `BooleanField(default=False)` | All permissions |
@@ -151,12 +163,12 @@ await user.save()
 
 - `create_user`/`create_superuser` raise `ValueError` on empty email/password.
 - Hashing is CPU-bound — always use the async methods; never call
-  `hashlib.scrypt` directly in the event loop.
+  argon2 hashing directly in the event loop.
 - `check_password` returns `False` for an empty/malformed `password_hash`.
 
 ---
 
-## SoftDeleteModel + SoftDeleteQuerySet
+## BaseSoftDeleteModel + SoftDeleteQuerySet
 
 Soft-delete base (`deleted_at` column) paired with a queryset that
 auto-filters `deleted_at IS NULL`. Every `all()` / `filter()` / `get()` /
@@ -187,9 +199,9 @@ excludes soft-deleted rows; opt out per-query with `.with_deleted()` /
 ```python
 from tortoise import fields
 from tortoise_extended.models.base import BaseModel
-from tortoise_extended.models.soft_delete import SoftDeleteModel
+from tortoise_extended.models.soft_delete import BaseSoftDeleteModel
 
-class Account(SoftDeleteModel, BaseModel):
+class Account(BaseSoftDeleteModel, BaseModel):
     name = fields.CharField(max_length=64)
 
     class Meta:

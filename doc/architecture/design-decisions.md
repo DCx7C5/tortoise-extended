@@ -102,7 +102,7 @@ Monkey-patching allows us to extend the ORM without maintaining a fork. The patc
 ### The Problem
 
 Graph-style schemas (nodes + edges + hierarchies) repeat across projects:
-`GraphNode` / `GraphEdge` for entity-relationship graphs, `HierarchyModel`
+`BaseGraphNodeModel` / `BaseGraphEdgeModel` for entity-relationship graphs, `BaseHierarchyModel`
 for ltree-path trees. Hand-rolling them each time leads to inconsistent
 indexes and wrong query patterns.
 
@@ -110,11 +110,11 @@ indexes and wrong query patterns.
 
 Provide three small, well-indexed abstract base models:
 
-- `GraphNode` — `id`, `name`, `type`, `description`, `embedding`, `metadata`
-- `GraphEdge` — `source_id`/`target_id` (plain columns, no FK — one edge
+- `BaseGraphNodeModel` — `id`, `name`, `type`, `description`, `embedding`, `metadata`
+- `BaseGraphEdgeModel` — `source_id`/`target_id` (plain columns, no FK — one edge
   table can link nodes of different types), `type`, `weight`, `metadata`,
   plus `outgoing(...)` / `incoming(...)` queryset helpers
-- `HierarchyModel` — `path` `LTreeField`, `parent_id`, `depth`, `namespace`
+- `BaseHierarchyModel` — `path` `LTreeField`, `parent_id`, `depth`, `namespace`
   with a `GiSTIndex` on `path`
 
 ### Trade-offs
@@ -226,7 +226,7 @@ commitments.
    Practice: the safest production pattern is **both** — a streaming path
    for real-time events and COPY for staged backfill, with a
    validate → stage → cast/dedupe/business-rules → final-table pipeline.
-   `EventStreamMixin.bulk_insert` already covers the COPY side.
+   `BaseEventStreamModel.bulk_insert` already covers the COPY side.
 
 4. **Multi-tenancy** — shared-pooled models need **DB-level RLS
    enforcement**, centralized in Postgres (9.5+; supported on RDS/Aurora),

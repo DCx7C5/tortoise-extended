@@ -256,9 +256,9 @@ re-exports plus the real submodules below). Importing the old paths raises
 - `tortoise_extended.indexes` — `HNSWIndex`, `IVFFlatIndex`, `GiSTIndex`
 - `tortoise_extended.expressions` — `RecursiveCTE`, `GraphTraversal`,
   `HybridSearch`, `shortest_path`, `all_paths`, `find_cycles`
-- `tortoise_extended.graph` — `GraphNode`, `GraphEdge`, `HierarchyModel`
-- `tortoise_extended.timescale` — `HypertableManager`, `EventStreamMixin`, ...
-- `tortoise_extended.cache` — `RedisCache`, `CacheableModel`, `CachedQuerySet`
+- `tortoise_extended.models` — `BaseGraphNodeModel`, `BaseGraphEdgeModel`, `BaseHierarchyModel`
+- `tortoise_extended.timescale` — `HypertableManager`, `BaseEventStreamModel`, ...
+- `tortoise_extended.cache` — `RedisCache`, `BaseCacheableModel`, `CachedQuerySet`
 - `tortoise_extended.migrations.operations` — `CreateHypertable`, ...
 
 **Fix:** import from the actual modules, or use the top-level re-exports:

@@ -1,18 +1,25 @@
-# Graph (Node / Edge / Mixin)
+# Graph (Node / Edge / Hierarchy)
 
 Base classes for graph traversal with adjacency list pattern and ltree hierarchies.
 
 ## Imports
 
 ```python
-from tortoise_extended import GraphNode, GraphEdge, HierarchyModel, GiSTIndex
+from tortoise_extended import (
+    BaseGraphNodeModel,
+    BaseGraphEdgeModel,
+    BaseHierarchyModel,
+    GiSTIndex,
+)
 ```
 
 ---
 
-## GraphNode
+## BaseGraphNodeModel
 
-Abstract base class for graph nodes with adjacency list traversal.
+Abstract base class for graph nodes with adjacency list traversal. Extends
+`Model` directly and declares all of its own fields — subclass it and add only
+your extra columns.
 
 ### Fields
 
@@ -37,17 +44,17 @@ Abstract base class for graph nodes with adjacency list traversal.
 | `descendants(max_depth)` | `QuerySet` | All descendants within depth |
 | `ancestors()` | `QuerySet` | All ancestors, ordered by depth |
 | `siblings()` | `QuerySet` | Siblings (same parent, excluding self) |
-| `path_to_root()` | `list[GraphNode]` | Path from root to this node |
-| `subtree(max_depth)` | `list[GraphNode]` | BFS subtree traversal |
+| `path_to_root()` | `list[BaseGraphNodeModel]` | Path from root to this node |
+| `subtree(max_depth)` | `list[BaseGraphNodeModel]` | BFS subtree traversal |
 | `is_leaf` | `bool` | Property: no children |
 
 ### Usage
 
 ```python
-from tortoise import fields, models
-from tortoise_extended import GraphNode
+from tortoise import fields
+from tortoise_extended import BaseGraphNodeModel
 
-class Category(GraphNode, models.Model):
+class Category(BaseGraphNodeModel):
     description = fields.TextField(default="")
 
     class Meta:
@@ -69,9 +76,10 @@ kids = await laptops.children().all()
 
 ---
 
-## GraphEdge
+## BaseGraphEdgeModel
 
-Abstract base class for typed, weighted graph edges.
+Abstract base class for typed, weighted graph edges. Extends `Model` directly
+and declares all of its own fields.
 
 ### Fields
 
@@ -106,10 +114,10 @@ Abstract base class for typed, weighted graph edges.
 ### Usage
 
 ```python
-from tortoise import fields, models
-from tortoise_extended import GraphEdge
+from tortoise import fields
+from tortoise_extended import BaseGraphEdgeModel
 
-class Relationship(GraphEdge, models.Model):
+class Relationship(BaseGraphEdgeModel):
     class Meta:
         table = "relationships"
 
@@ -129,7 +137,7 @@ any_edge = await Relationship.between_any(node1.id)
 
 ---
 
-## HierarchyModel
+## BaseHierarchyModel
 
 Abstract base class providing tree operations over a PostgreSQL `LTreeField`
 materialized path. It extends `Model` directly and declares **all** of its own
@@ -170,11 +178,11 @@ so `await node.get_ancestors()` executes the query:
 ### Usage
 
 ```python
-from tortoise import fields, models
-from tortoise_extended import HierarchyModel
+from tortoise import fields
+from tortoise_extended import BaseHierarchyModel, GiSTIndex
 
 
-class Category(HierarchyModel):
+class Category(BaseHierarchyModel):
     description = fields.TextField(default="")
 
     class Meta:
@@ -212,7 +220,7 @@ errors = await root.validate_hierarchy()
 
 ## Notes
 
-- `GraphNode` and `GraphEdge` are abstract — subclass them for concrete models
-- QuerySet-returning methods on `GraphEdge` are sync (not async) — they return lazy QuerySets
-- `HierarchyModel.move_to()` updates all descendant paths atomically
+- `BaseGraphNodeModel` and `BaseGraphEdgeModel` are abstract — subclass them for concrete models
+- QuerySet-returning methods on `BaseGraphEdgeModel` are sync (not async) — they return lazy QuerySets
+- `BaseHierarchyModel.move_to()` updates all descendant paths atomically
 - Use `namespace` field for multi-tenant graph isolation

@@ -1,7 +1,7 @@
 # Event Streams (TimescaleDB)
 
-`EventStreamMixin` turns any Tortoise model into a multi-stream time-series
-table: hypertable + optional stream dimension, a composite
+`BaseEventStreamModel` turns any Tortoise model into a multi-stream
+time-series table: hypertable + optional stream dimension, a composite
 `(stream, time DESC)` index, compression/retention policies, COPY-based
 bulk ingestion, and typed ORM-style query helpers that wrap the raw SQL
 Tortoise cannot express (`DISTINCT ON`, `time_bucket`, `first`/`last`).
@@ -11,7 +11,7 @@ Requires PostgreSQL + TimescaleDB.
 ## Quick Reference
 
 ```python
-from tortoise_extended import EventStreamMixin, TimeBucketRow
+from tortoise_extended import BaseEventStreamModel, TimeBucketRow
 ```
 
 ## Model
@@ -19,10 +19,10 @@ from tortoise_extended import EventStreamMixin, TimeBucketRow
 ```python
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise import fields
-from tortoise_extended import EventStreamMixin
+from tortoise_extended import BaseEventStreamModel
 
 
-class Event(EventStreamMixin):
+class Event(BaseEventStreamModel):
     id = fields.BigIntField(primary_key=True)
     created_at = fields.DatetimeField(use_tz=True)
     stream_id = fields.IntField()
@@ -33,7 +33,8 @@ class Event(EventStreamMixin):
         table = "events"
 ```
 
-Configuration is class-level:
+`BaseEventStreamModel` extends `BaseModel` (BigInt `id`); subclass it and add
+your own columns. Configuration is class-level:
 
 | Attribute | Default | Meaning |
 |-----------|---------|---------|

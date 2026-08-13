@@ -12,9 +12,9 @@
 │  │  LTreeField  │  │  GiSTIndex   │  │ GraphTraversal │    │
 │  └──────────────┘  └──────────────┘  └──────────────┘      │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │ HybridSearch │  │  GraphNode / │  │ Timescale +  │      │
-│  │ GraphVector  │  │  GraphEdge / │  │ Redis cache  │      │
-│  │ Search       │  │  Hierarchy   │  │ (optional)   │      │
+│  │ HybridSearch │  │ BaseGraphNode│  │ Timescale +  │      │
+│  │ GraphVector  │  │ BaseGraphEdge│  │ Redis cache  │      │
+│  │ Search       │  │ Hierarchy    │  │ (optional)   │      │
 │  └──────────────┘  └──────────────┘  └──────────────┘      │
 ├─────────────────────────────────────────────────────────────┤
 │                      tortoise-orm                            │
@@ -91,15 +91,17 @@ Results (list[dict])
 | `expressions/pathfinding.py` | Pathfinding | Shortest path, all paths, cycles |
 | `expressions/hybrid_search.py` | Hybrid search | Vector + FTS weighted scoring |
 | `expressions/ltree_filters.py` | ltree operators | Ancestor/descendant/match filters |
-| `graph/node.py` | Graph nodes | Adjacency list base class |
-| `graph/edge.py` | Graph edges | Typed/weighted edge base class |
-| `graph/hierarchy_model.py` | ltree trees | `HierarchyModel` for ltree models |
+| `models/graph_node.py` | Graph nodes | Adjacency list base class |
+| `models/graph_edge.py` | Graph edges | Typed/weighted edge base class |
+| `models/hierarchy_model.py` | ltree trees | `BaseHierarchyModel` for ltree models |
+| `models/cacheable_model.py` | Redis row caching | `BaseCacheableModel` |
+| `models/event_stream.py` | Event streams | `BaseEventStreamModel` (COPY ingestion, rollups) |
 | `timescale/hypertable.py` | Hypertable manager | Create/drop/list hypertables |
 | `timescale/compression.py` | Compression manager | Chunk compression policies |
 | `timescale/retention.py` | Retention policies | Auto-delete old chunks |
 | `timescale/continuous_aggregate.py` | Continuous aggregates | Auto-refresh materialized views |
-| `timescale/stream.py` | Event streams | `EventStreamMixin` (COPY ingestion, rollups) |
-| `cache/` | Redis caching | CacheableModel, CachedQuerySet, decorators |
+| `timescale/stream.py` | Stream helpers | `TimeBucketRow`, COPY/rollup SQL helpers |
+| `cache/` | Redis caching | RedisCache, CachedQuerySet, decorators |
 | `migrations/operations.py` | Migration ops | TimescaleDB operations |
 
 ## Monkey-Patch Strategy

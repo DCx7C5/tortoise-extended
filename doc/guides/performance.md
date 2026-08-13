@@ -193,7 +193,7 @@ LIMIT 10;
 # Initialize Redis once at startup
 from tortoise import Tortoise, fields, models
 from tortoise_extended import RedisCache, cached
-from tortoise_extended.cache import CacheableModel, CachedQuerySet
+from tortoise_extended.cache import BaseCacheableModel, CachedQuerySet
 
 await RedisCache.init(url="redis://localhost:6379/0")
 await Tortoise.init(
@@ -201,8 +201,8 @@ await Tortoise.init(
     modules={"models": ["myapp.models"]},
 )
 
-# Model-level cache (CacheableModel) — auto-invalidated on save/delete
-class Entity(CacheableModel, models.Model):
+# Model-level cache (BaseCacheableModel) — auto-invalidated on save/delete
+class Entity(BaseCacheableModel, models.Model):
     _cache_ttl = 600
     title = fields.CharField(max_length=512)
 

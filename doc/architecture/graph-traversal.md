@@ -277,7 +277,7 @@ SELECT * FROM relationships
 WHERE source_entity_id = $1 AND type = 'member_of';
 ```
 
-The `GraphEdge` base class already indexes `source_id` / `target_id` /
+The `BaseGraphEdgeModel` base class already indexes `source_id` / `target_id` /
 `edge_type`. For custom edge tables, add the same three indexes plus the
 composite `(source_id, edge_type)` pattern above.
 

@@ -89,4 +89,4 @@ CREATE EXTENSION IF NOT EXISTS ltree;
 
 - Input accepts `list[str]` or `str` — stored as dot-separated string
 - Path components must be ≤256 bytes each
-- Use with `HierarchyModel` for tree operations (ancestors, descendants, move_to)
+- Use with `BaseHierarchyModel` for tree operations (ancestors, descendants, move_to)

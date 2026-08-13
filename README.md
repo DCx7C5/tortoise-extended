@@ -45,16 +45,29 @@ entities = await Entity.filter(
 - **`GraphTraversal` + pathfinding helpers** — ancestors, descendants, neighbors, shortest path, all paths, cycle detection
 - **`GraphVectorSearch`** — single-query graph + vector compositor with typed results
 - **`HybridSearch`** — weighted vector + full-text search scoring
-- **`GraphNode` / `GraphEdge` / `HierarchyModel`** — reusable graph model base classes
+- **Model base classes** — `BaseModel` (BigInt pk), `TimestampMixin` (`created_at`/`updated_at`),
+  `BaseSoftDeleteModel` + `SoftDeleteQuerySet` (auto-filtered soft delete), `BaseUserModel`
+  (Django-style email/password auth with argon2id hashing), `BaseGraphNodeModel` /
+  `BaseGraphEdgeModel` / `BaseHierarchyModel`, `BaseCacheableModel`, `BaseEventStreamModel`
 - **`LTreeField` + ltree filters** — PostgreSQL `ltree` hierarchical column type
-- **TimescaleDB** — hypertable/compression/retention/continuous-aggregate managers, `EventStreamMixin`, migration operations
-- **Redis caching** (optional `redis` extra) — `RedisCache`, `CacheableModel`, `CachedQuerySet`, `@cached`
+- **TimescaleDB** — hypertable/compression/retention/continuous-aggregate managers, `BaseEventStreamModel`, migration operations
+- **Redis caching** (optional `redis` extra) — `RedisCache`, `BaseCacheableModel`, `CachedQuerySet`, `@cached`
 
 ## Architecture
 
 ```
 src/tortoise_extended/
 ├── __init__.py              # Public API + monkey-patch application (_apply_patches)
+├── models/
+│   ├── base.py                # BaseModel (BigInt pk)
+│   ├── user.py                # BaseUserModel (Django-style email/password auth)
+│   ├── mixins.py              # TimestampMixin / TimestampEndMixin (created_at/updated_at)
+│   ├── soft_delete.py         # BaseSoftDeleteModel + SoftDeleteQuerySet
+│   ├── graph_node.py          # BaseGraphNodeModel (adjacency-list, UUID pk)
+│   ├── graph_edge.py          # BaseGraphEdgeModel (typed/weighted edges, UUID pks)
+│   ├── hierarchy_model.py     # BaseHierarchyModel (ltree-path hierarchy)
+│   ├── cacheable_model.py     # BaseCacheableModel (model-level Redis caching)
+│   └── event_stream.py        # BaseEventStreamModel (TimescaleDB multi-stream hypertable)
 ├── fields/
 │   ├── vector_field.py      # VectorField (pgvector vector type)
 │   └── ltree_field.py       # LTreeField (PostgreSQL ltree type)
@@ -69,15 +82,11 @@ src/tortoise_extended/
 │   ├── pathfinding.py       # shortest_path, all_paths, find_cycles
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)
 │   └── ltree_filters.py     # ltree query operators
-├── graph/
-│   ├── node.py              # GraphNode base
-│   ├── edge.py              # GraphEdge base
-│   └── hierarchy_model.py   # HierarchyModel (ltree-path hierarchy)
 ├── migrations/
 │   └── operations.py        # CreateHypertable, CreateContinuousAggregate
-├── cache/                   # RedisCache, CacheableModel, CachedQuerySet, decorators
+├── cache/                   # RedisCache, BaseCacheableModel, CachedQuerySet, decorators
 ├── timescale/               # HypertableManager, CompressionManager, RetentionPolicy,
-│                            #   ContinuousAggregateManager, EventStreamMixin
+│                            #   ContinuousAggregateManager, stream helpers
 └── stubs/tortoise-stubs/    # local typing overlay for tortoise-orm
 ```
 
@@ -85,18 +94,18 @@ src/tortoise_extended/
 
 The package ships reusable base classes rather than a fixed GraphRAG schema — compose them into your own models:
 
-- **`GraphNode`** — a `Model` base with a UUID pk, `parent_id` adjacency-list traversal, `depth`, `is_root`, and a `child_count` denormalized degree counter.
-- **`GraphEdge`** — a `Model` base with `source_id` / `target_id` directed edges, `edge_type`, and `weight`.
-- **`HierarchyModel`** — a node base using an `ltree` path column for O(1) ancestor/descendant checks (requires `LTreeField`).
+- **`BaseGraphNodeModel`** — a `Model` base with a UUID pk, `parent_id` adjacency-list traversal, `depth`, `is_root`, and a `child_count` denormalized degree counter.
+- **`BaseGraphEdgeModel`** — a `Model` base with `source_id` / `target_id` directed edges, `edge_type`, and `weight`.
+- **`BaseHierarchyModel`** — a node base using an `ltree` path column for O(1) ancestor/descendant checks (requires `LTreeField`).
 
 ```python
 from tortoise import fields
-from tortoise_extended import GraphNode, GraphEdge
+from tortoise_extended import BaseGraphNodeModel, BaseGraphEdgeModel
 
-class Category(GraphNode):
+class Category(BaseGraphNodeModel):
     name = fields.CharField(max_length=100)
 
-class CategoryLink(GraphEdge):
+class CategoryLink(BaseGraphEdgeModel):
     class Meta:
         table = "category_links"
         # Tortoise does NOT inherit Meta.indexes from the abstract base —
@@ -277,7 +286,7 @@ cte = (
 
 ### `tortoise_extended.expressions.graph_traversal.GraphTraversal`
 
-CTE-based graph traversal over any `GraphNode`-style model + `GraphEdge`-style model pair:
+CTE-based graph traversal over any `BaseGraphNodeModel`-style model + `BaseGraphEdgeModel`-style model pair:
 
 ```python
 from tortoise_extended import GraphTraversal
@@ -409,7 +418,7 @@ parameterized builders/helpers instead of hand-written SQL:
 | Capability | QuerySet support | tortoise-extended |
 |---|---|---|
 | Recursive CTEs (`WITH RECURSIVE`) | none | `RecursiveCTE` builder + `GraphTraversal`/`pathfinding` |
-| `DISTINCT ON` | none | `EventStreamMixin.latest_per_stream` |
+| `DISTINCT ON` | none | `BaseEventStreamModel.latest_per_stream` |
 | `UNION` subqueries | none | recursive steps in `RecursiveCTE` + traversal queries |
 | `ts_rank_cd` ranking | none | `HybridSearch` weighted scoring |
 | `ARRAY[]` literals | none | `pathfinding` path aggregation |

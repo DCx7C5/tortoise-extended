@@ -13,10 +13,11 @@ Complete API documentation for all tortoise-extended modules.
 - **[Graph Vector Search](graph-vector-search.md)** — single-query vector + graph compositor with typed results
 - **[Pathfinding](pathfinding.md)** — Shortest path, all paths, cycle detection
 - **[Hybrid Search](hybrid-search.md)** — Vector + FTS weighted scoring
-- **[Graph (Node/Edge/Hierarchy)](graph.md)** — GraphNode, GraphEdge, HierarchyModel base classes
+- **[Graph (Node/Edge/Hierarchy)](graph.md)** — BaseGraphNodeModel, BaseGraphEdgeModel, BaseHierarchyModel base classes
+- **[Model Bases](models.md)** — BaseModel, BaseUserModel, BaseSoftDeleteModel + SoftDeleteQuerySet, TimestampMixin
 - **[TimescaleDB](timescale.md)** — HypertableManager, CompressionManager, RetentionPolicy, ContinuousAggregateManager
-- **[Event Streams](event-streams.md)** — EventStreamMixin: multi-stream hypertables, COPY ingestion, typed rollups
-- **[Cache (Redis)](cache.md)** — RedisCache, CacheableModel, CachedQuerySet, decorators
+- **[Event Streams](event-streams.md)** — BaseEventStreamModel: multi-stream hypertables, COPY ingestion, typed rollups
+- **[Cache (Redis)](cache.md)** — RedisCache, BaseCacheableModel, CachedQuerySet, decorators
 - **[Exceptions](exceptions.md)** — domain error hierarchy (all derive from `TortoiseExtendedError`)
 - **[Migrations](migrations.md)** — CreateHypertable, CreateContinuousAggregate migration operations
 
@@ -43,7 +44,23 @@ from tortoise_extended import shortest_path, all_paths, find_cycles
 ### Graph
 
 ```python
-from tortoise_extended import GraphNode, GraphEdge, HierarchyModel
+from tortoise_extended import (
+    BaseGraphNodeModel,
+    BaseGraphEdgeModel,
+    BaseHierarchyModel,
+)
+```
+
+### Model Bases
+
+```python
+from tortoise_extended import (
+    BaseModel,
+    TimestampMixin,
+    BaseSoftDeleteModel,
+    SoftDeleteQuerySet,
+    BaseUserModel,
+)
 ```
 
 ### TimescaleDB
@@ -54,14 +71,14 @@ from tortoise_extended.timescale import (
     RetentionPolicy,
     ContinuousAggregateManager,
 )
-from tortoise_extended import EventStreamMixin, TimeBucketRow
+from tortoise_extended import BaseEventStreamModel, TimeBucketRow
 ```
 
 ### Cache
 ```python
 from tortoise_extended import (
     RedisCache,
-    CacheableModel,
+    BaseCacheableModel,
     CachedQuerySet,
     cached,
     cached_method,

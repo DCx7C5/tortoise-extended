@@ -1,12 +1,12 @@
 # Project ↔ File Tree Wiring
 
 How to connect a `ProjectModel` entity to its `ProjectFileTree` using the
-ltree-based `HierarchyModel` base class.
+ltree-based `BaseBaseHierarchyModel` base class.
 
-> **Why not `GraphNode`?** A file tree is a *tree* — it never forks and
-> rejoins. `HierarchyModel` gives you materialized ltree paths backed by a
+> **Why not `BaseBaseGraphNodeModelModel`?** A file tree is a *tree* — it never forks and
+> rejoins. `BaseBaseHierarchyModel` gives you materialized ltree paths backed by a
 > GiST index (`path__ancestor_of` / `path__descendant_of`), `move_to()`,
-> and `validate_hierarchy()`. Use `GraphNode`/`GraphEdge` only when files
+> and `validate_hierarchy()`. Use `BaseBaseGraphNodeModelModel`/`BaseGraphEdgeModel` only when files
 > must participate in arbitrary, cyclic, or cross-project links.
 
 ## Models
@@ -14,7 +14,7 @@ ltree-based `HierarchyModel` base class.
 ```python
 import tortoise_extended  # noqa: F401 — patches must apply first
 from tortoise import fields, models
-from tortoise_extended.graph.hierarchy_model import HierarchyModel
+from tortoise_extended.models.hierarchy_model import BaseHierarchyModel
 from tortoise_extended.indexes.ltree_index import GiSTIndex
 
 
@@ -26,7 +26,7 @@ class ProjectModel(models.Model):
         table = "projects"
 
 
-class ProjectFileTree(HierarchyModel):
+class ProjectFileTree(BaseHierarchyModel):
     """One ltree tree per project."""
 
     project = fields.ForeignKeyField(
@@ -48,7 +48,7 @@ class ProjectFileTree(HierarchyModel):
         )
 ```
 
-The `namespace` column (inherited from `HierarchyModel`) mirrors
+The `namespace` column (inherited from `BaseBaseHierarchyModel`) mirrors
 `project.id` so every tree query stays partition-safe **without a join** —
 all inherited helpers (`get_ancestors`, `get_descendants`, `get_root`)
 filter on it automatically.
