@@ -269,3 +269,65 @@ pk) and `FileNode` (§B) at it in one repo-internal change.
 - SQLite fallback (uuid7 stored as string) keeps non-PG tests green.
 - New roadmap item: **Tier 1b — `UUID7Field` + `UnifiedIdModel`** (sits
   between Tier 1 and Tier 2; §B `FileNode` derives `UnifiedIdModel`).
+
+---
+
+## G. Tortoise ORM review — 2026-08-04 (findings, pre-Tier-1 work)
+
+Review of the current graph/cache model layer. Fixes below land *before*
+Tier 1 (they touch the bases Tier 1 derives from).
+
+### G1. HIGH — cache-hit instances are detached `construct()` objects — `done`
+`CacheableModel._from_cache` / `CachedQuerySet._deserialize_results` build
+instances via `Model.construct()`, which sets `_saved_in_db = False`.
+`.save()` on a cache hit issues an `INSERT` with an existing PK →
+`IntegrityError`. Contract fix: document cache-hit instances as read-only
+proxies + provide a `rehydrate()` helper (DB `get(pk=...)`).
+
+### G2. HIGH — GraphNode/GraphEdge UUID PKs have no default — `done`
+`id = fields.UUIDField(primary_key=True)` without `default=uuid.uuid4`
+forces every `create()` to supply an id manually. Add the default to both
+bases (superseded by `UUID7Field`/`UnifiedIdModel` in Tier 1b, but fix now
+for current users).
+
+### G3. HIGH — bare UUID adjacency columns, no ON DELETE — `done`
+`GraphNode.parent_id`, `GraphEdge.source_id/target_id` are plain
+`UUIDField`s — deleting a node silently orphans children/edges. Deliberate
+(polymorphic graph), but add a documented cascade policy + optional
+`pre_delete` guard. Tier 1b re-points these at `uid`.
+
+### G4. MEDIUM — datetime round-trip returns `str` on cache hits — `done`
+`_to_cache`/`_serialize_results` store `isoformat()` strings;
+`_from_cache`/`_coerce_value` never convert back (only int/float/bool).
+Tests at `tests/test_cache_extended.py:947/1148` codify the string
+behavior — fix means updating those tests to assert typed datetimes.
+Cache hits and DB hits then share one type.
+
+### G5. MEDIUM — `CachedQuerySet._build_cache_key` is Q-order-sensitive — `done`
+Uses `str(f)` for Q objects; reordered but identical filters miss cache.
+Hash a normalized Q structure instead.
+
+### G6. LOW — docstrings/typing nits — `done`
+- `CacheableModel` docstring shows `class Entity(CacheableModel, models.Model)`
+  — `models.Model` base is redundant; use `class Entity(CacheableModel):`.
+- `GraphEdge.between/outgoing/incoming` annotate `source_id: str` but
+  values are `UUID` — use `UUID`.
+- Single-column indexes (`source_id`, `target_id`, `edge_type`,
+  `namespace`) partially overlap the composite trio — acceptable for
+  base-class ergonomics, revisit at scale.
+
+**Order:** G1+G2+G3 before Tier 1 (they touch base models); G4+G5 are
+independent cache-layer fixes; G6 trivia bundled with other edits.
+
+**Status (2026-08-04):** G1–G6 all `done`.
+- G1: `rehydrate()` + read-only-proxy contract on `CacheableModel`.
+- G2: `default=uuid4` on `GraphNode.id` / `GraphEdge.id`.
+- G3: orphan policy documented on `GraphNode`/`GraphEdge`;
+  `GraphNode._block_orphan_delete` opt-in guard raises `GraphError`.
+- G4: shared `cache/_coerce.py` `coerce_cache_value()` (datetime/date/time
+  + int/float/bool) wired into `CacheableModel._from_cache` and
+  `CachedQuerySet._coerce_value`; tests assert typed datetimes.
+- G5: `CachedQuerySet._q_signature()` normalizes Q kwargs/children;
+  `_build_cache_key` sorts signatures — reordered identical filters share
+  one cache key.
+- G6: `Entity(CacheableModel)` docstring; GraphEdge helpers annotate `UUID`.
