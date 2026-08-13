@@ -241,7 +241,7 @@ order:
 
 1. `uv run ruff check src tests` — clean
 2. `uv run basedpyright` — 0 errors (pass `src/tortoise_extended/migrations/` explicitly if touched)
-3. `uv run pytest tests/ -q` — 664 passed, 1 skipped
+3. `uv run pytest tests/ -q` — 764 passed, 1 skipped
 4. **`pycharm_lint_files`** on all changed files (min severity: error)
 5. **`pycharm_get_file_problems`** on all changed files — resolve any remaining IDE-reported issues
 
