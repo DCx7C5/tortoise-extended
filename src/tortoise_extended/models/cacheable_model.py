@@ -1,13 +1,13 @@
-"""CacheableModel mixin for Tortoise ORM models.
+"""BaseCacheableModel mixin for Tortoise ORM models.
 
 Provides automatic Redis caching for model instances.
 
 Usage:
 
     from tortoise import fields
-    from tortoise_extended.cache import CacheableModel
+    from tortoise_extended.models.cacheable_model import BaseCacheableModel
 
-    class Entity(CacheableModel):
+    class Entity(BaseCacheableModel):
         _cache_ttl = 600
         _cache_fields = ["title", "type"]
 
@@ -44,19 +44,18 @@ from tortoise_extended._types import (
     SerializedRecord,
 )
 from tortoise_extended.cache._coerce import coerce_cache_value
+from tortoise_extended.cache.base import CacheBackend, CacheKey, Serializer
+from tortoise_extended.cache.redis import RedisCache
 from tortoise_extended.exceptions import CacheDataError, CacheError
 
 if TYPE_CHECKING:
     from tortoise.backends.base.client import BaseDBAsyncClient
 
-from tortoise_extended.cache.base import CacheBackend, CacheKey, Serializer
-from tortoise_extended.cache.redis import RedisCache
-
 logger = logging.getLogger(__name__)
 
 
-class CacheableModel(models.Model):
-    """Model mixin with automatic Redis caching.
+class BaseCacheableModel(models.Model):
+    """Model base with automatic Redis caching.
 
     Cache hits are **read-only proxies**: they are built with
     ``Model.construct()`` (``_saved_in_db = False``), so calling ``.save()``

@@ -3,8 +3,8 @@
 Tortoise auto-creates ``id = IntField(primary_key=True)`` when a model
 declares no primary key; this base exists for models that want a 64-bit
 primary key instead (JOIN-fast ints, large tables).  It is deliberately
-minimal — use :class:`tortoise_extended.models.UnifiedIdModel` when a
-cross-table/external ``uid`` is needed too.
+minimal — combine it with :class:`~tortoise_extended.models.mixins.TimestampMixin`
+when timestamps are needed too.
 
 Usage::
 
@@ -33,6 +33,7 @@ class BaseModel(Model):
         primary_key=True,
         description="64-bit auto-increment primary key",
     )
+
 
     class Meta:
         abstract = True

@@ -22,7 +22,7 @@ from tortoise_extended.cache.decorators import (
     cached_method,
     invalidate,
 )
-from tortoise_extended.cache.model import CacheableModel
+from tortoise_extended.models.cacheable_model import BaseCacheableModel
 from tortoise_extended.exceptions import CacheError
 
 # Concrete subclasses with the ABC machinery disabled so the *abstract*
@@ -667,14 +667,14 @@ class TestCacheableModelKeyNamespace:
     invalidation must key on the real pk field name."""
 
     def test_get_and_filter_keys_are_distinct(self):
-        key_get = CacheableModel._cache_key_for("get", id="1")
-        key_filter = CacheableModel._cache_key_for("filter", id="1")
+        key_get = BaseCacheableModel._cache_key_for("get", id="1")
+        key_filter = BaseCacheableModel._cache_key_for("filter", id="1")
         assert key_get != key_filter
-        assert key_get == "CacheableModel:get:id:1"
-        assert key_filter == "CacheableModel:filter:id:1"
+        assert key_get == "BaseCacheableModel:get:id:1"
+        assert key_filter == "BaseCacheableModel:filter:id:1"
 
     def test_key_uses_given_pk_field_name(self):
         # Invalidation now passes the model's pk_attr instead of hardcoded "id"
-        key = CacheableModel._cache_key_for("get", uid="abc")
-        assert key == "CacheableModel:get:uid:abc"
-        assert key != CacheableModel._cache_key_for("get", id="abc")
+        key = BaseCacheableModel._cache_key_for("get", uid="abc")
+        assert key == "BaseCacheableModel:get:uid:abc"
+        assert key != BaseCacheableModel._cache_key_for("get", id="abc")

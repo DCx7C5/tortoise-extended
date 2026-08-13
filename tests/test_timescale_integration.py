@@ -17,10 +17,10 @@ from tortoise.exceptions import OperationalError
 from tortoise.models import Model
 
 import tortoise_extended  # noqa: F401 — apply patches
+from tortoise_extended.models import BaseEventStreamModel
 from tortoise_extended.timescale import (
     CompressionManager,
     ContinuousAggregateManager,
-    EventStreamMixin,
     HypertableManager,
     RetentionPolicy,
     TimeBucketRow,
@@ -101,10 +101,9 @@ class TimescaleProbe(Model):
         table = "test_timescale_probe"
 
 
-class StreamEvent(EventStreamMixin):
-    """Multi-stream event model exercising the EventStreamMixin."""
+class StreamEvent(BaseEventStreamModel):
+    """Multi-stream event model exercising the BaseEventStreamModel."""
 
-    id = fields.BigIntField(primary_key=True)
     created_at = fields.DatetimeField(use_tz=True)
     stream_id = fields.IntField()
     value = fields.FloatField()
@@ -115,10 +114,9 @@ class StreamEvent(EventStreamMixin):
         table = "test_stream_events"
 
 
-class AutoStreamEvent(EventStreamMixin):
+class AutoStreamEvent(BaseEventStreamModel):
     """G9 — stream model with ``auto_now_add`` and a ``db_default``-only field."""
 
-    id = fields.BigIntField(primary_key=True)
     created_at = fields.DatetimeField(auto_now_add=True, use_tz=True)
     stream_id = fields.IntField()
     value = fields.FloatField()
@@ -461,7 +459,7 @@ class TestContinuousAggregateManager:
 
 
 # ---------------------------------------------------------------------------
-# 5. EventStreamMixin
+# 5. BaseEventStreamModel
 # ---------------------------------------------------------------------------
 
 

@@ -1,7 +1,7 @@
 """Tests for the Tier-1 base-model family.
 
 Covers ``BaseModel`` (BigInt pk), ``TimestampMixin``, and
-``SoftDeleteModel``/``SoftDeleteQuerySet`` (auto-filtered soft delete).
+``BaseSoftDeleteModel``/``SoftDeleteQuerySet`` (auto-filtered soft delete).
 Runs against SQLite — soft delete is backend-agnostic.
 """
 
@@ -13,7 +13,7 @@ from tortoise import Tortoise
 from tortoise import fields as tf
 from tortoise.exceptions import DoesNotExist
 
-from tortoise_extended.models import BaseModel, SoftDeleteModel, TimestampMixin
+from tortoise_extended.models import BaseModel, BaseSoftDeleteModel, TimestampMixin
 
 # --- Test models ---------------------------------------------------------
 
@@ -36,7 +36,7 @@ class TimestampedThing(TimestampMixin, BaseModel):
         verbose_name_plural = "Timestamped Things"
 
 
-class SoftThing(SoftDeleteModel, BaseModel):
+class SoftThing(BaseSoftDeleteModel, BaseModel):  # pyright: ignore[reportIncompatibleMethodOverride]
     name = tf.CharField(max_length=64)
 
     class Meta:
@@ -102,23 +102,24 @@ class TestTimestampMixin:
         assert thing.created_at <= thing.updated_at
 
 
+async def _seed() -> SoftThing:
+    live = await SoftThing.create(name="live")
+    dead = await SoftThing.create(name="dead")
+    await dead.delete()
+    assert dead.deleted_at is not None
+    return live
+
+
 class TestSoftDeleteModel:
     """Soft delete auto-filtering on every QuerySet entry point."""
 
-    async def _seed(self) -> SoftThing:
-        live = await SoftThing.create(name="live")
-        dead = await SoftThing.create(name="dead")
-        await dead.delete()
-        assert dead.deleted_at is not None
-        return live
-
     async def test_all_excludes_deleted(self) -> None:
-        _ = await self._seed()
+        _ = await _seed()
         rows = await SoftThing.all()
         assert [r.name for r in rows] == ["live"]
 
     async def test_filter_excludes_deleted(self) -> None:
-        _ = await self._seed()
+        _ = await _seed()
         assert await SoftThing.filter(name="dead").count() == 0
         assert await SoftThing.filter(name="live").count() == 1
 
@@ -129,27 +130,27 @@ class TestSoftDeleteModel:
             _ = await SoftThing.get(name="dead")
 
     async def test_count_excludes_deleted(self) -> None:
-        _ = await self._seed()
+        _ = await _seed()
         assert await SoftThing.all().count() == 1
         assert await SoftThing.filter().count() == 1
 
     async def test_exists_excludes_deleted(self) -> None:
-        _ = await self._seed()
+        _ = await _seed()
         assert not await SoftThing.filter(name="dead").exists()
         assert await SoftThing.with_deleted().filter(name="dead").exists()
 
     async def test_with_deleted(self) -> None:
-        _ = await self._seed()
+        _ = await _seed()
         rows = await SoftThing.with_deleted().order_by("name")
         assert [r.name for r in rows] == ["dead", "live"]
 
     async def test_only_deleted(self) -> None:
-        _ = await self._seed()
+        _ = await _seed()
         rows = await SoftThing.only_deleted()
         assert [r.name for r in rows] == ["dead"]
 
     async def test_update_excludes_deleted(self) -> None:
-        _ = await self._seed()
+        _ = await _seed()
         _ = await SoftThing.filter(name="dead").update(name="dead2")
         assert await SoftThing.with_deleted().filter(name="dead2").count() == 0
         assert await SoftThing.with_deleted().filter(name="dead").count() == 1
@@ -171,13 +172,13 @@ class TestSoftDeleteModel:
         assert await SoftThing.all().count() == 2
 
     async def test_hard_delete(self) -> None:
-        _ = await self._seed()
+        _ = await _seed()
         deleted = await SoftThing.with_deleted().hard_delete()
         assert deleted == 2
         assert await SoftThing.with_deleted().count() == 0
 
     async def test_queryset_clone_keeps_mode(self) -> None:
-        _ = await self._seed()
+        _ = await _seed()
         # Filtering after with_deleted() must not re-inject the live filter.
         rows = await SoftThing.with_deleted().filter(name="dead")
         assert [r.name for r in rows] == ["dead"]

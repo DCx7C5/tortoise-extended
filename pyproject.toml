@@ -9,6 +9,7 @@ dependencies = [
     "tortoise-orm-stubs>=1.0.2",
     "pypika-tortoise>=0.6.5,<0.7",
     "msgspec>=0.21.0",
+    "argon2-cffi>=25.1.0",
 ]
 
 [project.optional-dependencies]

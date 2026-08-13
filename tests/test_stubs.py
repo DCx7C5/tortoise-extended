@@ -1,11 +1,15 @@
-"""Regression guards for the local ``tortoise-stubs`` typing overlay.
+"""Regression guards for the local ``stubs`` typing overlay.
 
-The overlay lives in ``src/tortoise_extended/stubs/`` and is exercised by
-basedpyright via the ``stubPath`` setting in ``pyrightconfig.json``. ``.pyi``
-files are never executed, so pytest line coverage cannot touch them — the
-meaningful coverage measure is **declaration coverage**: every tortoise symbol
-that ``tortoise_extended`` imports or monkey-patches must be declared by the
-overlay. These tests compute that surface from the source with ``ast`` and
+The overlay lives at ``src/tortoise_extended/stubs/tortoise-stubs/``
+(``.pyi`` files, one per overlaid module). basedpyright resolves it via the
+``stubPath`` setting in ``pyrightconfig.json``, which points at
+``src/tortoise_extended/stubs`` — the PEP 561 ``-stubs`` suffix on the inner
+directory name makes pyright treat it as the stub overlay for the ``tortoise``
+package.
+``.pyi`` files are never executed, so pytest line coverage cannot touch them —
+the meaningful coverage measure is **declaration coverage**: every tortoise
+symbol that ``tortoise_extended`` imports or monkey-patches must be declared by
+the overlay. These tests compute that surface from the source with ``ast`` and
 fail fast if a declaration goes missing or the wiring is removed.
 """
 
@@ -130,7 +134,7 @@ class TestStubSymbolCoverage:
             stub_path = TORTOISE_STUBS_DIR / stub_rel
             assert stub_path.is_file(), (
                 f"tortoise_extended imports from {module} but no overlay stub "
-                f"exists at tortoise-stubs/{stub_rel}"
+                f"exists at stubs/{stub_rel}"
             )
             declared = _stub_names(stub_path)
             for symbol in sorted(symbols):
@@ -289,7 +293,7 @@ class TestStubExecutable:
     """
 
     def test_all_overlay_stubs_execute(self) -> None:
-        stub_files = sorted(STUBS_DIR.rglob("*.pyi"))
+        stub_files = sorted(TORTOISE_STUBS_DIR.rglob("*.pyi"))
         assert stub_files, "no stub files found under stubs/"
         _seed_overlay_only_modules()
         failures: list[str] = []
@@ -324,6 +328,8 @@ class TestStubWiring:
     """pyrightconfig.json still points at the stub overlay."""
 
     def test_stub_path_configured(self) -> None:
+        """``stubPath`` points at ``src/tortoise_extended/stubs`` so basedpyright
+        finds the ``tortoise-stubs/`` overlay inside it."""
         config = json.loads(PYRIGHT_CONFIG.read_text(encoding="utf-8"))
         stub_path = Path(config["stubPath"])
         assert stub_path == STUBS_DIR.relative_to(PROJECT_ROOT), config["stubPath"]

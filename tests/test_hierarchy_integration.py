@@ -1,4 +1,4 @@
-"""Integration tests for LTreeField filters and HierarchyModel against live PostgreSQL.
+"""Integration tests for LTreeField filters and BaseHierarchyModel against live PostgreSQL.
 
 Requires the docker stack (see ``docker-compose.dev.yml``): PostgreSQL 18 on
 ``127.0.0.1:5433`` with the ``ltree`` extension, database ``tortoise_test``.
@@ -14,7 +14,7 @@ from tortoise import Tortoise
 
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.exceptions import HierarchyError
-from tortoise_extended.graph.hierarchy_model import HierarchyModel
+from tortoise_extended.models import BaseHierarchyModel
 from tortoise_extended.indexes.ltree_index import GiSTIndex
 
 # ---------------------------------------------------------------------------
@@ -48,8 +48,8 @@ pytestmark = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 
 
-class Category(HierarchyModel):
-    """HierarchyModel subclass under test."""
+class Category(BaseHierarchyModel):
+    """BaseHierarchyModel subclass under test."""
 
     class Meta:
         table = "hierarchy_it_categories"
@@ -169,12 +169,12 @@ class TestLTreeFilters:
 
 
 # ---------------------------------------------------------------------------
-# HierarchyModel methods — the C4 failure surface
+# BaseHierarchyModel methods — the C4 failure surface
 # ---------------------------------------------------------------------------
 
 
 class TestHierarchyModelQueries:
-    """HierarchyModel ancestor/descendant traversal against real PostgreSQL."""
+    """BaseHierarchyModel ancestor/descendant traversal against real PostgreSQL."""
 
     @pytest.mark.asyncio
     async def test_get_ancestors(self) -> None:
@@ -228,7 +228,7 @@ class TestHierarchyModelQueries:
 
 
 class TestHierarchyMutations:
-    """HierarchyModel subtree moves and validation against real PostgreSQL."""
+    """BaseHierarchyModel subtree moves and validation against real PostgreSQL."""
 
     @pytest.mark.asyncio
     async def test_move_to(self) -> None:
@@ -360,7 +360,7 @@ class TestHierarchyMutations:
 
 
 class TestHierarchyEdgeBranches:
-    """Coverage for the defensive/edge branches of HierarchyModel helpers."""
+    """Coverage for the defensive/edge branches of BaseHierarchyModel helpers."""
 
     @pytest.mark.asyncio
     async def test_get_ancestors_empty_path(self) -> None:

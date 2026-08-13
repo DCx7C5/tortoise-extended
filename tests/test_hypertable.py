@@ -71,7 +71,7 @@ class TestCreateContinuousAggregate:
 
 
 class TestBucketParsing:
-    """Unit tests for the EventStreamMixin bucket-width parser (no DB)."""
+    """Unit tests for the BaseEventStreamModel bucket-width parser (no DB)."""
 
     def test_parses_common_units(self) -> None:
         from datetime import timedelta

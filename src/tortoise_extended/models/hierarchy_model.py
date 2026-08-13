@@ -1,9 +1,9 @@
 """Abstract Tortoise ORM model for ltree-based hierarchy operations.
 
-Provides HierarchyModel base class for tree structures using PostgreSQL ltree
-materialized paths combined with adjacency-list fields. Subclasses inherit
-ltree path queries, ancestor/descendant traversal, subtree moves, and
-hierarchy validation — all backed by declared Tortoise fields.
+Provides BaseHierarchyModel base class for tree structures using PostgreSQL
+ltree materialized paths combined with adjacency-list fields. Subclasses
+inherit ltree path queries, ancestor/descendant traversal, subtree moves,
+and hierarchy validation — all backed by declared Tortoise fields.
 
 Requires: PostgreSQL + ``CREATE EXTENSION IF NOT EXISTS ltree;``
 
@@ -11,9 +11,9 @@ Usage::
 
     from tortoise import fields
     from tortoise_extended.exceptions import HierarchyError
-from tortoise_extended.graph.hierarchy_model import HierarchyModel
+    from tortoise_extended.models.hierarchy_model import BaseHierarchyModel
 
-    class Category(HierarchyModel):
+    class Category(BaseHierarchyModel):
         slug = fields.CharField(max_length=50)
 
         class Meta:
@@ -37,10 +37,10 @@ from pypika_tortoise.terms import Function as PypikaFunction
 from tortoise import fields
 from tortoise.expressions import F, Function
 from tortoise.models import Model
-from tortoise.transactions import in_transaction
-from tortoise_extended.exceptions import HierarchyError
 from tortoise.queryset import QuerySet
+from tortoise.transactions import in_transaction
 
+from tortoise_extended.exceptions import HierarchyError
 from tortoise_extended.fields.ltree_field import LTreeField
 from tortoise_extended.indexes.ltree_index import GiSTIndex
 
@@ -111,7 +111,7 @@ def _path_to_str(path: list[str] | str | None) -> str:
 # ── Model ───────────────────────────────────────────────────────────────
 
 
-class HierarchyModel(Model):
+class BaseHierarchyModel(Model):
     """Abstract base for ltree-path hierarchy models.
 
     Combines PostgreSQL ltree materialized paths with adjacency-list columns
@@ -243,7 +243,7 @@ class HierarchyModel(Model):
 
     def get_ancestors(
         self, *, include_self: bool = False, namespace: str | None = None
-    ) -> QuerySet[HierarchyModel] | QuerySet[Self]:
+    ) -> QuerySet[BaseHierarchyModel] | QuerySet[Self]:
         """Return all ancestor nodes from root down to this node's parent.
 
         Uses the ltree ``@>`` (ancestor-of) operator so PostgreSQL can walk
@@ -264,7 +264,7 @@ class HierarchyModel(Model):
         if not path_str:
             return type(self).filter(pk__in=[])
 
-        q: QuerySet[Self] | QuerySet[HierarchyModel] = (
+        q: QuerySet[Self] | QuerySet[BaseHierarchyModel] = (
             type(self)
             .filter(
                 path__ancestor_of=path_str,
@@ -280,7 +280,7 @@ class HierarchyModel(Model):
 
     def get_descendants(
         self, *, include_self: bool = False, namespace: str | None = None
-    ) -> QuerySet[HierarchyModel] | QuerySet[Self]:
+    ) -> QuerySet[BaseHierarchyModel] | QuerySet[Self]:
         """Return all descendant nodes below this node.
 
         Uses the ltree ``<@`` (descendant-of) operator so PostgreSQL can walk
@@ -301,7 +301,7 @@ class HierarchyModel(Model):
         if not path_str:
             return type(self).filter(pk__in=[])
 
-        q: QuerySet[Self] | QuerySet[HierarchyModel] = (
+        q: QuerySet[Self] | QuerySet[BaseHierarchyModel] = (
             type(self)
             .filter(
                 path__descendant_of=path_str,
@@ -315,7 +315,7 @@ class HierarchyModel(Model):
 
         return q
 
-    def get_children(self) -> QuerySet[Self] | QuerySet[HierarchyModel]:
+    def get_children(self) -> QuerySet[Self] | QuerySet[BaseHierarchyModel]:
         """Return direct children — nodes exactly one depth level below.
 
         Uses the adjacency-list ``parent_id`` for a precise one-hop query
@@ -335,7 +335,7 @@ class HierarchyModel(Model):
 
     def get_siblings(
         self, *, include_self: bool = False
-    ) -> QuerySet[Self] | QuerySet[HierarchyModel]:
+    ) -> QuerySet[Self] | QuerySet[BaseHierarchyModel]:
         """Return sibling nodes that share the same parent and depth.
 
         Uses the adjacency-list ``parent_id`` for matching.  Results are
@@ -350,7 +350,7 @@ class HierarchyModel(Model):
         if self.parent_id is None:
             return type(self).filter(pk__in=[])
 
-        q: QuerySet[Self] | QuerySet[HierarchyModel] = (
+        q: QuerySet[Self] | QuerySet[BaseHierarchyModel] = (
             type(self)
             .filter(
                 parent_id=self.parent_id,
@@ -366,7 +366,7 @@ class HierarchyModel(Model):
 
     # ── Tree Queries (async — execute immediately) ───────────────────────
 
-    async def get_root(self) -> HierarchyModel | Self | None:
+    async def get_root(self) -> BaseHierarchyModel | Self | None:
         """Fetch the root node of this node's tree.
 
         Extracts the first ltree label and looks up the node with that exact
@@ -391,7 +391,7 @@ class HierarchyModel(Model):
         )
         return root
 
-    async def get_path_to_root(self) -> list[Self] | list[HierarchyModel]:
+    async def get_path_to_root(self) -> list[Self] | list[BaseHierarchyModel]:
         """Fetch every node on the path from this node up to the root.
 
         Builds intermediate ltree labels from the path string, bulk-fetches

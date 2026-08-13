@@ -21,7 +21,7 @@ from tortoise_extended.cache.base import (
     NullSerializer,
     PickleSerializer,
 )
-from tortoise_extended.cache.model import CacheableModel
+from tortoise_extended.models.cacheable_model import BaseCacheableModel
 from tortoise_extended.cache.queryset import CachedQuerySet
 from tortoise_extended.cache.redis import RedisCache, RedisCacheBackend
 from tortoise_extended._types import CacheValue, RowValue
@@ -711,11 +711,11 @@ class TestRedisCacheBackend:
 
 
 # ---------------------------------------------------------------------------
-# CacheableModel — fake-backend tests (SQLite in-memory, no Redis)
+# BaseCacheableModel — fake-backend tests (SQLite in-memory, no Redis)
 # ---------------------------------------------------------------------------
 
 
-class CacheThing(CacheableModel):
+class CacheThing(BaseCacheableModel):
     """Cacheable model used by the fake-backend tests."""
 
     _cache_ttl = 300
@@ -737,7 +737,7 @@ class CacheCategory(models.Model):
         table = "cache_categories"
 
 
-class CacheArticle(CacheableModel):
+class CacheArticle(BaseCacheableModel):
     """Cacheable model with a ForeignKey to exercise the pk-reduction branch."""
 
     _cache_ttl = 300
@@ -767,7 +767,7 @@ async def _init_cache_db():
 
 
 class TestCacheableModel:
-    """CacheableModel get_cached / filter_cached / invalidation paths."""
+    """BaseCacheableModel get_cached / filter_cached / invalidation paths."""
 
     def setup_method(self) -> None:
         self.backend = MockRedisBackend(default_ttl=300)
@@ -1244,7 +1244,7 @@ class TestCachedQuerySet:
 
 
 class TestCacheDefaultBackend:
-    """CacheableModel/CachedQuerySet default-backend branches."""
+    """BaseCacheableModel/CachedQuerySet default-backend branches."""
 
     @pytest.fixture(autouse=True)
     def _fake_redis(self, monkeypatch):

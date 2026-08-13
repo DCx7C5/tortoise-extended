@@ -2,26 +2,23 @@
 
 Provides:
 - RedisCache: Singleton connection manager with connection pooling
-- CacheableModel: Mixin for model-level caching
 - CachedQuerySet: QuerySet with automatic caching
 - @cached: Function-level caching decorator
 - @cached_method: Method-level caching decorator
 - @invalidate: Cache invalidation utilities
+
+The model-level caching base (``BaseCacheableModel``) lives in
+``tortoise_extended.models.cacheable_model``.
 
 Usage:
 
     import tortoise_extended  # noqa: F401 — apply patches
 
     from tortoise import Tortoise
-    from tortoise_extended.cache import CacheableModel, cached, RedisCache
+    from tortoise_extended.cache import cached, RedisCache
 
     await Tortoise.init(...)
     await RedisCache.init(url="redis://localhost:6379/0")
-
-    class Entity(CacheableModel, models.Model):
-        _cache_ttl = 600
-        title = fields.CharField(max_length=512)
-        ...
 """
 
 from tortoise_extended.cache.base import (
@@ -34,7 +31,6 @@ from tortoise_extended.cache.base import (
     Serializer,
 )
 from tortoise_extended.cache.decorators import cached, cached_method, invalidate
-from tortoise_extended.cache.model import CacheableModel
 from tortoise_extended.cache.queryset import CachedQuerySet
 from tortoise_extended.cache.redis import RedisCache, RedisCacheBackend
 
@@ -42,7 +38,6 @@ __all__ = [
     "CacheBackend",
     "CacheKey",
     "CacheNamespace",
-    "CacheableModel",
     "CachedQuerySet",
     "JSONSerializer",
     "NullSerializer",

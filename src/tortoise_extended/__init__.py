@@ -7,7 +7,7 @@ Monkey-patches tortoise-orm to add:
 - RecursiveCTE, GraphTraversal, pathfinding helpers
 - GraphVectorSearch (single-query vector + graph compositor with typed results)
 - HybridSearch (vector + FTS weighted scoring)
-- GraphNode / GraphEdge / HierarchyModel (graph patterns)
+- BaseGraphNodeModel / BaseGraphEdgeModel / BaseHierarchyModel (graph base models in tortoise_extended.models)
 - LTreeField + ltree filters (hierarchical data)
 - TimescaleDB hypertable migration operations
 - Redis caching (optional)
@@ -36,7 +36,6 @@ from tortoise.filters import FilterInfoDict
 
 from tortoise_extended._types import AsyncpgConnection, RowValue
 from tortoise_extended.cache import (
-    CacheableModel,
     CachedQuerySet,
     RedisCache,
     RedisCacheBackend,
@@ -86,7 +85,6 @@ from tortoise_extended.expressions.pathfinding import (
 from tortoise_extended.expressions.recursive_cte import RecursiveCTE
 from tortoise_extended.fields.ltree_field import LTreeField
 from tortoise_extended.fields.vector_field import VectorField
-from tortoise_extended.graph import GraphEdge, GraphNode, HierarchyModel
 from tortoise_extended.indexes.hnsw_index import HNSWIndex, IVFFlatIndex
 from tortoise_extended.indexes.ltree_index import GiSTIndex
 from tortoise_extended.migrations.operations import (
@@ -94,12 +92,18 @@ from tortoise_extended.migrations.operations import (
     CreateHypertable,
 )
 from tortoise_extended.models import (
+    BaseCacheableModel,
+    BaseEventStreamModel,
+    BaseGraphEdgeModel,
+    BaseGraphNodeModel,
+    BaseHierarchyModel,
     BaseModel,
-    SoftDeleteModel,
+    BaseSoftDeleteModel,
+    BaseUserModel,
     SoftDeleteQuerySet,
     TimestampMixin,
 )
-from tortoise_extended.timescale import EventStreamMixin, TimeBucketRow
+from tortoise_extended.timescale import TimeBucketRow
 
 # ---------------------------------------------------------------------------
 # pgvector codec helpers (module-level so every branch is unit-testable)
@@ -292,29 +296,32 @@ def _apply_patches() -> None:
 
 
 __all__ = [
+    "BaseCacheableModel",
+    "BaseEventStreamModel",
+    "BaseGraphEdgeModel",
+    "BaseGraphNodeModel",
+    "BaseHierarchyModel",
+    "BaseModel",
+    "BaseSoftDeleteModel",
+    "BaseUserModel",
     "CacheBackendNotInitializedError",
     "CacheDataError",
     "CacheError",
     "CacheKeyError",
     "CacheSerializationError",
-    "CacheableModel",
     "CachedQuerySet",
     "CosineDistance",
     "CreateContinuousAggregate",
     "CreateHypertable",
-    "EventStreamMixin",
     "FieldDefinitionError",
     "GiSTIndex",
-    "GraphEdge",
     "GraphError",
-    "GraphNode",
     "GraphTraversal",
     "GraphTraversalError",
     "GraphVectorHit",
     "GraphVectorSearch",
     "HNSWIndex",
     "HierarchyError",
-    "HierarchyModel",
     "HybridSearch",
     "HybridSearchError",
     "IVFFlatIndex",
@@ -329,15 +336,13 @@ __all__ = [
     "RedisCache",
     "RedisCacheBackend",
     "RedisCacheError",
+    "SoftDeleteQuerySet",
+    "TimeBucketRow",
     "TimescaleError",
+    "TimestampMixin",
     "TortoiseExtendedError",
     "VectorField",
     "VectorFieldError",
-    "TimeBucketRow",
-    "BaseModel",
-    "SoftDeleteModel",
-    "SoftDeleteQuerySet",
-    "TimestampMixin",
     "all_paths",
     "cached",
     "cached_method",

@@ -1,14 +1,15 @@
-"""Graph node base class for hierarchical data.
+"""Graph node base model for hierarchical data.
 
-Provides GraphNode base class for graph traversal with adjacency list pattern.
+Provides BaseGraphNodeModel base class for graph traversal with adjacency list
+pattern.
 Requires: PostgreSQL + Tortoise ORM
 
 Usage::
 
     from tortoise import models, fields
-    from tortoise_extended.graph.node import GraphNode
+    from tortoise_extended.models.graph_node import BaseGraphNodeModel
 
-    class Category(GraphNode):
+    class Category(BaseGraphNodeModel):
         name = fields.CharField(max_length=100)
         parent_id = fields.UUIDField(null=True)
         depth = fields.IntField(default=0)
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
     from tortoise.queryset import QuerySet
 
 
-class GraphNode(Model):
+class BaseGraphNodeModel(Model):
     """Base class for graph nodes with adjacency list pattern.
 
     Features:
@@ -43,17 +44,18 @@ class GraphNode(Model):
 
     Orphan policy:
     ``parent_id`` is a bare column with no ``ON DELETE`` clause.  Deleting a
-    node leaves its children (and any edges in ``GraphEdge`` subclasses that
-    reference it) in place with a dangling ``parent_id``.  This is deliberate
-    for polymorphic graphs where the parent and child types may differ, so
-    no automatic cascade is performed.  Set ``_block_orphan_delete = True``
-    on a concrete subclass to make ``delete()`` raise
+    node leaves its children (and any edges in ``BaseGraphEdgeModel``
+    subclasses that reference it) in place with a dangling ``parent_id``.
+    This is deliberate for polymorphic graphs where the parent and child
+    types may differ, so no automatic cascade is performed.  Set
+    ``_block_orphan_delete = True`` on a concrete subclass to make
+    ``delete()`` raise
     :class:`~tortoise_extended.exceptions.GraphError` instead when the node
     still has children.
 
     Usage::
 
-        class Category(GraphNode):
+        class Category(BaseGraphNodeModel):
             name = fields.CharField(max_length=100)
 
             class Meta:

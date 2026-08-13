@@ -1,6 +1,6 @@
 """Unit tests for the tortoise ``BooleanField`` typing overlay.
 
-The local ``tortoise-stubs`` overlay types ``BooleanField`` concretely (null
+The local ``stubs`` overlay types ``BooleanField`` concretely (null
 literal overloads narrow the element type to ``bool`` / ``bool | None``) so
 model declarations like ``fields.BooleanField(default=False)`` are fully
 known under basedpyright strict mode. These tests pin the runtime surface

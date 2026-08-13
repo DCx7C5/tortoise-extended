@@ -2,7 +2,7 @@
 """Type stubs for tortoise.fields.relational.
 
 Completes the stubs that tortoise-orm-stubs omits.  The upstream
-package only provides ``tortoise-stubs/fields/__init__.pyi`` which
+package only provides ``stubs/fields/__init__.pyi`` which
 re-exports from ``tortoise.fields.relational`` — but that module
 has no .pyi, so pyright falls back to the runtime source where
 ModelMeta and _FieldMeta are partially unknown.

@@ -1,14 +1,14 @@
-"""Graph edge base class for typed relationships.
+"""Graph edge base model for typed relationships.
 
-Provides GraphEdge base class for edges between graph nodes with types and weights.
+Provides BaseGraphEdgeModel base class for edges between graph nodes with types and weights.
 Requires: PostgreSQL + Tortoise ORM
 
 Usage::
 
     from tortoise import models, fields
-    from tortoise_extended.graph.edge import GraphEdge
+    from tortoise_extended.models.graph_edge import BaseGraphEdgeModel
 
-    class Relationship(GraphEdge):
+    class Relationship(BaseGraphEdgeModel):
         properties = fields.JSONField(default=dict)
 
         class Meta:
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from tortoise.queryset import QuerySet
 
 
-class GraphEdge(Model):
+class BaseGraphEdgeModel(Model):
     """Base class for graph edges (relationships between nodes).
 
     Features:
@@ -54,7 +54,7 @@ class GraphEdge(Model):
 
     Usage::
 
-        class Relationship(GraphEdge):
+        class Relationship(BaseGraphEdgeModel):
             properties = fields.JSONField(default=dict)
 
             class Meta:

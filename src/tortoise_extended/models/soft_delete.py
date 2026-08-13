@@ -1,26 +1,26 @@
 """Soft-delete model + queryset.
 
-Provides ``SoftDeleteModel`` (a ``deleted_at`` column) and
+Provides ``BaseSoftDeleteModel`` (a ``deleted_at`` column) and
 ``SoftDeleteQuerySet`` (auto-filters ``deleted_at IS NULL``).  Every
 ``all()``/``filter()``/``get()``/``count()``/``exists()``/``update()``/
 ``delete()`` call on the default manager excludes soft-deleted rows; opt out
 per-query with ``.with_deleted()`` or ``.only_deleted()``.
 
 Verified against Tortoise ORM 1.1.7 internals: model entry points funnel
-through ``_db_queryset()`` / ``manager.get_queryset()``, so ``SoftDeleteModel``
-overrides the classmethods and ``SoftDeleteQuerySet`` injects the
-``deleted_at IS NULL`` condition eagerly at construction time.  This is what
-makes ``count()``/``exists()``/``update()``/``delete()`` — which snapshot
-``_q_objects`` instead of going through ``QuerySet._execute`` — honor the
-default filter too.
+through ``_db_queryset()`` / ``manager.get_queryset()``, so
+``BaseSoftDeleteModel`` overrides the classmethods and ``SoftDeleteQuerySet``
+injects the ``deleted_at IS NULL`` condition eagerly at construction time.
+This is what makes ``count()``/``exists()``/``update()``/``delete()`` —
+which snapshot ``_q_objects`` instead of going through
+``QuerySet._execute`` — honor the default filter too.
 
 Usage::
 
     from tortoise import fields
     from tortoise_extended.models.base import BaseModel
-    from tortoise_extended.models.soft_delete import SoftDeleteModel
+    from tortoise_extended.models.soft_delete import BaseSoftDeleteModel
 
-    class Account(SoftDeleteModel, BaseModel):
+    class Account(BaseSoftDeleteModel, BaseModel):
         name = fields.CharField(max_length=64)
 
         class Meta:
@@ -116,7 +116,7 @@ class SoftDeleteQuerySet(QuerySet[MODEL]):
         return await self.with_deleted().delete()
 
 
-class SoftDeleteModel(Model):
+class BaseSoftDeleteModel(Model):
     """Abstract base adding soft-delete behavior via ``deleted_at``.
 
     Attributes:

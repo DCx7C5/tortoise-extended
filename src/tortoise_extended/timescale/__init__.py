@@ -5,8 +5,12 @@ Provides:
 - CompressionManager: Enable and manage compression
 - RetentionPolicy: Automatic data retention
 - ContinuousAggregateManager: Manage continuous aggregates
-- EventStreamMixin: multi-stream hypertable model with COPY ingestion
-  and typed rollup queries (see ``timescale.stream``)
+- Aggregate / TimeBucketRow: typed helpers for the event-stream model (see
+  ``timescale.stream``)
+
+The multi-stream hypertable model itself lives in
+``tortoise_extended.models.event_stream`` (``BaseEventStreamModel``) and
+uses the helpers exported here.
 
 Usage::
 
@@ -15,7 +19,6 @@ Usage::
         CompressionManager,
         RetentionPolicy,
         ContinuousAggregateManager,
-        EventStreamMixin,
     )
 
     # Convert table to hypertable
@@ -50,13 +53,12 @@ from tortoise_extended.timescale.compression import CompressionManager
 from tortoise_extended.timescale.continuous_aggregate import ContinuousAggregateManager
 from tortoise_extended.timescale.hypertable import HypertableManager
 from tortoise_extended.timescale.retention import RetentionPolicy
-from tortoise_extended.timescale.stream import Aggregate, EventStreamMixin, TimeBucketRow
+from tortoise_extended.timescale.stream import Aggregate, TimeBucketRow
 
 __all__ = [
     "Aggregate",
     "CompressionManager",
     "ContinuousAggregateManager",
-    "EventStreamMixin",
     "HypertableManager",
     "RetentionPolicy",
     "TimeBucketRow",

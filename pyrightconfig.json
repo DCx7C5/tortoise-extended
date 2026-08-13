@@ -57,13 +57,11 @@
   "reportUnusedParameter": "warning",
   "reportUnusedExpression": "warning",
   "reportUnusedCallResult": "warning",
-
   "reportUnknownArgumentType": "warning",
   "reportUnknownLambdaType": "warning",
   "reportUnknownMemberType": "warning",
   "reportUnknownParameterType": "warning",
   "reportUnknownVariableType": "warning",
-
   "reportMissingModuleSource": "warning",
   "reportInvalidTypeVarUse": "warning",
   "reportSelfClsParameterName": "warning",
@@ -78,7 +76,6 @@
   "reportImportCycles": "none",
   "reportInvalidAbstractMethod": "error",
   "reportUnsafeMultipleInheritance": "warning",
-
   "reportIncompatibleVariableOverride": "none",
   "reportUninitializedInstanceVariable": "none",
   "reportAny": "none",
@@ -92,9 +89,7 @@
   "reportUntypedNamedTuple": "none",
   "reportCallInDefaultInitializer": "none",
   "reportMissingSuperCall": "error",
-
   "reportImplicitStringConcatenation": "none",
-
   "enableTypeIgnoreComments": false,
   "strictListInference": false,
   "strictDictionaryInference": false,

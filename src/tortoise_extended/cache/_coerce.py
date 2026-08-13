@@ -5,7 +5,8 @@ strings, and without coercion a cache hit exposes ``str`` where a database
 hit exposes ``datetime``.  These helpers restore a field's Python type from
 the serialized representation, using the model field's ``field_type``.
 
-Used by both :class:`~tortoise_extended.cache.model.CacheableModel` and
+Used by both
+:class:`~tortoise_extended.models.cacheable_model.BaseCacheableModel` and
 :class:`~tortoise_extended.cache.queryset.CachedQuerySet` so cache hits and
 database hits expose the same value types.
 """

@@ -1,7 +1,7 @@
 # pyright: reportExplicitAny=false
 """Type stubs for the ``tortoise`` package root (local overlay).
 
-The local ``tortoise-stubs`` overlay REPLACES the installed upstream stubs
+The local ``stubs`` overlay REPLACES the installed upstream stubs
 and the runtime analysis entirely (``stubPath`` overrides do not merge).
 This root stub types the ``Tortoise`` class surface consumed by
 ``tortoise_extended`` and re-exports the submodules the package imports from

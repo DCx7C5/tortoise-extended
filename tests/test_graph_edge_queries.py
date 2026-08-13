@@ -1,4 +1,4 @@
-"""Integration tests for GraphEdge query classmethods against SQLite.
+"""Integration tests for BaseGraphEdgeModel query classmethods against SQLite.
 
 Covers ``between``, ``between_any``, ``outgoing`` and ``incoming`` including the
 optional ``edge_type`` branches (lines previously uncovered).
@@ -10,12 +10,12 @@ import pytest
 from tortoise import Tortoise
 
 import tortoise_extended  # noqa: F401 — apply patches
-from tortoise_extended.graph.edge import GraphEdge
-from tortoise_extended.graph.node import GraphNode
+from tortoise_extended.models import BaseGraphEdgeModel, BaseGraphNodeModel
 
 
-class QueryEdge(GraphEdge):
-    """Concrete GraphEdge subclass used by the SQLite test."""
+
+class QueryEdge(BaseGraphEdgeModel):
+    """Concrete BaseGraphEdgeModel subclass used by the SQLite test."""
 
     class Meta:
         table = "query_edges"
@@ -27,15 +27,15 @@ class QueryEdge(GraphEdge):
         )
 
 
-class QueryNode(GraphNode):
-    """Concrete GraphNode subclass used by the SQLite test."""
+class QueryNode(BaseGraphNodeModel):
+    """Concrete BaseGraphNodeModel subclass used by the SQLite test."""
 
     class Meta:
         table = "query_nodes"
 
 
-class GuardNode(GraphNode):
-    """GraphNode subclass with the orphan-delete guard enabled."""
+class GuardNode(BaseGraphNodeModel):
+    """BaseGraphNodeModel subclass with the orphan-delete guard enabled."""
 
     _block_orphan_delete = True
 
@@ -72,7 +72,7 @@ async def _make_edges() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
 
 
 class TestBetween:
-    """GraphEdge.between() classmethod."""
+    """BaseGraphEdgeModel.between() classmethod."""
 
     @pytest.mark.asyncio
     async def test_without_edge_type(self) -> None:
@@ -96,7 +96,7 @@ class TestBetween:
 
 
 class TestBetweenAny:
-    """GraphEdge.between_any() classmethod (source OR target)."""
+    """BaseGraphEdgeModel.between_any() classmethod (source OR target)."""
 
     @pytest.mark.asyncio
     async def test_matches_both_directions(self) -> None:
@@ -114,7 +114,7 @@ class TestBetweenAny:
 
 
 class TestOutgoing:
-    """GraphEdge.outgoing() classmethod."""
+    """BaseGraphEdgeModel.outgoing() classmethod."""
 
     @pytest.mark.asyncio
     async def test_outgoing_all(self) -> None:
@@ -131,7 +131,7 @@ class TestOutgoing:
 
 
 class TestIncoming:
-    """GraphEdge.incoming() classmethod."""
+    """BaseGraphEdgeModel.incoming() classmethod."""
 
     @pytest.mark.asyncio
     async def test_incoming_all(self) -> None:
@@ -154,7 +154,7 @@ class TestIncoming:
 
 
 class TestPathToRootCycleGuard:
-    """GraphNode.path_to_root() defensive cycle guard."""
+    """BaseGraphNodeModel.path_to_root() defensive cycle guard."""
 
     @pytest.mark.asyncio
     async def test_cycle_terminates(self) -> None:
@@ -171,7 +171,7 @@ class TestPathToRootCycleGuard:
 
 
 class TestOrphanDeleteGuard:
-    """GraphNode._block_orphan_delete orphan policy guard."""
+    """BaseGraphNodeModel._block_orphan_delete orphan policy guard."""
 
     @pytest.mark.asyncio
     async def test_delete_blocked_with_children(self) -> None:

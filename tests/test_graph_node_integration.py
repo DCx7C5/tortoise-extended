@@ -1,4 +1,4 @@
-"""Integration tests for GraphNode helper methods against live PostgreSQL.
+"""Integration tests for BaseGraphNodeModel helper methods against live PostgreSQL.
 
 Requires the docker stack (see ``docker-compose.dev.yml``): PostgreSQL 18 on
 ``127.0.0.1:5433``, database ``tortoise_test``.
@@ -14,7 +14,7 @@ import pytest
 from tortoise import Tortoise
 
 import tortoise_extended  # noqa: F401 — apply patches
-from tortoise_extended.graph.node import GraphNode
+from tortoise_extended.models import BaseGraphNodeModel
 
 
 # ---------------------------------------------------------------------------
@@ -48,8 +48,8 @@ pytestmark = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 
 
-class ItGraphNode(GraphNode):
-    """GraphNode subclass under test."""
+class ItGraphNode(BaseGraphNodeModel):
+    """BaseGraphNodeModel subclass under test."""
 
     class Meta:
         table = "graph_node_it_nodes"
@@ -133,7 +133,7 @@ async def _make_tree() -> tuple[ItGraphNode, ItGraphNode, ItGraphNode, ItGraphNo
 
 
 # ---------------------------------------------------------------------------
-# GraphNode helpers
+# BaseGraphNodeModel helpers
 # ---------------------------------------------------------------------------
 
 

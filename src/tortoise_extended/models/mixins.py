@@ -39,3 +39,17 @@ class TimestampMixin:
         use_tz=True,
         description="Last modification timestamp (timezone-aware)",
     )
+
+
+class TimestampEndMixin:
+    """Add ``created_at``/``ended_at`` timestamp columns to a model."""
+    created_at = fields.DatetimeField(
+        auto_now_add=True,
+        use_tz=True,
+        description="Creation timestamp (timezone-aware)",
+    )
+    ended_at = fields.DatetimeField(
+        auto_now=True,
+        use_tz=True,
+        description="Last modification timestamp (timezone-aware)",
+    )

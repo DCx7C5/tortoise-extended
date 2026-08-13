@@ -4,7 +4,7 @@ Covers all input types: None, empty string, empty list, string, list of
 strings, and falsy values.
 """
 
-from tortoise_extended.graph.hierarchy_model import _path_to_str
+from tortoise_extended.models.hierarchy_model import _path_to_str
 
 
 class TestPathToStr:

@@ -1,7 +1,7 @@
 # pyright: reportExplicitAny=false
 """Type stubs for ``tortoise.models``.
 
-The local ``tortoise-stubs`` overlay REPLACES the upstream stubs and the
+The local ``stubs`` overlay REPLACES the upstream stubs and the
 runtime analysis entirely (``stubPath`` overrides do not merge — verified in
 scratch experiments). Therefore this file must be self-sufficient and mirror
 the fully-annotated runtime module.

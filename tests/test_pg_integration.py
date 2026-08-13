@@ -142,7 +142,7 @@ class VecNode(Model):
 
 
 class VecEdge(Model):
-    """Directed graph edge matching the GraphEdge shape (no FK constraints)."""
+    """Directed graph edge matching the BaseGraphEdgeModel shape (no FK constraints)."""
 
     id = fields.IntField(primary_key=True)
     source_id = fields.IntField()
@@ -820,12 +820,12 @@ class TestExtensionPresence:
 
 
 # ---------------------------------------------------------------------------
-# 9. Cache — CacheableModel with real DB
+# 9. Cache — BaseCacheableModel with real DB
 # ---------------------------------------------------------------------------
 
 
 class TestCacheableModelIntegration:
-    """Verify CacheableModel _from_cache / _to_cache roundtrips through PG."""
+    """Verify BaseCacheableModel _from_cache / _to_cache roundtrips through PG."""
 
     @pytest.mark.asyncio
     async def test_cache_roundtrip(self) -> None:
