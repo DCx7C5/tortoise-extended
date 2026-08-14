@@ -88,6 +88,25 @@ class Article(Model):
         table = "test_articles"
 
 
+class HalfChunk(Model):
+    """Chunk with a half-precision (halfvec) embedding column."""
+
+    id = fields.IntField(primary_key=True)
+    text = fields.CharField(max_length=255)
+    embedding = VectorField(dimensions=3, vector_type="halfvec")
+
+    class Meta:
+        table = "test_half_chunks"
+        indexes = [
+            HNSWIndex(
+                fields=("embedding",),
+                m=8,
+                ef_construction=100,
+                dist_metric="halfvec_cosine_ops",
+            ),
+        ]
+
+
 class Node(Model):
     """Graph node for recursive CTE tests."""
 
@@ -177,6 +196,7 @@ async def _init_db():
         "test_documents",
         "test_chunks",
         "test_articles",
+        "test_half_chunks",
         "test_nodes",
     ):
         await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
@@ -233,6 +253,48 @@ class TestVectorFieldIntegration:
         conn = Tortoise.get_connection("default")
         row = await conn.execute_query("SELECT '[1,2,3]'::vector::text AS v")
         assert row[1][0]["v"] == "[1,2,3]"
+
+
+class TestHalfvecIntegration:
+    """Verify halfvec columns roundtrip and index through real pgvector."""
+
+    @pytest.mark.asyncio
+    async def test_column_type(self) -> None:
+        """Schema exposes a halfvec column, not a plain vector."""
+        conn = Tortoise.get_connection("default")
+        row = await conn.execute_query(
+            "SELECT udt_name FROM information_schema.columns "
+            "WHERE table_name = 'test_half_chunks' AND column_name = 'embedding'"
+        )
+        assert row[1][0]["udt_name"] == "halfvec"
+
+    @pytest.mark.asyncio
+    async def test_insert_and_retrieve(self) -> None:
+        chunk = await HalfChunk.create(text="half", embedding=[0.1, 0.2, 0.3])
+        fetched = await HalfChunk.get(id=chunk.id)
+        assert fetched.embedding is not None
+        # halfvec stores half-precision floats — allow rounding tolerance
+        assert len(fetched.embedding) == 3
+        assert fetched.embedding[0] == pytest.approx(0.1, abs=1e-3)
+
+    @pytest.mark.asyncio
+    async def test_hnsw_halfvec_index_exists(self) -> None:
+        conn = Tortoise.get_connection("default")
+        row = await conn.execute_query(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE tablename = 'test_half_chunks' AND indexdef LIKE '%USING hnsw%'"
+        )
+        assert len(row[1]) == 1
+        assert "halfvec_cosine_ops" in row[1][0]["indexdef"]
+
+    @pytest.mark.asyncio
+    async def test_halfvec_distance_filter(self) -> None:
+        """__l2_distance filter works against a halfvec column."""
+        await HalfChunk.create(text="near", embedding=[1.0, 0.0, 0.0])
+        await HalfChunk.create(text="far", embedding=[0.0, 1.0, 0.0])
+        near = await HalfChunk.filter(embedding__l2_distance=([1.0, 0.0, 0.0], 1.0))
+        names = {c.text for c in near}
+        assert "near" in names
 
 
 # ---------------------------------------------------------------------------

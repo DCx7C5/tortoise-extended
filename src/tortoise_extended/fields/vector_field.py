@@ -5,12 +5,19 @@ No monkey-patch conflicts.
 """
 
 import struct
-from typing import Unpack, override
+from typing import Literal, Unpack, override
 
 from tortoise.fields.base import Field
 from tortoise.models import Model
 
 from tortoise_extended._types import FieldDefaultValue, FieldInitKwargs
+
+VectorType = Literal["vector", "halfvec"]
+"""Supported pgvector column types.
+
+``halfvec`` stores half-precision (2-byte) floats — ~2x storage savings for
+a modest precision trade-off, identical ``list[float]`` Python API.
+"""
 
 
 class VectorField(Field[list[float]]):
@@ -20,6 +27,9 @@ class VectorField(Field[list[float]]):
     to be created in the database.
 
     :param dimensions: Number of dimensions in the vector.
+    :param vector_type: ``"vector"`` (full precision, default) or
+        ``"halfvec"`` (half-precision 2-byte floats). Both expose the same
+        ``list[float]`` Python value; ``halfvec`` halves storage.
     :param null: Allow NULL values.
     :param default: Default vector value.
     :param description: Column comment.
@@ -28,10 +38,14 @@ class VectorField(Field[list[float]]):
 
         class Chunk(Model):
             embedding = VectorField(dimensions=1536)
+
+        class CompactChunk(Model):
+            embedding = VectorField(dimensions=1536, vector_type="halfvec")
     """
 
     SQL_TYPE = "vector"
     indexable = True
+    vector_type: VectorType = "vector"
 
     class _db_postgres:
         def __init__(self, field: VectorField) -> None:
@@ -40,8 +54,8 @@ class VectorField(Field[list[float]]):
         @property
         def SQL_TYPE(self) -> str:
             if self.field.dimensions:
-                return f"vector({self.field.dimensions})"
-            return "vector"
+                return f"{self.field.vector_type}({self.field.dimensions})"
+            return self.field.vector_type
 
     class _db_sqlite:
         SQL_TYPE = "BLOB"
@@ -51,6 +65,7 @@ class VectorField(Field[list[float]]):
         self,
         dimensions: int | None = None,
         *,
+        vector_type: VectorType = "vector",
         null: bool = False,
         default: FieldDefaultValue = None,
         description: str | None = None,
@@ -63,6 +78,7 @@ class VectorField(Field[list[float]]):
             **kwargs,
         )
         self.dimensions = dimensions
+        self.vector_type = vector_type
 
     @override
     def to_db_value(
@@ -104,24 +120,38 @@ class VectorField(Field[list[float]]):
             return [float(x) for x in value.strip("[]").split(",") if x]
         if isinstance(value, memoryview):
             # SQLite BLOB fallback and asyncpg binary codec share the
-            # pgvector binary layout: 4-byte header + N * 4-byte floats.
-            return self._decode_binary(value.tobytes())
+            # pgvector binary layout: 4-byte header + N elements.
+            return self._decode_binary(value.tobytes(), self.vector_type)
         if isinstance(value, bytes):
-            return self._decode_binary(value)
+            return self._decode_binary(value, self.vector_type)
         return list(value)
 
     @staticmethod
-    def _decode_binary(data: bytes) -> list[float]:
-        """Decode pgvector binary format: 4-byte header + N * 4-byte floats."""
+    def _decode_binary(data: bytes, vector_type: VectorType = "vector") -> list[float]:
+        """Decode pgvector binary format: 4-byte header + N elements.
+
+        ``vector`` columns store 4-byte big-endian floats; ``halfvec``
+        columns store 2-byte big-endian half-precision floats (struct ``e``).
+
+        :param data: Raw binary value.
+        :param vector_type: Column type — ``"vector"`` or ``"halfvec"``.
+        :returns: A float list.
+        """
         if len(data) < 4:
             return []
         # Header: 2 bytes reserved, 2 bytes dimensions (big-endian)
         ndim = struct.unpack_from(">H", data, 2)[0]
         if ndim == 0:
             return []
+        if vector_type == "halfvec":
+            # Data starts at offset 4: ndim * 2-byte big-endian half floats
+            return list(struct.unpack_from(f">{ndim}e", data, 4))
         # Data starts at offset 4: ndim * 4-byte big-endian floats
         return list(struct.unpack_from(f">{ndim}f", data, 4))
 
     @override
     def __repr__(self) -> str:
-        return f"VectorField(dimensions={self.dimensions})"
+        return (
+            f"VectorField(dimensions={self.dimensions}, "
+            f"vector_type={self.vector_type!r})"
+        )

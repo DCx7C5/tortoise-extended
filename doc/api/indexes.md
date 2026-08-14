@@ -41,6 +41,13 @@ HNSWIndex(
 | `vector_l2_ops` | Euclidean distance |
 | `vector_ip_ops` | Inner product |
 | `vector_cosine_ops` | Cosine distance |
+| `halfvec_l2_ops` | Euclidean distance on a `halfvec` column |
+| `halfvec_ip_ops` | Inner product on a `halfvec` column |
+| `halfvec_cosine_ops` | Cosine distance on a `halfvec` column |
+
+Use the `halfvec_*` metrics when indexing a `VectorField(vector_type="halfvec")`
+column (requires pgvector 0.7+); the plain `vector_*` metrics index full
+precision `vector` columns.
 
 ### Usage
 
@@ -141,6 +148,9 @@ IVFFlatIndex(
 | `lists` | `int` | `100` | Number of lists (clusters) |
 | `dist_metric` | `str` | `"vector_l2_ops"` | Distance metric |
 | `name` | `str \| None` | `None` | Custom index name |
+
+IVFFlat supports only the L2 and inner-product metrics (`vector_l2_ops`,
+`vector_ip_ops`, `halfvec_l2_ops`, `halfvec_ip_ops`).
 
 ### Usage
 

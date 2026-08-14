@@ -14,8 +14,19 @@ from tortoise_extended.indexes._dialect import assert_postgres_dialect
 if TYPE_CHECKING:
     from tortoise.backends.base.schema_generator import BaseSchemaGenerator
 
-_VALID_HNSW_METRICS = frozenset({"vector_l2_ops", "vector_ip_ops", "vector_cosine_ops"})
-_VALID_IVFFLAT_METRICS = frozenset({"vector_l2_ops", "vector_ip_ops"})
+_VALID_HNSW_METRICS = frozenset(
+    {
+        "vector_l2_ops",
+        "vector_ip_ops",
+        "vector_cosine_ops",
+        "halfvec_l2_ops",
+        "halfvec_ip_ops",
+        "halfvec_cosine_ops",
+    }
+)
+_VALID_IVFFLAT_METRICS = frozenset(
+    {"vector_l2_ops", "vector_ip_ops", "halfvec_l2_ops", "halfvec_ip_ops"}
+)
 
 
 def _qualify_table_name(
@@ -67,7 +78,8 @@ class HNSWIndex(Index):
     :param m: Max number of connections per layer (default: 16).
     :param ef_construction: Size of the dynamic candidate list during build (default: 200).
     :param dist_metric: Distance metric — ``vector_l2_ops``, ``vector_ip_ops``,
-        or ``vector_cosine_ops`` (default: ``vector_l2_ops``).
+        ``vector_cosine_ops``, or the ``halfvec_*`` equivalents for
+        half-precision columns (default: ``vector_l2_ops``).
     :param name: Optional custom index name.
 
     Usage::
@@ -171,7 +183,8 @@ class IVFFlatIndex(Index):
 
     :param fields: Field names to index.
     :param lists: Number of lists (recommended: rows / 1000 for up to 1M rows).
-    :param dist_metric: Distance metric — ``vector_l2_ops`` or ``vector_ip_ops``.
+    :param dist_metric: Distance metric — ``vector_l2_ops``, ``vector_ip_ops``,
+        or the ``halfvec_*`` equivalents for half-precision columns.
     :param name: Optional custom index name.
     """
 

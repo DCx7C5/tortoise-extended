@@ -26,6 +26,31 @@ class TestVectorField:
         result = field.to_db_value([0.1, 0.2, 0.3], None)
         assert result == [0.1, 0.2, 0.3]
 
+    def test_halfvec_sql_type(self) -> None:
+        field = VectorField(dimensions=1536, vector_type="halfvec")
+        assert field.get_for_dialect("postgres", "SQL_TYPE") == "halfvec(1536)"
+
+    def test_halfvec_sql_type_no_dimensions(self) -> None:
+        field = VectorField(vector_type="halfvec")
+        assert field.get_for_dialect("postgres", "SQL_TYPE") == "halfvec"
+
+    def test_halfvec_binary_decode(self) -> None:
+        header = struct.pack(">HH", 0, 3)
+        data = struct.pack(">3e", 1.0, 0.5, -2.0)  # half-precision floats
+        result = VectorField._decode_binary(header + data, vector_type="halfvec")
+        assert result == [1.0, 0.5, -2.0]
+
+    def test_halfvec_to_python_value_memoryview(self) -> None:
+        field = VectorField(dimensions=2, vector_type="halfvec")
+        header = struct.pack(">HH", 0, 2)
+        data = struct.pack(">2e", 1.0, 2.0)
+        result = field.to_python_value(memoryview(header + data))
+        assert result == [1.0, 2.0]
+
+    def test_halfvec_repr(self) -> None:
+        field = VectorField(dimensions=1536, vector_type="halfvec")
+        assert repr(field) == "VectorField(dimensions=1536, vector_type='halfvec')"
+
     def test_to_db_value_none(self) -> None:
         field = VectorField(dimensions=3)
         result = field.to_db_value(None, None)
@@ -69,4 +94,4 @@ class TestVectorField:
 
     def test_repr(self) -> None:
         field = VectorField(dimensions=1536)
-        assert repr(field) == "VectorField(dimensions=1536)"
+        assert repr(field) == "VectorField(dimensions=1536, vector_type='vector')"

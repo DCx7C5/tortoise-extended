@@ -13,6 +13,7 @@ from tortoise_extended import VectorField
 ```python
 VectorField(
     dimensions: int | None = None,
+    vector_type: Literal["vector", "halfvec"] = "vector",
     null: bool = False,
     default: Any = None,
     description: str | None = None,
@@ -24,13 +25,14 @@ VectorField(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `dimensions` | `int \| None` | `None` | Number of vector dimensions |
+| `vector_type` | `Literal["vector", "halfvec"]` | `"vector"` | Column type — `halfvec` stores half-precision floats (~2x storage savings) |
 | `null` | `bool` | `False` | Allow NULL values |
 | `default` | `Any` | `None` | Default value |
 | `description` | `str \| None` | `None` | Column comment |
 
 ### SQL Type
 
-- **PostgreSQL:** `vector`
+- **PostgreSQL:** `vector` (or `halfvec` when `vector_type="halfvec"`)
 - **SQLite:** `BLOB` (fallback)
 
 ### Python Type
@@ -56,6 +58,36 @@ class Chunk(models.Model):
     class Meta:
         table = "chunks"
 ```
+
+### Half-Precision (halfvec)
+
+```python
+from tortoise import fields, models
+from tortoise_extended import VectorField, HNSWIndex
+
+
+class CompactChunk(models.Model):
+    id = fields.IntField(pk=True)
+    content = fields.TextField()
+    embedding = VectorField(dimensions=1536, vector_type="halfvec")
+
+    class Meta:
+        table = "compact_chunks"
+        # halfvec columns use halfvec_* operator classes
+        indexes = [
+            HNSWIndex(
+                fields=("embedding",),
+                m=32,
+                ef_construction=400,
+                dist_metric="halfvec_cosine_ops",
+            )
+        ]
+```
+
+`halfvec` uses the same Python API (`list[float]`) and the same distance
+filters (`__l2_distance`, `__cosine_distance`, `__inner_product`) as
+`vector`; it halves storage at the cost of reduced precision. Requires
+pgvector 0.7+.
 
 ### With HNSW Index
 
@@ -158,6 +190,9 @@ Total size: 4 + (dimensions × 4) bytes
 | 384 | 1,540 | 1.5 GB | 3 GB |
 | 768 | 3,076 | 3 GB | 6 GB |
 | 1536 | 6,148 | 6 GB | 12 GB |
+
+Half-precision (`halfvec`) columns halve the per-vector size: a 1536-dim
+halfvec is 3,076 bytes (~3 GB per 1M rows).
 
 ## Validation
 

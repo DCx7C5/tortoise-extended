@@ -210,16 +210,23 @@ class TestPgvectorCodecBranches:
         await _pgvector_codec_init(_Raises(AttributeError))
 
     async def test_codec_init_registers_encoder_and_decoder(self) -> None:
-        """The codec is registered on connections that support it."""
+        """Codecs are registered on connections that support them."""
 
         conn = _CodecConn()
         await _pgvector_codec_init(conn)
-        assert len(conn.calls) == 1
+        assert len(conn.calls) == 2
+        names = [call[0] for call in conn.calls]
+        assert names == ["vector", "halfvec"]
         name, encoder, decoder, schema = conn.calls[0]
         assert name == "vector"
         assert schema == "public"
         assert encoder([1.5]) == "[1.5]"
         assert decoder("[2.5]") == [2.5]
+        # The halfvec codec shares the same text codec.
+        halfvec_encoder = conn.calls[1][1]
+        halfvec_decoder = conn.calls[1][2]
+        assert halfvec_encoder([1.5]) == "[1.5]"
+        assert halfvec_decoder("[2.5]") == [2.5]
 
     async def test_codec_init_resolves_non_public_schema(self) -> None:
         """G18 — the codec is registered in the extension's actual schema."""

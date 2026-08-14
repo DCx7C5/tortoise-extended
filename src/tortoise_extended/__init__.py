@@ -130,11 +130,12 @@ def _decode_vector(value: str) -> list[float]:
 async def _pgvector_codec_init(conn: AsyncpgConnection) -> None:
     """Set the pgvector type codec on a single connection.
 
-    Resolves the schema of the ``vector`` type from the connection so the
-    codec is registered where the extension actually lives (G18) — not
-    hardcoded to ``public``. Gracefully skips if the ``vector`` extension is
-    not yet created in the database (e.g. before ``CREATE EXTENSION vector``)
-    or if the connection does not support custom type codecs.
+    Resolves the schema of the ``vector`` / ``halfvec`` types from the
+    connection so the codec is registered where the extension actually lives
+    (G18) — not hardcoded to ``public``. Gracefully skips if the ``vector``
+    extension is not yet created in the database (e.g. before ``CREATE
+    EXTENSION vector``) or if the connection does not support custom type
+    codecs.
     """
     set_codec = getattr(conn, "set_type_codec", None)
     if set_codec is None:
@@ -156,17 +157,19 @@ async def _pgvector_codec_init(conn: AsyncpgConnection) -> None:
             # let ``set_type_codec`` decide — it raises ValueError when the
             # type is absent, which is swallowed below.
             pass
-    try:
-        await set_codec(
-            "vector",
-            encoder=_encode_vector,
-            decoder=_decode_vector,
-            schema=schema,
-        )
-    except ValueError, AttributeError:
-        # ValueError: "unknown type: pgvector.vector" — extension not loaded
-        # AttributeError: conn doesn't support set_type_codec
-        pass
+    for type_name in ("vector", "halfvec"):
+        try:
+            await set_codec(
+                type_name,
+                encoder=_encode_vector,
+                decoder=_decode_vector,
+                schema=schema,
+            )
+        except ValueError, AttributeError:
+            # ValueError: "unknown type: pgvector.<type>" — extension not
+            # loaded or the type does not exist in this pgvector version.
+            # AttributeError: conn doesn't support set_type_codec.
+            pass
 
 
 async def _combined_codec_init(

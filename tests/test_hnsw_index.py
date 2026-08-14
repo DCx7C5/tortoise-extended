@@ -56,7 +56,14 @@ class TestHNSWIndex:
             HNSWIndex(fields=("embedding",), dist_metric="euclidean")
 
     def test_dist_metric_valid_options(self) -> None:
-        for metric in ("vector_l2_ops", "vector_ip_ops", "vector_cosine_ops"):
+        for metric in (
+            "vector_l2_ops",
+            "vector_ip_ops",
+            "vector_cosine_ops",
+            "halfvec_l2_ops",
+            "halfvec_ip_ops",
+            "halfvec_cosine_ops",
+        ):
             idx = HNSWIndex(fields=("embedding",), dist_metric=metric)
             assert idx.dist_metric == metric
 
@@ -99,7 +106,12 @@ class TestIVFFlatIndex:
             IVFFlatIndex(fields=("embedding",), dist_metric="vector_cosine_ops")
 
     def test_dist_metric_valid_options(self) -> None:
-        for metric in ("vector_l2_ops", "vector_ip_ops"):
+        for metric in (
+            "vector_l2_ops",
+            "vector_ip_ops",
+            "halfvec_l2_ops",
+            "halfvec_ip_ops",
+        ):
             idx = IVFFlatIndex(fields=("embedding",), dist_metric=metric)
             assert idx.dist_metric == metric
 

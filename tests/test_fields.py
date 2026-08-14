@@ -300,9 +300,14 @@ class TestVectorFieldRepr:
     def test_repr_with_dimensions(self) -> None:
         """Repr should show dimensions."""
         field = VectorField(dimensions=1536)
-        assert repr(field) == "VectorField(dimensions=1536)"
+        assert repr(field) == "VectorField(dimensions=1536, vector_type='vector')"
 
     def test_repr_without_dimensions(self) -> None:
         """Repr should show None dimensions."""
         field = VectorField()
-        assert repr(field) == "VectorField(dimensions=None)"
+        assert repr(field) == "VectorField(dimensions=None, vector_type='vector')"
+
+    def test_repr_halfvec(self) -> None:
+        """Repr should show the halfvec type."""
+        field = VectorField(dimensions=1536, vector_type="halfvec")
+        assert repr(field) == "VectorField(dimensions=1536, vector_type='halfvec')"
