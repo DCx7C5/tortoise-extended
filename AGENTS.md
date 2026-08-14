@@ -241,9 +241,30 @@ order:
 
 1. `uv run ruff check src tests` — clean
 2. `uv run basedpyright` — 0 errors (pass `src/tortoise_extended/migrations/` explicitly if touched)
-3. `uv run pytest tests/ -q` — 764 passed, 1 skipped
+3. `uv run pytest tests/ -q` — 774 passed, 1 skipped (1 skip = `test_all.py` aggregator)
 4. **`pycharm_lint_files`** on all changed files (min severity: error)
 5. **`pycharm_get_file_problems`** on all changed files — resolve any remaining IDE-reported issues
+
+**Gate scope — why `basedpyright` says 0/0/0 while tests look noisy.** `pyrightconfig.json`
+`include` covers **`src/` only**; `tests/` is intentionally NOT strict-type-gated. The strict
+type gate proves the shipped library is type-clean; **pytest is the behavioral truth** (it runs
+every test, including live-Postgres integration). The IDE lint surface on tests decomposes into:
+
+- **SQL-dialect artifacts** — `Unable to resolve table 'x'` / `'(' or USING expected` inside
+  SQL string literals. PyCharm parses SQL strings with its own dialect and cannot see tables that
+  test fixtures create at runtime. These are false positives; the CLI is clean and pytest runs the
+  exact same queries successfully. Ignore them.
+- **Typing warnings from test doubles** — fake schema generators / models intentionally diverge
+  from strict base signatures (`BaseSchemaGenerator`, `type[Model]`), and protected members
+  (`_meta`, `_apply_patches`, `_pgvector_codec_init`) are deliberately touched to verify
+  monkey-patching. Expected harness looseness, not bugs.
+- **Stub-gap warnings** — e.g. `Unresolved attribute reference 'name' for class 'Model'`,
+  `Field[...] doesn't define '__repr__'`. Real limitations of the tortoise stubs; not actionable
+  per-test. Fixed once, if ever, in the stubs overlay.
+
+Rule of thumb: **new code must not add warnings to `src/`** (the gated surface); a new warning in
+`tests/` is only worth a TODO if it points at a real contract break (e.g. a feature test asserting
+something the code can't type-express), not for SQL-dialect or test-double noise.
 
 IDE lint uses PyCharm's basedpyright with the IDE SQL dialect, so it catches what the CLI misses.
 Known false positive: SQL syntax errors reported inside `timescale/` and test files are IDE dialect
