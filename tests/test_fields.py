@@ -7,7 +7,7 @@ validation, and all edge cases. No database connection required.
 import ipaddress
 import struct
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -459,11 +459,19 @@ class TestPathFieldToPythonValue:
         field = PathField()
         assert field.to_python_value(None) is None
 
-    def test_string_passthrough(self) -> None:
-        """String should be returned unchanged."""
+    def test_string_round_trips_to_pure_posix_path(self) -> None:
+        """A driver string should load as a PurePosixPath."""
         field = PathField()
         result = field.to_python_value("docs/readme.md")
-        assert result == "docs/readme.md"
+        assert isinstance(result, PurePosixPath)
+        assert result == PurePosixPath("docs/readme.md")
+
+    def test_pure_posix_path_passthrough(self) -> None:
+        """PurePosixPath input should be returned unchanged."""
+        field = PathField()
+        path = PurePosixPath("docs/readme.md")
+        result = field.to_python_value(path)
+        assert result is path
 
 
 # ---------------------------------------------------------------------------

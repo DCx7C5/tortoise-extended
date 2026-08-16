@@ -47,6 +47,17 @@ class UUID4Field(UUIDField[UUID]):
 
         class Event(Model):
             id = UUID4Field(pk=True)
+
+    .. note::
+        ``null=True`` intentionally types as ``Field[UUID]`` rather than
+        ``Field[UUID | None]``. The stub ``UUIDField`` generic is
+        value-restricted to ``UUID`` / ``UUID | None`` and invariant, so a
+        subclass parameterized with its own ``TypeVar`` cannot substitute
+        it (pyright: "Type parameter ``T_UUID@UUIDField`` is invariant, but
+        ... is not the same as ``UUID``"). Re-parameterizing ``UUID4Field``
+        generically is therefore not feasible without changing the shared
+        tortoise stubs; the base ``UUIDField`` overloads already narrow
+        ``null=True`` for direct ``UUIDField`` use.
     """
 
     def __init__(
@@ -59,14 +70,9 @@ class UUID4Field(UUIDField[UUID]):
     ) -> None:
         if default is None:
             default = uuid4
-        if null:
-            super().__init__(
-                null=True, default=default, description=description, **kwargs
-            )
-        else:
-            super().__init__(
-                null=False, default=default, description=description, **kwargs
-            )
+        super().__init__(
+            null=null, default=default, description=description, **kwargs
+        )
 
 
 class UUID7Field(UUIDField[UUID]):
@@ -85,6 +91,10 @@ class UUID7Field(UUIDField[UUID]):
 
         class Event(Model):
             id = UUID7Field(pk=True)
+
+    .. note::
+        See ``UUID4Field`` — ``null=True`` cannot be re-parameterized to
+        ``Field[UUID | None]`` without changing the shared tortoise stubs.
     """
 
     def __init__(
@@ -97,11 +107,6 @@ class UUID7Field(UUIDField[UUID]):
     ) -> None:
         if default is None:
             default = uuid7
-        if null:
-            super().__init__(
-                null=True, default=default, description=description, **kwargs
-            )
-        else:
-            super().__init__(
-                null=False, default=default, description=description, **kwargs
-            )
+        super().__init__(
+            null=null, default=default, description=description, **kwargs
+        )

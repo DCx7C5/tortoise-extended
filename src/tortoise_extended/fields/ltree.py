@@ -114,12 +114,16 @@ class LTreeField(Field[list[str]]):
 
         Returns:
             ltree string, or None if value is None
+
+        Raises:
+            ValueError: If the joined path exceeds ``max_length``
         """
         if value is None:
             return None
         if isinstance(value, str):
-            return value
-        path = self.separator.join(str(v) for v in value)
+            path = value
+        else:
+            path = self.separator.join(str(v) for v in value)
         if self.max_length and len(path) > self.max_length:
             raise ValueError(
                 f"ltree path exceeds max_length={self.max_length}: "

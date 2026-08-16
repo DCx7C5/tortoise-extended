@@ -109,3 +109,11 @@ class TestGiSTIndexSql:
         )
         assert '"cat_path_idx"' in sql
         assert '"app"."categories"' in sql
+
+    def test_get_sql_escapes_embedded_quote_name(self) -> None:
+        """A custom name containing SQL must stay inside the quoted identifier."""
+        idx = GiSTIndex(fields=("path",), name='x"; DROP TABLE t;--')
+        sql = idx.get_sql(FakeSchemaGenerator(), FakeModel("categories"), safe=False)
+        assert sql.startswith(
+            'CREATE INDEX "x""; DROP TABLE t;--" ON "categories" USING gist ("path");'
+        )

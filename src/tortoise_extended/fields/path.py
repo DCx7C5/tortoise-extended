@@ -34,7 +34,8 @@ class PathField(Field[PurePosixPath]):
 
     Stores the path as a plain string. ``to_db_value`` accepts ``str`` or
     ``pathlib.Path`` (converted via ``os.fspath``); bytes are rejected at
-    the type level and NUL bytes are rejected at runtime.
+    the type level and NUL bytes are rejected at runtime. Loaded values
+    round-trip through ``to_python_value`` as ``PurePosixPath``.
 
     :param null: Allow NULL values.
     :param default: Default path value.
@@ -65,15 +66,21 @@ class PathField(Field[PurePosixPath]):
         )
 
     @override
-    def to_python_value(self, value: PurePosixPath | None) -> PurePosixPath | None:
-        """Convert a database value to a plain path string.
+    def to_python_value(self, value: str | PurePosixPath | None) -> PurePosixPath | None:
+        """Convert a database value to a :class:`PurePosixPath`.
+
+        The driver returns the column's plain path string; it is wrapped in
+        ``PurePosixPath`` so loaded values round-trip to the field's declared
+        Python type. ``PurePosixPath`` inputs pass through unchanged.
 
         :param value: Raw value from the driver, or ``None``.
-        :returns: The path string, or ``None``.
+        :returns: The path, or ``None``.
         """
         if value is None:
             return None
-        return value
+        if isinstance(value, PurePosixPath):
+            return value
+        return PurePosixPath(value)
 
     @override
     def to_db_value(

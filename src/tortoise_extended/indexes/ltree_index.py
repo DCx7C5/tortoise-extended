@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, cast, override
 
 from tortoise.indexes import Index
 from tortoise.models import Model
+from tortoise_extended._quote import quote_ident
 from tortoise_extended._types import SchemaGeneratorLike
 from tortoise_extended.indexes._dialect import assert_postgres_dialect
 
@@ -111,6 +112,6 @@ class GiSTIndex(Index):
         fields = _format_index_fields(schema_generator, self.field_names)
         exists = "IF NOT EXISTS " if safe else ""
         return (
-            f'CREATE INDEX {exists}"{index_name}" ON {table_name} '
+            f"CREATE INDEX {exists}{quote_ident(index_name)} ON {table_name} "
             f"USING gist ({fields});"
         )

@@ -90,6 +90,17 @@ class TestLTreeField:
         with pytest.raises(ValueError, match="exceeds max_length=10"):
             field.to_db_value(["root", "child", "grandchild"], None)
 
+    def test_to_db_value_string_enforces_max_length(self) -> None:
+        """max_length also guards pre-joined string input."""
+        field = LTreeField(max_length=10)
+        with pytest.raises(ValueError, match="exceeds max_length=10"):
+            field.to_db_value("root.child.grandchild", None)
+
+    def test_to_db_value_string_respects_max_length_boundary(self) -> None:
+        """Strings exactly at max_length are accepted."""
+        field = LTreeField(max_length=7)
+        assert field.to_db_value("a.b.c", None) == "a.b.c"
+
     def test_to_db_value_respects_max_length_boundary(self) -> None:
         """Paths exactly at max_length are accepted."""
         field = LTreeField(max_length=7)

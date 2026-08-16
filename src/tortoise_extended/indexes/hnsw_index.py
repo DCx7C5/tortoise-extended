@@ -7,6 +7,7 @@ from pypika_tortoise.terms import Term
 from tortoise.expressions import Expression
 from tortoise.indexes import Index
 from tortoise.models import Model
+from tortoise_extended._quote import quote_ident
 from tortoise_extended._types import RowValue, SchemaGeneratorLike
 from tortoise_extended.exceptions import IndexDefinitionError
 from tortoise_extended.indexes._dialect import assert_postgres_dialect
@@ -169,7 +170,7 @@ class HNSWIndex(Index):
         fields = _format_index_fields(schema_generator, self.field_names)
         exists = "IF NOT EXISTS " if safe else ""
         return (
-            f'CREATE INDEX {exists}"{index_name}" ON {table_name} '
+            f"CREATE INDEX {exists}{quote_ident(index_name)} ON {table_name} "
             f"USING hnsw ({fields} {self.dist_metric}) "
             f"WITH (m = {self.m}, ef_construction = {self.ef_construction});"
         )
@@ -262,7 +263,7 @@ class IVFFlatIndex(Index):
         fields = _format_index_fields(schema_generator, self.field_names)
         exists = "IF NOT EXISTS " if safe else ""
         return (
-            f'CREATE INDEX {exists}"{index_name}" ON {table_name} '
+            f"CREATE INDEX {exists}{quote_ident(index_name)} ON {table_name} "
             f"USING ivfflat ({fields} {self.dist_metric}) "
             f"WITH (lists = {self.lists});"
         )

@@ -5,12 +5,14 @@ No monkey-patch conflicts.
 """
 
 import struct
-from typing import Literal, Unpack, override
+from typing import Literal, Protocol, Unpack, cast, override
 
+from tortoise.exceptions import ConfigurationError
 from tortoise.fields.base import Field
 from tortoise.models import Model
 
 from tortoise_extended._types import FieldDefaultValue, FieldInitKwargs
+from tortoise_extended.exceptions import VectorFieldError
 
 VectorType = Literal["vector", "halfvec"]
 """Supported pgvector column types.
@@ -18,6 +20,26 @@ VectorType = Literal["vector", "halfvec"]
 ``halfvec`` stores half-precision (2-byte) floats — ~2x storage savings for
 a modest precision trade-off, identical ``list[float]`` Python API.
 """
+
+
+class _DialectCapabilities(Protocol):
+    """Duck-typed ``Capabilities`` surface exposing the dialect name."""
+
+    dialect: str
+
+
+class _DialectDB(Protocol):
+    """Duck-typed DB client surface exposing the capabilities dialect."""
+
+    @property
+    def capabilities(self) -> _DialectCapabilities: ...
+
+
+class _DialectMeta(Protocol):
+    """Duck-typed model ``_meta`` surface exposing the bound DB client."""
+
+    @property
+    def db(self) -> _DialectDB: ...
 
 
 class VectorField(Field[list[float]]):
@@ -83,19 +105,66 @@ class VectorField(Field[list[float]]):
     @override
     def to_db_value(
         self, value: list[float] | None, instance: type[Model] | Model | None
-    ) -> list[float] | None:
+    ) -> list[float] | bytes | None:
         """Convert a Python vector to the database representation.
 
-        The vector is stored as a plain float list; pgvector's asyncpg codec
-        serializes it to the wire format at execution time.
+        On PostgreSQL the vector is passed through as a plain float list;
+        the pgvector asyncpg codec serializes it to the wire format at
+        execution time. On SQLite the column is a ``BLOB``, so the value is
+        encoded to the pgvector binary layout (:meth:`_encode_binary`) that
+        :meth:`_decode_binary` reads back — SQLite cannot bind a float list.
 
         :param value: The vector value, or ``None``.
         :param instance: The model instance being saved (unused).
-        :returns: A copy of the vector, or ``None``.
+        :returns: The float list (PostgreSQL) or encoded bytes (SQLite), or
+            ``None``.
         """
         if value is None:
             return None
-        return list(value)
+        vector = list(value)
+        if self._bound_to_sqlite():
+            return self._encode_binary(vector, self.vector_type)
+        return vector
+
+    def _bound_to_sqlite(self) -> bool:
+        """Return ``True`` when the field's bound model uses SQLite.
+
+        Falls back to ``False`` (PostgreSQL behavior) when the field is not
+        yet bound to an initialized model, e.g. in unit tests. The bound
+        ``model`` attribute is not declared on the upstream ``Field`` stub,
+        so it is read via ``getattr`` and narrowed with ``cast``.
+        """
+        model = cast(type[Model] | None, getattr(self, "model", None))
+        if model is None:
+            return False
+        meta = cast(_DialectMeta | None, getattr(model, "_meta", None))
+        if meta is None:
+            return False
+        try:
+            db = meta.db
+        except ConfigurationError:
+            return False
+        return db.capabilities.dialect == "sqlite"
+
+    @staticmethod
+    def _encode_binary(values: list[float], vector_type: str = "vector") -> bytes:
+        """Encode a float list into the pgvector binary layout.
+
+        Mirrors :meth:`_decode_binary`: 4-byte big-endian header (2 bytes
+        length, 2 bytes dimensions) followed by big-endian elements —
+        4-byte floats for ``vector``, 2-byte half-precision floats for
+        ``halfvec``.
+
+        :param values: The vector values.
+        :param vector_type: Column type — ``"vector"`` or ``"halfvec"``.
+        :returns: The encoded binary value.
+        """
+        ndim = len(values)
+        if vector_type == "halfvec":
+            body = struct.pack(f">{ndim}e", *values)
+        else:
+            body = struct.pack(f">{ndim}f", *values)
+        return struct.pack(">HH", 4 + len(body), ndim) + body
 
     @override
     def to_python_value(
@@ -136,6 +205,8 @@ class VectorField(Field[list[float]]):
         :param data: Raw binary value.
         :param vector_type: Column type — ``"vector"`` or ``"halfvec"``.
         :returns: A float list.
+        :raises VectorFieldError: If the header declares more elements than
+            the payload contains (truncated data).
         """
         if len(data) < 4:
             return []
@@ -144,10 +215,20 @@ class VectorField(Field[list[float]]):
         if ndim == 0:
             return []
         if vector_type == "halfvec":
-            # Data starts at offset 4: ndim * 2-byte big-endian half floats
-            return list(struct.unpack_from(f">{ndim}e", data, 4))
-        # Data starts at offset 4: ndim * 4-byte big-endian floats
-        return list(struct.unpack_from(f">{ndim}f", data, 4))
+            element_size = 2
+            fmt = "e"
+        else:
+            element_size = 4
+            fmt = "f"
+        needed = 4 + ndim * element_size
+        if len(data) < needed:
+            raise VectorFieldError(
+                f"Truncated vector binary data: header declares {ndim} "
+                f"dimensions ({needed} bytes required) but only {len(data)} "
+                "bytes were provided"
+            )
+        # Data starts at offset 4: ndim * element_size-byte big-endian floats
+        return list(struct.unpack_from(f">{ndim}{fmt}", data, 4))
 
     @override
     def __repr__(self) -> str:

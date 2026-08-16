@@ -151,6 +151,14 @@ class TestHNSWIndexSql:
         assert "IF NOT EXISTS" not in sql
         assert "vector_cosine_ops" in sql
 
+    def test_get_sql_escapes_embedded_quote_name(self) -> None:
+        """A custom name containing SQL must stay inside the quoted identifier."""
+        idx = HNSWIndex(fields=("embedding",), name='x"; DROP TABLE t;--')
+        sql = idx.get_sql(FakeSchemaGenerator(), FakeModel("chunks"), safe=False)
+        # The embedded double quote is escaped as "" — the full payload stays
+        # inside one quoted identifier, so it cannot break out of the DDL.
+        assert sql.startswith('CREATE INDEX "x""; DROP TABLE t;--" ON "chunks" ')
+
 
 class TestIVFFlatIndexSql:
     """IVFFlatIndex.get_sql() DDL generation."""
@@ -176,6 +184,12 @@ class TestIVFFlatIndexSql:
         assert "IF NOT EXISTS" not in sql
         assert "vector_ip_ops" in sql
         assert "WITH (lists = 50);" in sql
+
+    def test_get_sql_escapes_embedded_quote_name(self) -> None:
+        """A custom name containing SQL must stay inside the quoted identifier."""
+        idx = IVFFlatIndex(fields=("embedding",), name='x"; DROP TABLE t;--')
+        sql = idx.get_sql(FakeSchemaGenerator(), FakeModel("chunks"), safe=False)
+        assert sql.startswith('CREATE INDEX "x""; DROP TABLE t;--" ON "chunks" ')
 
 
 class TestDialectGuard:
