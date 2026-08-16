@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false
 """Graph node base model for hierarchical data.
 
 Provides BaseGraphNodeModel base class for graph traversal with adjacency list
@@ -19,9 +20,11 @@ Usage::
 """
 
 from collections import deque
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Self, override
 from uuid import UUID, uuid4
 from tortoise import fields
+from tortoise.expressions import F
 from tortoise.models import Model
 
 from tortoise_extended.exceptions import GraphError
@@ -64,8 +67,8 @@ class BaseGraphNodeModel(Model):
         # Create root
         root = await Category.create(name="Electronics")
 
-        # Create child
-        child = await Category.create(name="Laptops", parent=root)
+        # Create child (parent is a bare ``parent_id`` column — no relation)
+        child = await Category.create(name="Laptops", parent_id=root.pk)
     """
 
     _block_orphan_delete: ClassVar[bool] = False
@@ -136,6 +139,93 @@ class BaseGraphNodeModel(Model):
         return self.child_count == 0
 
     @override
+    async def save(
+        self,
+        using_db: BaseDBAsyncClient | None = None,
+        update_fields: Iterable[str] | None = None,
+        force_create: bool = False,
+        force_update: bool = False,
+    ) -> None:
+        """Persist this node and maintain the denormalized ``child_count``.
+
+        ``child_count`` is a denormalized degree counter on the parent, so it
+        must be kept in sync on every write:
+
+        * **create** — increment the new parent's ``child_count``;
+        * **reparent** (parent_id changed on an update) — decrement the
+          previous parent's count and increment the new parent's count.
+
+        The previous ``parent_id`` is read from the database before the write
+        because the in-memory instance may already hold the new value.
+
+        A partial update via ``update_fields`` that omits ``parent_id`` does
+        **not** persist an in-memory reparent, so the counters are only
+        adjusted when ``update_fields`` is ``None`` or explicitly contains
+        ``"parent_id"``.
+
+        Args:
+            using_db: Specific DB connection to use instead of the default.
+            update_fields: Optional subset of fields to update.
+            force_create: Force an INSERT even for a previously saved row.
+            force_update: Force an UPDATE even for an unsaved row.
+        """
+        # ``_saved_in_db`` is not declared in the tortoise stubs overlay —
+        # read it through getattr (the create-vs-update signal tortoise's own
+        # save() uses).
+        already_saved = bool(getattr(self, "_saved_in_db", False))
+        # Materialize update_fields so the parent_id membership check does
+        # not consume a generator before super().save() sees it.
+        update_fields_list = (
+            list(update_fields) if update_fields is not None else None
+        )
+        is_create = force_create or (
+            not already_saved and update_fields is None and not force_update
+        )
+        old_parent_id: UUID | None = None
+        if not is_create:
+            old_parent_id = await self._previous_parent_id(using_db)
+
+        await super().save(
+            using_db=using_db,
+            update_fields=update_fields,
+            force_create=force_create,
+            force_update=force_update,
+        )
+
+        if is_create:
+            if self.parent_id is not None:
+                _ = await (
+                    self.__class__.filter(pk=self.parent_id)
+                    .using_db(using_db)
+                    .update(child_count=F("child_count") + 1)
+                )
+        elif update_fields_list is None or "parent_id" in update_fields_list:
+            if old_parent_id is not None:
+                _ = await (
+                    self.__class__.filter(pk=old_parent_id)
+                    .using_db(using_db)
+                    .update(child_count=F("child_count") - 1)
+                )
+            if self.parent_id is not None:
+                _ = await (
+                    self.__class__.filter(pk=self.parent_id)
+                    .using_db(using_db)
+                    .update(child_count=F("child_count") + 1)
+                )
+
+    async def _previous_parent_id(
+        self, using_db: BaseDBAsyncClient | None = None
+    ) -> UUID | None:
+        """Return this node's persisted ``parent_id`` from the database."""
+        row = (
+            await self.__class__.filter(pk=self.pk)
+            .only("parent_id")
+            .using_db(using_db)
+            .first()
+        )
+        return row.parent_id if row is not None else None
+
+    @override
     async def delete(self, using_db: BaseDBAsyncClient | None = None) -> None:
         """Delete this node.
 
@@ -143,7 +233,8 @@ class BaseGraphNodeModel(Model):
         set on the concrete class and this node still has children, raises
         :class:`~tortoise_extended.exceptions.GraphError` instead of
         deleting.  Edges referencing this node are never cascaded — see the
-        class-level orphan policy.
+        class-level orphan policy.  On a successful delete the former
+        parent's ``child_count`` is decremented.
 
         Raises:
             GraphError: If ``_block_orphan_delete`` is set and the node has
@@ -158,6 +249,12 @@ class BaseGraphNodeModel(Model):
                 )
                 raise GraphError(msg)
         await super().delete(using_db=using_db)
+        if self.parent_id is not None:
+            _ = await (
+                self.__class__.filter(pk=self.parent_id)
+                .using_db(using_db)
+                .update(child_count=F("child_count") - 1)
+            )
 
     def children(self) -> QuerySet[Self]:
         """Get direct children of this node.
@@ -222,8 +319,17 @@ class BaseGraphNodeModel(Model):
     async def path_to_root(self) -> list[Self]:
         """Get path from this node to root by walking ``parent_id`` links.
 
+        The orphan policy permits dangling ``parent_id`` values (no cascade,
+        no FK), so the parent may be missing from the table.  When that
+        happens the walk cannot complete and a
+        :class:`~tortoise_extended.exceptions.GraphError` is raised instead
+        of a ``DoesNotExist``.
+
         Returns:
             List of nodes from root to this node
+
+        Raises:
+            GraphError: If a parent link points at a row that does not exist.
         """
         path: list[Self] = []
         visited: set[UUID] = set()
@@ -235,7 +341,13 @@ class BaseGraphNodeModel(Model):
             path.append(current)
             if current.parent_id is None:
                 break
-            current = await self.__class__.get(pk=current.parent_id)
+            parent = await self.__class__.get_or_none(pk=current.parent_id)
+            if parent is None:
+                raise GraphError(
+                    f"Parent {current.parent_id} of {self.__class__.__name__} "
+                    f"{current.pk} no longer exists — dangling parent_id"
+                )
+            current = parent
         return sorted(path, key=lambda n: n.depth)
 
     async def subtree(self, max_depth: int | None = None) -> list[Self]:

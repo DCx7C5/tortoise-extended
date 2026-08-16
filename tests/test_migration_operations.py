@@ -364,7 +364,8 @@ class TestFormatOperationPatch:
         lines = writer._format_operation(op, ImportManager(), indent="    ")
         assert lines == [
             "    CreateContinuousAggregate(view_name='v', query='SELECT 1', "
-            "time_column='time_bucket', refresh_interval='1 hour'),"
+            "time_column='time_bucket', refresh_interval='1 hour', "
+            "start_offset='1 hour', end_offset='0'),"
         ]
 
     def test_no_deconstruct_raises(self) -> None:

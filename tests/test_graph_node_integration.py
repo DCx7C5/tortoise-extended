@@ -97,14 +97,14 @@ async def _make_tree() -> tuple[ItGraphNode, ItGraphNode, ItGraphNode, ItGraphNo
         namespace="shop",
         depth=0,
         is_root=True,
-        child_count=2,
+        child_count=0,
     )
     laptops = await ItGraphNode.create(
         name="laptops",
         namespace="shop",
         parent_id=electronics.pk,
         depth=1,
-        child_count=1,
+        child_count=0,
     )
     macbook = await ItGraphNode.create(
         name="macbook",
@@ -129,6 +129,13 @@ async def _make_tree() -> tuple[ItGraphNode, ItGraphNode, ItGraphNode, ItGraphNo
         namespace="office",
         depth=1,
     )
+    # Re-fetch the returned instances so child_count reflects the
+    # post-hook denormalized state (the create-time instances hold the
+    # seeded value, not the counter maintained by the save hooks).
+    electronics = await ItGraphNode.get(pk=electronics.pk)
+    laptops = await ItGraphNode.get(pk=laptops.pk)
+    macbook = await ItGraphNode.get(pk=macbook.pk)
+    phones = await ItGraphNode.get(pk=phones.pk)
     return electronics, laptops, macbook, phones
 
 

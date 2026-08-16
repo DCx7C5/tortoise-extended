@@ -2,9 +2,19 @@
 
 Provides ``BaseSoftDeleteModel`` (a ``deleted_at`` column) and
 ``SoftDeleteQuerySet`` (auto-filters ``deleted_at IS NULL``).  Every
-``all()``/``filter()``/``get()``/``count()``/``exists()``/``update()``/
-``delete()`` call on the default manager excludes soft-deleted rows; opt out
-per-query with ``.with_deleted()`` or ``.only_deleted()``.
+``all()``/``filter()``/``get()``/``count()``/``exists()``/``update()`` call
+on the default manager excludes soft-deleted rows; opt out per-query with
+``.with_deleted()`` or ``.only_deleted()``.
+
+``delete()`` semantics on ``SoftDeleteQuerySet`` are mode-dependent:
+
+* default (live-only) queryset — ``delete()`` performs a **soft delete**
+  (sets ``deleted_at``; the row stays in the DB and is visible through
+  ``with_deleted()``);
+* ``with_deleted()`` / ``only_deleted()`` querysets — ``delete()`` performs
+  a **physical** ``DELETE`` (purge semantics).  ``hard_delete()`` is the
+  explicit spelling of the purge and is equivalent to
+  ``with_deleted().delete()``.
 
 Verified against Tortoise ORM 1.1.7 internals: model entry points funnel
 through ``_db_queryset()`` / ``manager.get_queryset()``, so
@@ -107,13 +117,39 @@ class SoftDeleteQuerySet(QuerySet[MODEL]):
     async def hard_delete(self) -> int:
         """Physically delete every row matched by this queryset.
 
-        Includes soft-deleted rows — use ``QuerySet.delete()`` (inherited)
-        for a soft delete of live rows.
+        Includes soft-deleted rows — ``delete()`` on a default (live-only)
+        queryset soft-deletes instead, so use ``hard_delete()`` (or
+        ``with_deleted().delete()``) to actually purge rows from the table.
 
         Returns:
             Number of rows deleted.
         """
         return await self.with_deleted().delete()
+
+    @override
+    # The base QuerySet.delete() is a factory returning an unawaited
+    # DeleteQuery; the override executes the delete eagerly and returns the
+    # row count, which is what every ``await qs.delete()`` call site already
+    # expects at runtime.  The signature widening is intentional.
+    async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self,
+    ) -> int:
+        """Delete every row matched by this queryset.
+
+        Semantics depend on the queryset mode:
+
+        * default live-only queryset — **soft delete**: rows get
+          ``deleted_at`` set (``UPDATE``), stay in the table, and remain
+          visible via ``with_deleted()``;
+        * ``with_deleted()`` / ``only_deleted()`` querysets — **physical
+          delete** (``DELETE``), purging the matched rows.
+
+        Returns:
+            Number of rows affected.
+        """
+        if self._sd_mode == 0:
+            return await self.update(deleted_at=datetime.now(UTC))
+        return await super().delete()
 
 
 class BaseSoftDeleteModel(Model):
@@ -126,6 +162,7 @@ class BaseSoftDeleteModel(Model):
     deleted_at = fields.DatetimeField(
         null=True,
         default=None,
+        use_tz=True,
         db_index=True,
         description="Soft-delete marker — NULL means the row is live",
     )

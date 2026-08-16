@@ -451,6 +451,16 @@ class BaseHierarchyModel(Model):
         if not self_path_str or not new_parent_path_str:
             raise HierarchyError("Both source and target must have paths")
 
+        # Namespace guard — ltree paths are only unique within a namespace,
+        # so adopting a parent from another tenant would corrupt the moved
+        # subtree's paths (and leak into the other tenant's tree).
+        if new_parent.namespace != self.namespace:
+            raise HierarchyError(
+                "Cannot move a node across namespaces: "
+                f"source namespace {self.namespace!r}, "
+                f"target namespace {new_parent.namespace!r}"
+            )
+
         # Self-move — moving a node under itself is a cycle by definition and
         # is not caught by the descendant prefix check below (paths are equal).
         if new_parent.pk == self.pk:
@@ -493,6 +503,10 @@ class BaseHierarchyModel(Model):
                 )
             )
 
+            # This instance still holds the pre-move path/depth/parent_id —
+            # refresh it so callers see the new tree position.
+            await self.refresh_from_db()
+
     # ── Validation ───────────────────────────────────────────────────────
 
     async def validate_hierarchy(self) -> list[str]:
@@ -503,8 +517,8 @@ class BaseHierarchyModel(Model):
         * Path is not empty.
         * Last path component matches :attr:`name`.
         * ``depth`` equals the number of ``"."`` separators (root depth 0).
-        * ``parent_id`` references an existing node whose path is a prefix
-          of this node's path.
+        * ``parent_id`` references an existing node **in the same namespace**
+          whose path is a prefix of this node's path.
 
         Returns:
             List of human-readable error descriptions — empty when the node
@@ -533,9 +547,13 @@ class BaseHierarchyModel(Model):
                 f"Depth mismatch: expected {expected_depth} but got {self.depth}"
             )
 
-        # Parent must exist and its path must be a proper prefix.
+        # Parent must exist in this node's namespace and its path must be a
+        # proper prefix.  The namespace filter matters because ``parent_id``
+        # is a bare BigInt column with no cross-namespace uniqueness.
         if self.parent_id is not None:
-            parent = await type(self).get_or_none(pk=self.parent_id)
+            parent = await type(self).get_or_none(
+                pk=self.parent_id, namespace=self.namespace
+            )
             if parent is None:
                 errors.append(f"Parent {self.parent_id} does not exist")
             else:

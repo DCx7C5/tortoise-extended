@@ -68,7 +68,6 @@ class BaseUserModel(BaseModel):
     email = fields.CharField(
         max_length=255,
         unique=True,
-        db_index=True,
         description="Login identifier (normalized to lowercase)",
     )
     password_hash = fields.CharField(
@@ -225,7 +224,7 @@ class BaseUserModel(BaseModel):
             return await asyncio.to_thread(
                 _PASSWORD_HASHER.verify, encoded, raw_password
             )
-        except VerificationError, InvalidHashError:
+        except (VerificationError, InvalidHashError):
             return False
 
     @staticmethod

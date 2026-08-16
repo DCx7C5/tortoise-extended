@@ -235,6 +235,8 @@ class CreateContinuousAggregate(Operation):
     :param query: The SELECT query for the aggregate.
     :param time_column: Name of the time bucket column.
     :param refresh_interval: How often to refresh (e.g., '1 hour').
+    :param start_offset: Refresh-policy start offset (e.g., '1 hour').
+    :param end_offset: Refresh-policy end offset (e.g., '0').
     """
 
     def __init__(
@@ -243,21 +245,28 @@ class CreateContinuousAggregate(Operation):
         query: str,
         time_column: str = "time_bucket",
         refresh_interval: str = "1 hour",
+        start_offset: str = "1 hour",
+        end_offset: str = "0",
     ) -> None:
         self.view_name = view_name
         self.query = query
         self.time_column = time_column
         self.refresh_interval = refresh_interval
+        self.start_offset = start_offset
+        self.end_offset = end_offset
 
     @override
     def describe(self) -> str:
         """Return a human-readable description of the operation.
 
-        :returns: Description string with the view and refresh config.
+        :returns: Description string with the view, query, time-column and
+            refresh config.
         """
         return (
             f"CreateContinuousAggregate(view_name={self.view_name!r}, "
-            f"refresh_interval={self.refresh_interval!r})"
+            f"query={self.query!r}, time_column={self.time_column!r}, "
+            f"refresh_interval={self.refresh_interval!r}, "
+            f"start_offset={self.start_offset!r}, end_offset={self.end_offset!r})"
         )
 
     def deconstruct(self) -> tuple[str, tuple[()], dict[str, str]]:
@@ -274,6 +283,8 @@ class CreateContinuousAggregate(Operation):
                 "query": self.query,
                 "time_column": self.time_column,
                 "refresh_interval": self.refresh_interval,
+                "start_offset": self.start_offset,
+                "end_offset": self.end_offset,
             },
         )
 
@@ -305,12 +316,14 @@ class CreateContinuousAggregate(Operation):
         )
         await _run_sql(state_editor, create_sql)
 
-        # Add refresh policy
+        # Add refresh policy (idempotent — a rerun must not raise when the
+        # policy already exists).
         refresh_sql = (
             f"SELECT add_continuous_aggregate_policy("
             f"{_quote_literal(self.view_name)}, "
-            f"start_offset => INTERVAL '1 hour', "
-            f"end_offset => INTERVAL '0', "
+            f"if_not_exists => TRUE, "
+            f"start_offset => INTERVAL {_quote_literal(self.start_offset)}, "
+            f"end_offset => INTERVAL {_quote_literal(self.end_offset)}, "
             f"schedule_interval => INTERVAL {_quote_literal(self.refresh_interval)})"
         )
         await _run_sql(state_editor, refresh_sql)

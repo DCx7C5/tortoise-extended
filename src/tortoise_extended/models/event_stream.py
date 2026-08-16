@@ -346,6 +346,10 @@ class BaseEventStreamModel(BaseModel):
             ValueError: If any instance lacks a primary key.
             OperationalError: If a ``db_default`` field is set on some
                 instances but not others.
+
+        After a successful COPY every instance is marked as persisted
+        (``_saved_in_db``), so a later ``instance.save()`` updates the row
+        instead of inserting a duplicate.
         """
         if not instances:
             return 0
@@ -367,6 +371,8 @@ class BaseEventStreamModel(BaseModel):
                 columns=columns,
                 records=records,
             )
+        for inst in instances:
+            setattr(inst, "_saved_in_db", True)
         return len(instances)
 
     # ── Queries ───────────────────────────────────────────────────────────

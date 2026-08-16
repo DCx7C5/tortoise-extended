@@ -42,7 +42,21 @@ class TimestampMixin:
 
 
 class TimestampEndMixin:
-    """Add ``created_at``/``ended_at`` timestamp columns to a model."""
+    """Add ``created_at``/``ended_at`` timestamp columns to a model.
+
+    ``ended_at`` is a **caller-managed** nullable timestamp (e.g. the moment
+    a process/workflow finished) — it is deliberately *not* ``auto_now``,
+    because ``auto_now`` would silently rewrite the end time on every later
+    save, turning it into a misnamed ``updated_at``.  Set it explicitly when
+    the entity ends::
+
+        entity.ended_at = datetime.now(UTC)
+        await entity.save(update_fields=["ended_at"])
+
+    Attributes:
+        created_at: Set automatically on first insert.
+        ended_at: ``NULL`` until the caller marks the entity ended.
+    """
 
     created_at = fields.DatetimeField(
         auto_now_add=True,
@@ -50,7 +64,9 @@ class TimestampEndMixin:
         description="Creation timestamp (timezone-aware)",
     )
     ended_at = fields.DatetimeField(
-        auto_now=True,
+        null=True,
+        default=None,
         use_tz=True,
-        description="Last modification timestamp (timezone-aware)",
+        description="Caller-set end timestamp (timezone-aware); NULL while active",
     )
+
