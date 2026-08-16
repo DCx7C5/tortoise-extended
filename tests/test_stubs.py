@@ -33,8 +33,8 @@ MODULE_TO_STUB = {
     "tortoise.fields": "fields/__init__.pyi",
     "tortoise.fields.base": "fields/base.pyi",
     "tortoise.fields.relational": "fields/relational.pyi",
-    "tortoise.filters": "filters/__init__.pyi",
-    "tortoise.indexes": "indexes/__init__.pyi",
+    "tortoise.filters": "filters.pyi",
+    "tortoise.indexes": "indexes.pyi",
     "tortoise.models": "models/__init__.pyi",
     "tortoise.validators": "validators.pyi",
     "tortoise.backends.asyncpg.client": "backends/asyncpg/client.pyi",
@@ -160,14 +160,14 @@ class TestStubPatchSurface:
         )
 
     def test_indexes_registered_types(self) -> None:
-        declared = _stub_names(TORTOISE_STUBS_DIR / "indexes" / "__init__.pyi")
+        declared = _stub_names(TORTOISE_STUBS_DIR / "indexes.pyi")
         for name in ("Index", "HNSWIndex", "IVFFlatIndex", "GiSTIndex"):
             assert name in declared, (
                 f"_apply_patches() registers {name} on tortoise.indexes"
             )
 
     def test_filters_patch_flag_and_function(self) -> None:
-        declared = _stub_names(TORTOISE_STUBS_DIR / "filters" / "__init__.pyi")
+        declared = _stub_names(TORTOISE_STUBS_DIR / "filters.pyi")
         for name in (
             "get_filters_for_field",
             "_tortoise_extended_patched",
@@ -193,6 +193,74 @@ class TestStubPatchSurface:
             assert name in declared
 
 
+class TestStubFiltersSurface:
+    """The ``tortoise.filters`` stub mirrors the full runtime module surface
+    (encoders, operators, and filter resolvers), not just the patched subset."""
+
+    def test_runtime_exports_declared(self) -> None:
+        declared = _stub_names(TORTOISE_STUBS_DIR / "filters.pyi")
+        for name in (
+            "Like",
+            "escape_like",
+            "list_encoder",
+            "related_list_encoder",
+            "bool_encoder",
+            "string_encoder",
+            "int_encoder",
+            "json_encoder",
+            "array_encoder",
+            "is_in",
+            "not_in",
+            "between_and",
+            "not_equal",
+            "is_null",
+            "not_null",
+            "contains",
+            "search",
+            "posix_regex",
+            "insensitive_posix_regex",
+            "starts_with",
+            "ends_with",
+            "insensitive_exact",
+            "insensitive_contains",
+            "insensitive_starts_with",
+            "insensitive_ends_with",
+            "extract_year_equal",
+            "extract_quarter_equal",
+            "extract_month_equal",
+            "extract_week_equal",
+            "extract_day_equal",
+            "extract_hour_equal",
+            "extract_minute_equal",
+            "extract_second_equal",
+            "extract_microsecond_equal",
+            "json_contains",
+            "json_contained_by",
+            "json_filter",
+            "array_contains",
+            "array_contained_by",
+            "array_overlap",
+            "array_length",
+            "get_m2m_filters",
+            "get_backward_fk_filters",
+            "get_json_filter",
+            "get_array_filter",
+            "get_filters_for_field",
+        ):
+            assert name in declared, f"filters stub missing {name}"
+
+
+class TestStubDbDefaults:
+    """The ``tortoise.fields`` overlay declares the ``db_defaults`` re-exports
+    (``Now``, ``RandomHex``, ``SqlDefault``) so they resolve under full
+    stub replacement."""
+
+    def test_db_default_exports_declared(self) -> None:
+        declared = _stub_names(TORTOISE_STUBS_DIR / "fields" / "__init__.pyi")
+        for name in ("Now", "RandomHex", "SqlDefault"):
+            assert name in declared, f"fields stub missing db_default {name}"
+
+
 class TestStubTortoiseRoot:
     """The root ``tortoise`` stub declares the package-level surface used by
     ``tortoise_extended``: the ``Tortoise`` class with ``classproperty`` state,
@@ -213,7 +281,7 @@ class TestStubTortoiseRoot:
             "init_app",
             "describe_model",
             "describe_models",
-            "_drop_database",
+            "_drop_databases",
         ):
             assert name in declared, f"root tortoise stub missing {name}"
 

@@ -6,6 +6,7 @@ pyright from resolving ``Validator`` as a concrete class.
 """
 
 import abc
+import re
 from abc import ABC
 from typing import Any, override
 
@@ -15,7 +16,8 @@ class Validator(metaclass=abc.ABCMeta):
 
 class RegexValidator(Validator):
     regex: Any
-    def __init__(self, pattern: str, flags: int) -> None: ...
+    flags: int | re.RegexFlag
+    def __init__(self, pattern: str, flags: int | re.RegexFlag) -> None: ...
     @override
     def __call__(self, value: Any) -> None: ...
 

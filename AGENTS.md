@@ -38,7 +38,7 @@ design — see `src/tortoise_extended/__init__.py` (`_apply_patches()`).
 2. **Never depend on `tortoise-embeddings`.** It monkey-patches the same functions
    (`get_filters_for_field`, `MetaInfo.add_field`, `Tortoise.init`, `OperationGenerator.generate`,
    `MigrationWriter._format_operation`). Only one monkey-patch can win per function. `VectorField`
-   is intentionally ~50 lines and self-contained to avoid the conflict.
+   is intentionally ~160 lines and self-contained to avoid the conflict.
 3. **Never use raw SQL for CRUD.** Extensions build on the Tortoise QuerySet API. Raw SQL is
    reserved for what Tortoise cannot express: recursive CTEs, `DISTINCT ON`, `UNION` subqueries,
    `ts_rank_cd` ranking, and `ARRAY[]` literals (see `expressions/`).
@@ -176,7 +176,6 @@ src/tortoise_extended/
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)
 │   ├── ltree_filters.py     # ltree query operators
 │   └── _edge_filter.py      # shared edge-table filter clause (et_clause)
-├── backends/                # (currently empty namespace package)
 ├── migrations/
 │   └── operations.py        # CreateHypertable, CreateContinuousAggregate
 ├── cache/

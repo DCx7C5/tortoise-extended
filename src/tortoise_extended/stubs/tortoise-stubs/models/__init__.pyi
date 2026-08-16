@@ -11,8 +11,8 @@ metaclass injects dynamically:
 
 - ``get_filters_for_field`` — re-exported into ``tortoise.models`` by
   ``_apply_patches()``.
-- ``Model.DoesNotExist`` — set by the metaclass; never declared statically in
-  the runtime source.
+- ``DoesNotExist`` — re-exported from ``tortoise.exceptions`` at module level,
+  matching the runtime module surface (``Model`` itself does NOT declare it).
 
 ``Any`` is used only where the runtime is untyped/dynamic (``**kwargs``,
 ``pk`` accessors). reportExplicitAny is disabled for this file for that reason.
@@ -24,7 +24,7 @@ from typing import Any, Self, override
 from pypika_tortoise.queries import Table
 from pypika_tortoise.terms import Term
 from tortoise.backends.base.client import BaseDBAsyncClient
-from tortoise.exceptions import DoesNotExist
+from tortoise.exceptions import DoesNotExist as DoesNotExist
 from tortoise.expressions import Expression, Q
 from tortoise.fields.base import Field
 from tortoise.manager import Manager
@@ -67,8 +67,6 @@ class ModelMeta(type):
 class Model:
     """Base class for all Tortoise ORM models."""
 
-    DoesNotExist: type[DoesNotExist]
-
     _meta: MetaInfo
     pk: Any
 
@@ -96,17 +94,13 @@ class Model:
         using_db: BaseDBAsyncClient | None = None,
     ) -> None: ...
     @classmethod
-    def filter(
-        cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any
-    ) -> QuerySet[Self]: ...
+    def filter(cls, *args: Q, **kwargs: Any) -> QuerySet[Self]: ...
     @classmethod
     def _init_from_db(cls: type[Self], **kwargs: Any) -> Self:
         """Hydrate a raw DB row (model-field kwargs) into a model instance."""
 
     @classmethod
-    def exclude(
-        cls, *args: Q, using_db: BaseDBAsyncClient | None = None, **kwargs: Any
-    ) -> QuerySet[Self]: ...
+    def exclude(cls, *args: Q, **kwargs: Any) -> QuerySet[Self]: ...
     @classmethod
     def annotate(cls, **kwargs: Expression | Term) -> QuerySet[Self]: ...
     @classmethod
@@ -195,7 +189,7 @@ class Model:
     ) -> QuerySet[Self]: ...
     @classmethod
     def raw(
-        cls, raw_query: str, using_db: BaseDBAsyncClient | None = None
+        cls, sql: str, using_db: BaseDBAsyncClient | None = None
     ) -> RawSQLQuery: ...
     @classmethod
     async def fetch_for_list(

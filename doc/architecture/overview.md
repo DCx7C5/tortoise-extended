@@ -92,9 +92,14 @@ Results (list[dict])
 | `expressions/graph_filters.py` | Distance operators | L2, cosine, inner product |
 | `expressions/recursive_cte.py` | CTE construction | Anchor + union pattern |
 | `expressions/graph_traversal.py` | Graph traversal | Ancestors, descendants, neighbors |
+| `expressions/graph_vector_search.py` | Graph + vector compositor | `GraphVectorSearch` hybrid traversal |
 | `expressions/pathfinding.py` | Pathfinding | Shortest path, all paths, cycles |
 | `expressions/hybrid_search.py` | Hybrid search | Vector + FTS weighted scoring |
 | `expressions/ltree_filters.py` | ltree operators | Ancestor/descendant/match filters |
+| `models/base.py` | Model base | `BaseModel` (BigInt pk) |
+| `models/user.py` | User base model | `BaseUserModel` (email/password auth) |
+| `models/mixins.py` | Timestamp mixins | `TimestampMixin` / `TimestampEndMixin` |
+| `models/soft_delete.py` | Soft delete | `BaseSoftDeleteModel` + `SoftDeleteQuerySet` |
 | `models/graph_node.py` | Graph nodes | Adjacency list base class |
 | `models/graph_edge.py` | Graph edges | Typed/weighted edge base class |
 | `models/hierarchy_model.py` | ltree trees | `BaseHierarchyModel` for ltree models |

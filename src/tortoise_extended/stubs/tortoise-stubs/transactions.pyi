@@ -17,10 +17,12 @@ class TransactionContext(Protocol):
 
     Mirrors the runtime ``tortoise.backends.base.client.TransactionContext``
     surface used by library code: it can be awaited for an ``async with``
-    block, and yields the transaction itself on entry.
+    block. On entry it yields the underlying connection (typed ``Any`` — the
+    runtime context is generic over the connection type ``T_conn``, and the
+    concrete ``__aenter__`` implementations return ``TransactionalDBClient``).
     """
 
-    async def __aenter__(self) -> "TransactionContext": ...
+    async def __aenter__(self) -> Any: ...
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None: ...
 
 def in_transaction(connection_name: str | None = None) -> TransactionContext: ...

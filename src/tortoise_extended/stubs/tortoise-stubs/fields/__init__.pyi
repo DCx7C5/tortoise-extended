@@ -75,13 +75,16 @@ __all__ = [
     "LTreeField",
     "ManyToManyField",
     "ManyToManyRelation",
+    "Now",
     "OnDelete",
     "OneToOneField",
     "OneToOneNullableRelation",
     "OneToOneRelation",
     "PathField",
+    "RandomHex",
     "ReverseRelation",
     "SmallIntField",
+    "SqlDefault",
     "TextField",
     "TimeDeltaField",
     "TimeField",
@@ -461,3 +464,45 @@ class UUIDField(Field[T_UUID]):
     def to_db_value(self, value: Any, instance: Any) -> str | None: ...
     @override
     def to_python_value(self, value: Any) -> uuid.UUID | None: ...
+
+# ── db_defaults (re-exported from ``tortoise.fields.db_defaults``) ──────
+
+class SqlDefault:
+    """Raw SQL expression for a database-level default value."""
+
+    sql: str
+
+    def __init__(self, sql: str) -> None: ...
+    def get_sql(self, _context: Any = None, dialect: str | None = None) -> str: ...
+    @override
+    def __repr__(self) -> str: ...
+    @override
+    def __eq__(self, other: object) -> bool: ...
+    @override
+    def __hash__(self) -> int: ...
+
+class Now(SqlDefault):
+    """``CURRENT_TIMESTAMP`` database default (dialect-aware)."""
+
+    _DIALECT_SQL: dict[str, str]
+
+    def __init__(self) -> None: ...
+    @override
+    def get_sql(self, _context: Any = None, dialect: str | None = None) -> str: ...
+    @override
+    def __repr__(self) -> str: ...
+
+class RandomHex(SqlDefault):
+    """Random 32-char hex string database default (dialect-aware)."""
+
+    _DIALECT_SQL: dict[str, str]
+
+    def __init__(self) -> None: ...
+    @override
+    def get_sql(self, _context: Any = None, dialect: str | None = None) -> str: ...
+    @override
+    def __repr__(self) -> str: ...
+    @override
+    def __eq__(self, other: object) -> bool: ...
+    @override
+    def __hash__(self) -> int: ...

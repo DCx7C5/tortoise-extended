@@ -7,6 +7,7 @@ This overlay declares fully-known signatures; callers narrow the
 """
 
 from collections.abc import Sequence
+from datetime import datetime, timedelta
 from typing import AsyncContextManager, Protocol
 
 from tortoise_extended._types import RowMapping, RowValue
@@ -33,7 +34,7 @@ class BaseDBAsyncClient:
     async def execute_query(
         self,
         query: str,
-        values: list[str] | None = None,
+        values: Sequence[str | int | float | None | datetime | timedelta] | None = None,
     ) -> tuple[int, Sequence[RowMapping]]: ...
     async def execute_query_dict(
         self,

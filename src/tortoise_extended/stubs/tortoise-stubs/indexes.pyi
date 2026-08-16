@@ -1,6 +1,7 @@
 # pyright: reportExplicitAny=false
-"""Type stubs for ``tortoise.indexes``.
+"""Type stubs for ``tortoise.indexes`` (local overlay).
 
+Mirrors the runtime module layout (``tortoise/indexes.py``, not a package).
 Declares the upstream ``Index`` base class plus the pgvector/ltree index
 types that ``tortoise_extended`` registers at import time (``HNSWIndex``,
 ``IVFFlatIndex``, ``GiSTIndex``) so the monkey-patch attribute access in

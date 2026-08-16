@@ -14,7 +14,7 @@ in the runtime — attribute access without parentheses. They are declared as
 ``Any`` is used only where the runtime is untyped/dynamic.
 """
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from types import ModuleType
 from typing import Any, ClassVar
 
@@ -23,6 +23,7 @@ from tortoise import models as models
 
 from tortoise.apps import Apps
 from tortoise.backends.base.client import BaseDBAsyncClient
+from tortoise.config import TortoiseConfig
 from tortoise.connection import (
     connections as connections,
     get_connection as get_connection,
@@ -38,18 +39,23 @@ class Tortoise:
     apps: ClassVar[Apps | None]
     _inited: ClassVar[bool]
 
+    # Class-level for backward compatibility (mirrors the runtime attribute).
+    table_name_generator: ClassVar[Callable[[type[Model]], str] | None]
+
     @classmethod
     async def init(
         cls,
-        config: dict[str, object] | None = None,
+        config: dict[str, Any] | TortoiseConfig | None = None,
         config_file: str | None = None,
         _create_db: bool = False,
         db_url: str | None = None,
-        modules: dict[str, list[str]] | None = None,
+        modules: dict[str, Iterable[str | ModuleType]] | None = None,
         use_tz: bool = True,
         timezone: str = "UTC",
-        routers: list[str] | None = None,
+        routers: list[str | type] | None = None,
+        table_name_generator: Callable[[type[Model]], str] | None = None,
         init_connections: bool = True,
+        _enable_global_fallback: bool = False,
     ) -> TortoiseContext: ...
     @classmethod
     def get_connection(cls, connection_name: str) -> BaseDBAsyncClient: ...
@@ -84,4 +90,4 @@ class Tortoise:
         serializable: bool = True,
     ) -> dict[str, dict[str, Any]]: ...
     @classmethod
-    def _drop_database(cls, connection_name: str = "default") -> None: ...
+    async def _drop_databases(cls) -> None: ...
