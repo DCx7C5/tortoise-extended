@@ -11,6 +11,7 @@ import datetime
 import decimal
 import uuid
 from collections.abc import Callable
+from enum import Enum, IntEnum
 from typing import Any, Literal, TypeVar, overload, override
 
 import tortoise.validators
@@ -23,8 +24,6 @@ from tortoise.fields.base import (
     Field,
     OnDelete,
 )
-from tortoise.fields.data import CharEnumType, IntEnumType
-from tortoise.fields.boolean import BooleanField as BooleanField
 from tortoise.fields.relational import (
     BackwardFKRelation,
     BackwardOneToOneRelation,
@@ -95,6 +94,9 @@ __all__ = [
 
 type _ValidatorType = list[tortoise.validators.Validator | Callable[..., Any]]
 
+CharEnumType = TypeVar("CharEnumType", bound=Enum)
+IntEnumType = TypeVar("IntEnumType", bound=IntEnum)
+
 # ── BigIntField ─────────────────────────────────────────────────────────
 
 class BigIntField(Field[int | None]):
@@ -137,6 +139,37 @@ def BinaryField(
     validators: _ValidatorType | None = None,
     **kwargs: Any,
 ) -> Field[bytes | None]: ...
+
+# ── BooleanField ────────────────────────────────────────────────────────
+
+T_BOOL = TypeVar("T_BOOL")
+
+
+class BooleanField(Field[T_BOOL]):
+    """Boolean Tortoise field (stored as 0/1, exposed as ``bool``).
+
+    Inlined locally: ``tortoise.fields.boolean`` does not exist at runtime
+    (``BooleanField`` lives in ``tortoise.fields.data`` and is re-exported
+    as ``tortoise.fields.BooleanField``). The ``null`` literal overloads
+    narrow the element type to ``bool`` / ``bool | None`` so model
+    declarations like ``fields.BooleanField(default=False)`` are fully known.
+    """
+
+    field_type: type[bool] = bool
+    SQL_TYPE: str = "BOOL"
+
+    class _db_sqlite:
+        SQL_TYPE: str = "INT"
+
+    @overload
+    def __init__(
+        self: BooleanField[bool], *, null: Literal[False] = False, **kwargs: object
+    ) -> None: ...
+    @overload
+    def __init__(
+        self: BooleanField[bool | None], *, null: Literal[True], **kwargs: object
+    ) -> None: ...
+    def __init__(self, **kwargs: object) -> None: ...
 
 # ── CharEnumField ───────────────────────────────────────────────────────
 

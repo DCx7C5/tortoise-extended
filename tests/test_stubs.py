@@ -16,8 +16,6 @@ fail fast if a declaration goes missing or the wiring is removed.
 import ast
 import json
 import re
-import sys
-import types
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +33,6 @@ MODULE_TO_STUB = {
     "tortoise.fields": "fields/__init__.pyi",
     "tortoise.fields.base": "fields/base.pyi",
     "tortoise.fields.relational": "fields/relational.pyi",
-    "tortoise.fields.boolean": "fields/boolean.pyi",
     "tortoise.filters": "filters/__init__.pyi",
     "tortoise.indexes": "indexes/__init__.pyi",
     "tortoise.models": "models/__init__.pyi",
@@ -47,25 +44,6 @@ MODULE_TO_STUB = {
 # ``from tortoise import ...`` names that are submodule references (the symbol
 # is the module itself, which the overlay covers by declaring the module file).
 SUBMODULE_NAMES = {"fields", "models", "filters", "indexes", "validators"}
-
-# Modules the overlay declares that have no runtime counterpart (they exist for
-# typing only, so executing stubs against the installed tortoise package must
-# resolve them through a placeholder instead of the real package).
-OVERLAY_ONLY_MODULES = {
-    "tortoise.fields.boolean": ("BooleanField",),
-}
-
-
-def _seed_overlay_only_modules() -> None:
-    """Register placeholder modules so stub-to-stub imports of typing-only
-    modules (e.g. ``tortoise.fields.boolean``) resolve during ``exec``."""
-    for module_name, attrs in OVERLAY_ONLY_MODULES.items():
-        if module_name in sys.modules:
-            continue
-        placeholder = types.ModuleType(module_name)
-        for attr in attrs:
-            setattr(placeholder, attr, object)
-        sys.modules[module_name] = placeholder
 
 
 def _stub_names(stub_path: Path) -> set[str]:
@@ -263,20 +241,21 @@ class TestStubSignals:
 
 
 class TestStubBooleanField:
-    """The ``tortoise.fields.boolean`` stub fully types ``BooleanField``."""
+    """The ``tortoise.fields`` overlay stub fully types ``BooleanField``
+    (inlined; runtime has no ``tortoise.fields.boolean`` module)."""
 
     def test_boolean_field_is_concrete_class(self) -> None:
-        source = (TORTOISE_STUBS_DIR / "fields" / "boolean.pyi").read_text(
+        source = (TORTOISE_STUBS_DIR / "fields" / "__init__.pyi").read_text(
             encoding="utf-8"
         )
         assert re.search(r"class BooleanField\(Field\[", source), (
             "BooleanField must be a class generic over Field, not a function "
             "overload chain"
         )
-        assert "field_type: ClassVar[type] = bool" in source
+        assert "field_type: type[bool] = bool" in source
 
     def test_boolean_field_null_literal_overloads(self) -> None:
-        source = (TORTOISE_STUBS_DIR / "fields" / "boolean.pyi").read_text(
+        source = (TORTOISE_STUBS_DIR / "fields" / "__init__.pyi").read_text(
             encoding="utf-8"
         )
         assert "BooleanField[bool]" in source
@@ -299,7 +278,6 @@ class TestStubExecutable:
     def test_all_overlay_stubs_execute(self) -> None:
         stub_files = sorted(TORTOISE_STUBS_DIR.rglob("*.pyi"))
         assert stub_files, "no stub files found under stubs/"
-        _seed_overlay_only_modules()
         failures: list[str] = []
         for stub in stub_files:
             source = stub.read_text(encoding="utf-8")
