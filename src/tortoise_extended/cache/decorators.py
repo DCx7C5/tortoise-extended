@@ -14,13 +14,56 @@ from collections.abc import Awaitable, Callable
 from typing import Concatenate, TypeVar, cast
 
 from tortoise_extended._types import CacheValue, P, R
-from tortoise_extended.cache.base import CacheBackend, CacheKey
+from tortoise_extended.cache.base import CacheBackend, CacheKey, SingleFlight
 from tortoise_extended.exceptions import CacheError
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 """Type of the bound ``self`` on a :func:`cached_method` wrapper."""
+
+# Process-local deduplication of concurrent cache misses per cache key.
+_single_flight = SingleFlight()
+
+
+def _stable_signature(
+    args: tuple[CacheValue, ...], kwargs: dict[str, CacheValue]
+) -> str:
+    """Deterministic JSON signature of call arguments.
+
+    ``str(args)``/``str(kwargs)`` are order- and repr-dependent (sets render
+    in arbitrary order, kwargs in insertion order), so two calls with the
+    same logical arguments could miss each other's cache entry. Sets are
+    sorted, kwargs are sorted by key, and nested containers are canonicalized
+    before JSON encoding.
+    """
+
+    def normalize(
+        value: CacheValue | set[CacheValue] | frozenset[CacheValue],
+    ) -> CacheValue:
+        if isinstance(value, (set, frozenset)):
+            items = sorted((normalize(v) for v in value), key=str)
+            return cast(CacheValue, items)
+        if isinstance(value, dict):
+            items = sorted(value.items(), key=lambda kv: str(kv[0]))
+            return cast(
+                CacheValue, {str(k): normalize(v) for k, v in items}
+            )
+        if isinstance(value, list):
+            return cast(CacheValue, [normalize(v) for v in value])
+        return cast(CacheValue, value)
+
+    return json.dumps(
+        {
+            "args": [normalize(a) for a in args],
+            "kwargs": {
+                str(k): normalize(v)
+                for k, v in sorted(kwargs.items(), key=lambda kv: str(kv[0]))
+            },
+        },
+        default=str,
+        sort_keys=True,
+    )
 
 
 def _build_cache_key(
@@ -39,11 +82,28 @@ def _build_cache_key(
         f"{getattr(func, '__qualname__', '<unknown>')}"
     )
     key = CacheKey(prefix or func_name)
-    _ = key.add(
-        CacheKey.hash(
-            json.dumps({"args": str(args), "kwargs": str(kwargs)}, default=str)
-        )
+    _ = key.add(CacheKey.hash(_stable_signature(args, kwargs)))
+    return key.build()
+
+
+def _build_method_cache_key(
+    func: Callable[..., str],
+    args: tuple[CacheValue, ...],
+    kwargs: dict[str, CacheValue],
+    prefix: str | None = None,
+) -> str:
+    """Build cache key for a method, excluding the bound instance.
+
+    The module-qualified ``__qualname__`` (``module.Class.method``) keeps
+    methods of same-named classes in different modules from colliding, and
+    stays stable when called from a subclass instance.
+    """
+    func_name = (
+        f"{getattr(func, '__module__', '<unknown>')}."
+        f"{getattr(func, '__qualname__', '<unknown>')}"
     )
+    key = CacheKey(prefix or func_name)
+    _ = key.add(CacheKey.hash(_stable_signature(args, kwargs)))
     return key.build()
 
 
@@ -103,15 +163,34 @@ def cached(
             except CacheError:
                 logger.debug("Cache read error for key %s", cache_key, exc_info=True)
 
-            # Execute function
-            result = await func(*args, **kwargs)
+            # Cache stampede control: on concurrent misses for the same key
+            # only one coroutine executes the function; the others await the
+            # shared future.
+            claimed, future = _single_flight.claim(cache_key)
+            if not claimed:
+                return cast(R, await future)
 
-            # Store in cache
-            if result is not None:
-                with contextlib.suppress(CacheError):
-                    await backend.set(cache_key, cast(CacheValue, result), ttl=ttl)
+            try:
+                # Execute function
+                result = await func(*args, **kwargs)
 
-            return result
+                # Store in cache
+                if result is not None:
+                    with contextlib.suppress(CacheError):
+                        await backend.set(
+                            cache_key, cast(CacheValue, result), ttl=ttl
+                        )
+                if not future.done():
+                    future.set_result(cast(CacheValue, result))
+                return result
+            except BaseException as exc:
+                # Propagate the failure to awaiters instead of leaving them
+                # hanging on an unresolved future.
+                if not future.done():
+                    future.set_exception(exc)
+                raise
+            finally:
+                _single_flight.release(cache_key, future)
 
         # Expose cache control methods
         def _invalidate(*_a: CacheValue, **_kw: CacheValue) -> Awaitable[None]:
@@ -123,6 +202,7 @@ def cached(
                 prefix,
                 key_builder,
                 namespace,
+                backend,
             )
 
         def _cache_key(*a: CacheValue, **kw: CacheValue) -> str:
@@ -172,16 +252,12 @@ def cached_method(
             backend = RedisCache.get_backend(namespace=namespace, default_ttl=ttl)
 
             # Build key without self
-            func_qualname = getattr(func, "__qualname__", "<unknown>")
-            func_name = f"{type(self).__name__}.{func_qualname}"
-            p = prefix or func_name
-            key = CacheKey(p)
-            _ = key.add(
-                CacheKey.hash(
-                    json.dumps({"args": str(args), "kwargs": str(kwargs)}, default=str)
-                )
+            cache_key = _build_method_cache_key(
+                cast(Callable[..., str], func),
+                cast(tuple[CacheValue, ...], args),
+                cast(dict[str, CacheValue], kwargs),
+                prefix,
             )
-            cache_key = key.build()
 
             # Try cache
             try:
@@ -191,15 +267,52 @@ def cached_method(
             except CacheError:
                 logger.debug("Cache read error for method %s", cache_key, exc_info=True)
 
-            # Execute method
-            result = await func(self, *args, **kwargs)
+            # Cache stampede control (same contract as @cached).
+            claimed, future = _single_flight.claim(cache_key)
+            if not claimed:
+                return cast(R, await future)
 
-            # Store in cache
-            if result is not None:
-                with contextlib.suppress(CacheError):
-                    await backend.set(cache_key, cast(CacheValue, result), ttl=ttl)
+            try:
+                # Execute method
+                result = await func(self, *args, **kwargs)
 
-            return result
+                # Store in cache
+                if result is not None:
+                    with contextlib.suppress(CacheError):
+                        await backend.set(
+                            cache_key, cast(CacheValue, result), ttl=ttl
+                        )
+                if not future.done():
+                    future.set_result(cast(CacheValue, result))
+                return result
+            except BaseException as exc:
+                if not future.done():
+                    future.set_exception(exc)
+                raise
+            finally:
+                _single_flight.release(cache_key, future)
+
+        # Expose cache control methods, mirroring the @cached API.
+        def _invalidate(*_a: CacheValue, **_kw: CacheValue) -> Awaitable[None]:
+            """Invalidate cache for this decorated method."""
+            return _invalidate_cached(
+                cast(Callable[..., str], func),
+                _a,
+                _kw,
+                prefix,
+                None,
+                namespace,
+                None,
+            )
+
+        def _cache_key(*a: CacheValue, **kw: CacheValue) -> str:
+            """Get cache key for given arguments (self excluded)."""
+            return _build_method_cache_key(
+                cast(Callable[..., str], func), a, kw, prefix
+            )
+
+        setattr(wrapper, "invalidate", _invalidate)
+        setattr(wrapper, "cache_key", _cache_key)
 
         return wrapper
 
@@ -213,11 +326,18 @@ async def _invalidate_cached(
     prefix: str | None,
     key_builder: Callable[..., str] | None,
     namespace: str,
+    backend: CacheBackend | None = None,
 ) -> None:
-    """Invalidate a cached function call."""
-    from tortoise_extended.cache.redis import RedisCache
+    """Invalidate a cached function call.
 
-    backend = RedisCache.get_backend(namespace=namespace)
+    The *backend* parameter lets ``wrapper.invalidate()`` target the exact
+    backend the decorated call wrote to. When None (e.g. ``@cached_method``
+    helpers), fall back to the default Redis backend for *namespace*.
+    """
+    if backend is None:
+        from tortoise_extended.cache.redis import RedisCache
+
+        backend = RedisCache.get_backend(namespace=namespace)
     cache_key = _build_cache_key(func, args, kwargs, prefix, key_builder)
     _ = await backend.delete(cache_key)
 

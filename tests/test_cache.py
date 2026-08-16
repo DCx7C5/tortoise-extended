@@ -78,19 +78,19 @@ class TestAbstractMethodBodies:
 class TestCacheKey:
     def test_basic_build(self):
         key = CacheKey("prefix").add("user", "123").build()
-        assert key == "prefix:user:123"
+        assert key == "6:prefix:4:user:3:123"
 
     def test_empty_prefix(self):
         key = CacheKey().add("user", "123").build()
-        assert key == "user:123"
+        assert key == "4:user:3:123"
 
     def test_custom_separator(self):
         key = CacheKey("prefix", separator="/").add("user", "123").build()
-        assert key == "prefix/user/123"
+        assert key == "6:prefix/4:user/3:123"
 
     def test_from_dict(self):
         key = CacheKey.from_dict("user", {"id": "123", "name": "alice"})
-        assert key.build() == "user:id:123:name:alice"
+        assert key.build() == "4:user:2:id:3:123:4:name:5:alice"
 
     def test_hash(self):
         h = CacheKey.hash("hello world")
@@ -99,7 +99,16 @@ class TestCacheKey:
 
     def test_int_parts(self):
         key = CacheKey("test").add(42, 3.14).build()
-        assert key == "test:42:3.14"
+        assert key == "4:test:2:42:4:3.14"
+
+    def test_separator_inside_value_is_unambiguous(self):
+        """Length-prefixing means a ':' inside a value can never be confused
+        with a component boundary."""
+        one_part = CacheKey("p").add("1:2").build()
+        two_parts = CacheKey("p").add("1", "2").build()
+        assert one_part == "1:p:3:1:2"
+        assert two_parts == "1:p:1:1:1:2"
+        assert one_part != two_parts
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +182,7 @@ class MockRedisBackend(CacheBackend):
         return None
 
     async def set(self, key: str, value, ttl=None):
-        ttl = ttl or self.default_ttl
+        ttl = ttl if ttl is not None else self.default_ttl
         self._store[key] = self.serialize(value)
         self._ttls[key] = ttl
 
@@ -280,6 +289,13 @@ class TestMockBackend:
         assert await self.backend.incr("counter") == 1
         assert await self.backend.incr("counter") == 2
         assert await self.backend.incr("counter", 5) == 7
+
+    @pytest.mark.asyncio
+    async def test_incr_non_integer_raises_cache_error(self):
+        """Base incr must surface a domain CacheError, not a raw ValueError."""
+        await self.backend.set("counter", "not-a-number")
+        with pytest.raises(CacheError, match="non-integer"):
+            await self.backend.incr("counter")
 
     @pytest.mark.asyncio
     async def test_flush(self):
@@ -521,6 +537,109 @@ class TestCachedDecoratorBranches:
         assert await self.backend.exists(key) is False
 
     @pytest.mark.asyncio
+    async def test_invalidate_uses_decorator_backend(self, monkeypatch):
+        """wrapper.invalidate() must delete from the @cached backend, not the
+        default Redis 'decorators' namespace backend."""
+        custom_backend = MockRedisBackend(default_ttl=300)
+        default_backend = MockRedisBackend(default_ttl=300)
+        self._mock_redis_cache(monkeypatch, backend=default_backend)
+
+        @cached(ttl=60, backend=custom_backend)
+        async def func(x: int) -> int:
+            return x
+
+        await func(1)
+        key = func.cache_key(1)
+        assert await custom_backend.exists(key) is True
+        assert await default_backend.exists(key) is False
+
+        await func.invalidate(1)
+        assert await custom_backend.exists(key) is False
+
+    @pytest.mark.asyncio
+    async def test_single_flight_concurrent_miss_one_execution(self):
+        """Concurrent misses for the same key share a single execution."""
+        import asyncio
+
+        backend = MockRedisBackend(default_ttl=300)
+        calls = 0
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        @cached(ttl=60, backend=backend)
+        async def expensive() -> int:
+            nonlocal calls
+            calls += 1
+            started.set()
+            await release.wait()
+            return 42
+
+        t1 = asyncio.create_task(expensive())
+        await started.wait()
+        t2 = asyncio.create_task(expensive())
+        await asyncio.sleep(0)
+        release.set()
+        results = await asyncio.gather(t1, t2)
+
+        assert results == [42, 42]
+        assert calls == 1
+
+    @pytest.mark.asyncio
+    async def test_single_flight_error_propagates_to_awaiters(self):
+        """A failing execution must not hang concurrent waiters."""
+        import asyncio
+
+        class ErrorBackend(MockRedisBackend):
+            async def set(self, key, value, ttl=None):
+                raise CacheError("boom")
+
+        backend = ErrorBackend(default_ttl=300)
+        calls = 0
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        @cached(ttl=60, backend=backend)
+        async def failing() -> int:
+            nonlocal calls
+            calls += 1
+            started.set()
+            await release.wait()
+            msg = "db down"
+            raise RuntimeError(msg)
+
+        t1 = asyncio.create_task(failing())
+        await started.wait()
+        t2 = asyncio.create_task(failing())
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(RuntimeError, match="db down"):
+            await asyncio.gather(t1, t2)
+        assert calls == 1
+
+    @pytest.mark.asyncio
+    async def test_cached_method_helpers(self, monkeypatch):
+        """cached_method exposes cache_key()/invalidate() like @cached."""
+        self._mock_redis_cache(monkeypatch)
+        call_count = 0
+
+        class Service:
+            @cached_method(ttl=60, namespace="test")
+            async def get_data(self, item_id: str) -> dict:
+                nonlocal call_count
+                call_count += 1
+                return {"id": item_id}
+
+        service = Service()
+        assert await service.get_data("7") == {"id": "7"}
+        key = service.get_data.cache_key("7")
+        assert isinstance(key, str)
+        assert "get_data" in key
+        assert await self.backend.exists(key) is True
+
+        await service.get_data.invalidate("7")
+        assert await self.backend.exists(key) is False
+
+    @pytest.mark.asyncio
     async def test_cached_method_read_error(self, monkeypatch):
         """cached_method swallows CacheError on read."""
 
@@ -622,7 +741,7 @@ class TestBuildCacheKey:
             pass
 
         key = _build_cache_key(dummy, (None,), {}, prefix="custom")
-        assert key.startswith("custom")
+        assert key.startswith("6:custom")
 
 
 class TestCachedKeyCollision:
@@ -675,11 +794,48 @@ class TestCacheableModelKeyNamespace:
         key_get = BaseCacheableModel._cache_key_for("get", id="1")
         key_filter = BaseCacheableModel._cache_key_for("filter", id="1")
         assert key_get != key_filter
-        assert key_get == "BaseCacheableModel:get:id:1"
-        assert key_filter == "BaseCacheableModel:filter:id:1"
+        assert key_get == "18:BaseCacheableModel:3:get:2:id:1:1"
+        assert key_filter == "18:BaseCacheableModel:6:filter:2:id:1:1"
 
     def test_key_uses_given_pk_field_name(self):
         # Invalidation now passes the model's pk_attr instead of hardcoded "id"
         key = BaseCacheableModel._cache_key_for("get", uid="abc")
-        assert key == "BaseCacheableModel:get:uid:abc"
+        assert key == "18:BaseCacheableModel:3:get:3:uid:3:abc"
         assert key != BaseCacheableModel._cache_key_for("get", id="abc")
+
+
+class TestSingleFlight:
+    """Unit coverage for the cache/base.py SingleFlight deduplicator."""
+
+    @pytest.mark.asyncio
+    async def test_claim_deduplicates_and_release_clears(self):
+        from tortoise_extended.cache.base import SingleFlight
+
+        sf = SingleFlight()
+        claimed1, fut1 = sf.claim("k")
+        claimed2, fut2 = sf.claim("k")
+        assert claimed1 is True
+        assert claimed2 is False
+        assert fut2 is fut1
+
+        fut1.set_result("v")
+        assert await fut2 == "v"
+
+        sf.release("k", fut1)
+        claimed3, _ = sf.claim("k")
+        assert claimed3 is True  # released slot can be claimed again
+
+    @pytest.mark.asyncio
+    async def test_release_ignores_stale_future(self):
+        from tortoise_extended.cache.base import SingleFlight
+
+        sf = SingleFlight()
+        _, fut1 = sf.claim("k")
+        sf.release("k", fut1)
+        # A new cycle starts after the first completed.
+        _, fut2 = sf.claim("k")
+        assert fut1 is not fut2
+        sf.release("k", fut1)  # stale release must not clear the new slot
+        claimed3, fut3 = sf.claim("k")
+        assert claimed3 is False
+        assert fut3 is fut2

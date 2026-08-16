@@ -464,7 +464,7 @@ class TestContinuousAggregateManager:
     @pytest.mark.asyncio
     async def test_create_with_full_statement(self) -> None:
         await ContinuousAggregateManager.create(
-            "test_daily_events2", "test_events", AGG_FULL
+            "test_daily_events2", "test_events", AGG_FULL, allow_full_statement=True
         )
         aggregates = await ContinuousAggregateManager.list()
         names = {agg["view_name"] for agg in aggregates}

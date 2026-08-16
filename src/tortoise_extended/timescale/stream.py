@@ -22,9 +22,11 @@ from typing import Literal, TypeAlias, cast
 
 import msgspec
 from tortoise import connections, fields
+from tortoise.backends.base.client import BaseDBAsyncClient
 from tortoise.models import Model
 
 from tortoise_extended._types import RowMapping, RowValue
+from tortoise_extended.exceptions import TimescaleError
 
 # ── Typed result containers ────────────────────────────────────────────────
 
@@ -62,6 +64,10 @@ def _bucket_to_timedelta(bucket: str) -> timedelta:
         raise ValueError(
             f"Invalid bucket {bucket!r}; count must be an integer"
         ) from None
+    if count <= 0:
+        raise ValueError(
+            f"Invalid bucket {bucket!r}; count must be a positive integer"
+        )
     unit = parts[1].rstrip("s")
     converter = _BUCKET_UNITS.get(unit)
     if converter is None:
@@ -143,10 +149,21 @@ def _bucket_datetime(value: RowValue) -> datetime:
 async def _fetch_rows(
     sql: str,
     values: Sequence[_SQLParam] | None = None,
+    using_db: BaseDBAsyncClient | None = None,
 ) -> list[RowMapping]:
-    """Run raw SQL and return rows as mappings."""
-    conn = connections.get("default")
-    result = await conn.execute_query(sql, list(values) if values else None)
+    """Run raw SQL and return rows as mappings.
+
+    Args:
+        sql: The SQL statement to execute.
+        values: Optional bound parameters.
+        using_db: Database connection to use (default: 'default').
+    """
+    conn = using_db or connections.get("default")
+    try:
+        result = await conn.execute_query(sql, list(values) if values else None)
+    except Exception as exc:
+        msg = f"Failed to fetch stream rows: {exc}"
+        raise TimescaleError(msg) from exc
     rows = result[1]
     return [dict(row) for row in rows]
 

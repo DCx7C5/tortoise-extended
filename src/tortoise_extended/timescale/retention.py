@@ -24,10 +24,11 @@ from collections.abc import Sequence
 from typing import cast
 
 from tortoise import connections
+from tortoise.backends.base.client import BaseDBAsyncClient
 
 from tortoise_extended._quote import quote_literal
 from tortoise_extended._types import RowMapping, RowValue
-
+from tortoise_extended.exceptions import TimescaleError
 
 class RetentionPolicy:
     """Manager for TimescaleDB retention policies.
@@ -42,6 +43,7 @@ class RetentionPolicy:
         table_name: str,
         drop_after: str = "90 days",
         if_not_exists: bool = True,
+        using_db: BaseDBAsyncClient | None = None,
     ) -> None:
         """Set a retention policy on a hypertable.
 
@@ -49,6 +51,7 @@ class RetentionPolicy:
             table_name: Name of the hypertable
             drop_after: When to drop chunks (e.g., '90 days')
             if_not_exists: Don't error if policy exists
+            using_db: Database connection to use (default: 'default')
 
         Example::
 
@@ -57,7 +60,7 @@ class RetentionPolicy:
                 drop_after="90 days",
             )
         """
-        conn = connections.get("default")
+        conn = using_db or connections.get("default")
 
         sql = (
             "SELECT add_retention_policy("
@@ -67,28 +70,45 @@ class RetentionPolicy:
             ")"
         )
 
-        await conn.execute_query(sql)
+        try:
+            _ = await conn.execute_query(sql)
+        except Exception as exc:
+            msg = f"Failed to set retention policy on {table_name!r}: {exc}"
+            raise TimescaleError(msg) from exc
 
     @staticmethod
-    async def remove_retention(table_name: str) -> None:
+    async def remove_retention(
+        table_name: str,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> None:
         """Remove retention policy from a hypertable.
 
         Args:
             table_name: Name of the hypertable
+            using_db: Database connection to use (default: 'default')
 
         Example::
 
             await RetentionPolicy.remove_retention("events")
         """
-        conn = connections.get("default")
+        conn = using_db or connections.get("default")
 
         sql = f"SELECT remove_retention_policy({quote_literal(table_name)})"
 
-        await conn.execute_query(sql)
+        try:
+            _ = await conn.execute_query(sql)
+        except Exception as exc:
+            msg = f"Failed to remove retention policy from {table_name!r}: {exc}"
+            raise TimescaleError(msg) from exc
 
     @staticmethod
-    async def list_policies() -> list[RowMapping]:
+    async def list_policies(
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> list[RowMapping]:
         """List all retention policies.
+
+        Args:
+            using_db: Database connection to use (default: 'default')
 
         Returns:
             List of dicts with policy information
@@ -99,7 +119,7 @@ class RetentionPolicy:
             for policy in policies:
                 print(f"{policy['table_name']}: keep {policy['drop_after']}")
         """
-        conn = connections.get("default")
+        conn = using_db or connections.get("default")
 
         sql = """
             SELECT
@@ -113,24 +133,43 @@ class RetentionPolicy:
             ORDER BY hypertable_name
         """
 
-        result = await conn.execute_query(sql)
+        try:
+            result = await conn.execute_query(sql)
+        except Exception as exc:
+            msg = "Failed to list retention policies"
+            raise TimescaleError(msg) from exc
         rows = cast(
             Sequence[RowMapping | tuple[RowValue, ...]],
             result[1] if isinstance(result, tuple) else result,
         )
 
-        return [dict(cast(RowMapping, row)) for row in rows]
+        policies: list[RowMapping] = []
+        for row in rows:
+            mapping = dict(cast(RowMapping, row))
+            config = cast(
+                "RowValue | dict[str, RowValue]", mapping.get("drop_after")
+            )
+            if isinstance(config, dict):
+                # ``config`` is a jsonb column: drivers decode it to a dict
+                # even though the row mapping types it as a scalar RowValue.
+                # Bridge through ``object`` to keep the narrow dict at the
+                # scalar value position (G20).
+                mapping["drop_after"] = cast(RowValue, cast(object, config))
+            policies.append(mapping)
+        return policies
 
     @staticmethod
     async def get_chunks_to_drop(
         table_name: str,
         older_than: str = "90 days",
+        using_db: BaseDBAsyncClient | None = None,
     ) -> list[str]:
         """Preview chunks that would be dropped by retention policy.
 
         Args:
             table_name: Name of the hypertable
             older_than: Age threshold (e.g., '90 days')
+            using_db: Database connection to use (default: 'default')
 
         Returns:
             List of chunk names that would be dropped
@@ -143,7 +182,7 @@ class RetentionPolicy:
             )
             print(f"Would drop {len(chunks)} chunks")
         """
-        conn = connections.get("default")
+        conn = using_db or connections.get("default")
 
         sql = f"""
             SELECT
@@ -155,7 +194,11 @@ class RetentionPolicy:
             ORDER BY chunk_name
         """
 
-        result = await conn.execute_query(sql)
+        try:
+            result = await conn.execute_query(sql)
+        except Exception as exc:
+            msg = f"Failed to list chunks to drop for {table_name!r}: {exc}"
+            raise TimescaleError(msg) from exc
         rows = cast(
             Sequence[tuple[RowValue, ...]],
             result[1] if isinstance(result, tuple) else result,

@@ -246,7 +246,7 @@ class BaseCacheableModel(models.Model):
         construct = cast(Callable[..., Self], cls.construct)
         return construct(**kwargs)
 
-    async def rehydrate(self) -> Self:
+    async def rehydrate(self) -> BaseCacheableModel:
         """Load this cache-hit instance from the database.
 
         Cache hits are built with ``Model.construct()`` and are not marked
@@ -263,6 +263,11 @@ class BaseCacheableModel(models.Model):
 
         Only invalidates the specific PK key. Filter-level cache entries
         are invalidated on TTL expiry.
+
+        Cache invalidation runs *after* the DB write succeeded — a Redis
+        outage must never turn a successful ``save()``/``delete()`` into a
+        failure, so any backend error is logged and swallowed (fail open),
+        matching the read path.
         """
         if self._cache_ttl <= 0:
             return
@@ -272,7 +277,12 @@ class BaseCacheableModel(models.Model):
         # Invalidate by PK — key the lookup on the actual pk field name
         pk_attr = self._meta.pk_attr or "id"
         pk_key = self._cache_key_for("get", **{pk_attr: str(self.pk)})
-        _ = await backend.delete(pk_key)
+        try:
+            _ = await backend.delete(pk_key)
+        except CacheError:
+            logger.debug(
+                "Cache invalidation error for key %s", pk_key, exc_info=True
+            )
 
     @override
     async def save(

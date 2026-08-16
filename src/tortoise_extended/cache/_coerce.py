@@ -12,6 +12,9 @@ database hits expose the same value types.
 """
 
 from datetime import date, datetime, time
+from decimal import Decimal
+from typing import cast
+from uuid import UUID
 
 from tortoise.fields.base import Field
 
@@ -35,12 +38,12 @@ def coerce_cache_value(raw: RowValue, field_obj: "Field[RowValue]") -> CoercedVa
     if field_type is int:
         try:
             return int(raw)
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return raw
     if field_type is float:
         try:
             return float(raw)
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return raw
     if field_type is bool:
         return raw.lower() in ("true", "1", "yes")
@@ -58,5 +61,22 @@ def coerce_cache_value(raw: RowValue, field_obj: "Field[RowValue]") -> CoercedVa
         try:
             return time.fromisoformat(raw)
         except ValueError:
+            return raw
+    if field_type is Decimal:
+        # ``Decimal`` is not a member of :data:`CoercedValue` (see
+        # ``_types.py``): the cache serializes it losslessly via ``str`` and
+        # callers cast at the boundary, so reconstructing it here keeps
+        # cache hits type-identical to database hits. The ``object`` bridge
+        # satisfies basedpyright's overlap check for disjoint types.
+        # ``Decimal`` raises ``InvalidOperation`` (an ``ArithmeticError``,
+        # not a ``ValueError``) for unparseable input.
+        try:
+            return cast(CoercedValue, cast(object, Decimal(raw)))
+        except (ValueError, TypeError, ArithmeticError):
+            return raw
+    if field_type is UUID:
+        try:
+            return cast(CoercedValue, cast(object, UUID(raw)))
+        except (ValueError, TypeError, AttributeError):
             return raw
     return raw

@@ -8,7 +8,7 @@ Requires: redis[hiredis] >= 5.0.0
 """
 
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, NoReturn, Self, TypeAlias, cast, override
 
 from tortoise_extended._types import CacheValue
@@ -81,18 +81,43 @@ class RedisCache:
             )
 
         instance = cls()
-        if instance._pool is not None:
-            await instance.close()
 
-        instance._pool = aioredis.from_url(
+        # Create the new pool first and only tear the old one down after the
+        # new pool has proven reachable — if re-initialization fails (e.g.
+        # bad URL) the previously working pool must stay in place.
+        new_pool = aioredis.from_url(
             url,
             max_connections=max_connections,
             decode_responses=False,
             **kwargs,
         )
-        # Test connection
-        ping = cast(Callable[[], Awaitable[bool]], instance._pool.ping)
-        _ = await ping()
+        # Test connection. Avoid assigning attributes on the (possibly
+        # stubbed) driver object: use getattr for the callable, mirroring
+        # the aclose() handling in close() (G24).
+        ping = getattr(new_pool, "ping", None)
+        if ping is None:
+            raise RedisCacheError(
+                "Redis client has no ping() — cannot verify connection"
+            )
+        try:
+            _ = await ping()
+        except BaseException:
+            # Never leave an unverified pool installed.
+            aclose = getattr(new_pool, "aclose", None)
+            if aclose is not None:
+                await aclose()
+            else:
+                await new_pool.close()
+            raise
+
+        old_pool = instance._pool
+        if old_pool is not None:
+            aclose = getattr(old_pool, "aclose", None)
+            if aclose is not None:
+                await aclose()
+            else:
+                await old_pool.close()
+        instance._pool = new_pool
         logger.info("Redis cache connected: %s", url.split("@")[-1])
 
     @classmethod
@@ -190,8 +215,12 @@ class RedisCacheBackend(CacheBackend):
 
     @override
     async def set(self, key: str, value: CacheValue, ttl: int | None = None) -> None:
-        """Set value in Redis with TTL."""
-        ttl = ttl or self.default_ttl
+        """Set value in Redis with TTL.
+
+        An explicit ``ttl=0`` means *no expiry* — it must not silently fall
+        back to ``default_ttl`` (the pre-fix ``ttl or default_ttl`` bug).
+        """
+        ttl = ttl if ttl is not None else self.default_ttl
         try:
             data = self.serialize(value)
         except (TypeError, ValueError) as exc:
@@ -282,23 +311,29 @@ class RedisCacheBackend(CacheBackend):
         result: dict[str, CacheValue] = {}
         for raw_key, value in zip(keys, values, strict=True):
             if value is not None:
-                result[raw_key] = self.deserialize(cast(bytes, value))
+                try:
+                    result[raw_key] = self.deserialize(cast(bytes, value))
+                except (TypeError, ValueError) as exc:
+                    raise CacheSerializationError(str(exc)) from exc
         return result
 
     @override
     async def set_many(
         self, mapping: dict[str, CacheValue], ttl: int | None = None
     ) -> None:
-        """Set multiple values at once."""
+        """Set multiple values at once.
+
+        An explicit ``ttl=0`` means *no expiry* (same contract as ``set``).
+        """
         if not mapping:
             return
-        ttl = ttl or self.default_ttl
+        ttl = ttl if ttl is not None else self.default_ttl
         pipe = self.pipeline()
         try:
             for key, value in mapping.items():
                 data = self.serialize(value)
                 if ttl > 0:
-                    _ = pipe.setex(self._key(key), ttl, data)
+                    _ = pipe.set(self._key(key), data, ex=ttl)
                 else:
                     _ = pipe.set(self._key(key), data)
         except (TypeError, ValueError) as exc:

@@ -22,9 +22,42 @@ from collections.abc import Sequence
 from typing import cast
 
 from tortoise import connections
+from tortoise.backends.base.client import BaseDBAsyncClient
 
 from tortoise_extended._quote import quote_ident, quote_literal
 from tortoise_extended._types import RowMapping, RowValue
+from tortoise_extended.exceptions import TimescaleError
+
+
+def _split_schema_name(name: str) -> tuple[str | None, str]:
+    """Split a possibly schema-qualified identifier into (schema, name).
+
+    The split happens on the **last dot outside double quotes**, so quoted
+    identifiers containing dots (``"a.b".t``) split into
+    (``'"a.b"'``, ``'t'``) instead of mis-splitting on the embedded dot.
+    """
+    in_quote = False
+    last_unquoted_dot = -1
+    for index, char in enumerate(name):
+        if char == '"':
+            in_quote = not in_quote
+        elif char == "." and not in_quote:
+            last_unquoted_dot = index
+    if last_unquoted_dot != -1:
+        return name[:last_unquoted_dot], name[last_unquoted_dot + 1 :]
+    return None, name
+
+
+def _quote_qualified(name: str) -> str:
+    """Quote a possibly schema-qualified identifier as ``"schema"."table"``.
+
+    Quoting the whole ``schema.table`` string as one identifier would
+    produce the broken ``"schema.table"``.
+    """
+    schema, table = _split_schema_name(name)
+    if schema is None:
+        return quote_ident(table)
+    return f"{quote_ident(schema)}.{quote_ident(table)}"
 
 
 class HypertableManager:
@@ -42,6 +75,7 @@ class HypertableManager:
         chunk_time_interval: str = "7 days",
         if_not_exists: bool = True,
         migrate_data: bool = False,
+        using_db: BaseDBAsyncClient | None = None,
     ) -> None:
         """Convert a regular table to a hypertable.
 
@@ -51,9 +85,10 @@ class HypertableManager:
             chunk_time_interval: Interval for chunk creation (e.g., '7 days')
             if_not_exists: Don't error if already a hypertable
             migrate_data: Move existing data to new hypertable chunks
+            using_db: Database connection to use (default: 'default')
 
         Raises:
-            Exception: If conversion fails (and if_not_exists=False)
+            TimescaleError: If conversion fails
 
         Example::
 
@@ -63,7 +98,7 @@ class HypertableManager:
                 chunk_time_interval="7 days",
             )
         """
-        conn = connections.get("default")
+        conn = using_db or connections.get("default")
 
         sql = (
             "SELECT create_hypertable("
@@ -75,40 +110,56 @@ class HypertableManager:
             ")"
         )
 
-        await conn.execute_query(sql)
+        try:
+            _ = await conn.execute_query(sql)
+        except Exception as exc:
+            msg = f"Failed to create hypertable {table_name!r}: {exc}"
+            raise TimescaleError(msg) from exc
 
     @staticmethod
     async def drop_hypertable(
         table_name: str,
         if_exists: bool = True,
+        using_db: BaseDBAsyncClient | None = None,
     ) -> None:
         """Drop a hypertable.
 
         Args:
-            table_name: Name of the hypertable to drop
+            table_name: Name of the hypertable to drop (may be
+                schema-qualified, e.g. ``"metrics.events"``)
             if_exists: Don't error if doesn't exist
+            using_db: Database connection to use (default: 'default')
 
         Example::
 
             await HypertableManager.drop_hypertable("events")
         """
-        conn = connections.get("default")
+        conn = using_db or connections.get("default")
 
         sql = f"""
             DROP TABLE
             {"IF EXISTS" if if_exists else ""}
-            {quote_ident(table_name)}
+            {_quote_qualified(table_name)}
             CASCADE
         """
 
-        await conn.execute_query(sql)
+        try:
+            _ = await conn.execute_query(sql)
+        except Exception as exc:
+            msg = f"Failed to drop hypertable {table_name!r}: {exc}"
+            raise TimescaleError(msg) from exc
 
     @staticmethod
-    async def is_hypertable(table_name: str) -> bool:
+    async def is_hypertable(
+        table_name: str,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> bool:
         """Check if a table is a hypertable.
 
         Args:
-            table_name: Name of the table to check
+            table_name: Name of the table to check (may be schema-qualified,
+                e.g. ``"metrics.events"``)
+            using_db: Database connection to use (default: 'default')
 
         Returns:
             True if the table is a hypertable
@@ -119,16 +170,34 @@ class HypertableManager:
             if not is_hypertable:
                 await HypertableManager.create_hypertable("events")
         """
-        conn = connections.get("default")
+        conn = using_db or connections.get("default")
 
-        sql = f"""
-            SELECT EXISTS(
-                SELECT 1 FROM timescaledb_information.hypertables
-                WHERE hypertable_name = {quote_literal(table_name)}
-            ) AS is_hypertable
-        """
+        schema, table = _split_schema_name(table_name)
+        if schema is None:
+            sql = f"""
+                SELECT EXISTS(
+                    SELECT 1 FROM timescaledb_information.hypertables
+                    WHERE hypertable_name = {quote_literal(table)}
+                ) AS is_hypertable
+            """
+        else:
+            # ``timescaledb_information.hypertables`` only exposes
+            # hypertable_schema/hypertable_name as separate columns, so a
+            # schema-qualified check must match both (an unqualified lookup
+            # can false-positive when another schema owns a same-named table).
+            sql = f"""
+                SELECT EXISTS(
+                    SELECT 1 FROM timescaledb_information.hypertables
+                    WHERE hypertable_schema = {quote_literal(schema)}
+                    AND hypertable_name = {quote_literal(table)}
+                ) AS is_hypertable
+            """
 
-        result = await conn.execute_query(sql)
+        try:
+            result = await conn.execute_query(sql)
+        except Exception as exc:
+            msg = f"Failed to inspect hypertable {table_name!r}: {exc}"
+            raise TimescaleError(msg) from exc
         rows = cast(
             Sequence[RowMapping | tuple[RowValue, ...]],
             result[1] if isinstance(result, tuple) else result,
@@ -143,8 +212,17 @@ class HypertableManager:
         return False
 
     @staticmethod
-    async def list_hypertables() -> list[RowMapping]:
+    async def list_hypertables(
+        extension_schema: str = "public",
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> list[RowMapping]:
         """List all hypertables in the database.
+
+        Args:
+            extension_schema: Schema the TimescaleDB extension was installed
+                into (defaults to ``public``); ``hypertable_size()`` is
+                resolved relative to it.
+            using_db: Database connection to use (default: 'default')
 
         Returns:
             List of dicts with hypertable information
@@ -155,21 +233,25 @@ class HypertableManager:
             for ht in hypertables:
                 print(f"{ht['table_name']}: {ht['num_chunks']} chunks")
         """
-        conn = connections.get("default")
+        conn = using_db or connections.get("default")
 
-        sql = """
+        sql = f"""
             SELECT
                 (h.hypertable_schema || '.' || h.hypertable_name) AS table_name,
                 h.num_chunks,
                 h.compression_enabled,
-                public.hypertable_size(
+                {quote_ident(extension_schema)}.hypertable_size(
                     (h.hypertable_schema || '.' || h.hypertable_name)::regclass
                 ) AS table_size
             FROM timescaledb_information.hypertables h
             ORDER BY h.hypertable_name
         """
 
-        result = await conn.execute_query(sql)
+        try:
+            result = await conn.execute_query(sql)
+        except Exception as exc:
+            msg = "Failed to list hypertables"
+            raise TimescaleError(msg) from exc
         rows = cast(
             Sequence[RowMapping | tuple[RowValue, ...]],
             result[1] if isinstance(result, tuple) else result,
@@ -183,6 +265,7 @@ class HypertableManager:
         column_name: str,
         chunk_time_interval: str | None = None,
         number_partitions: int | None = None,
+        using_db: BaseDBAsyncClient | None = None,
     ) -> None:
         """Add a dimension to a hypertable.
 
@@ -195,10 +278,12 @@ class HypertableManager:
                 integer columns. One of ``chunk_time_interval`` or
                 ``number_partitions`` is required — TimescaleDB rejects a
                 dimension without an explicit interval or partition count.
+            using_db: Database connection to use (default: 'default')
 
         Raises:
             ValueError: If neither ``chunk_time_interval`` nor
                 ``number_partitions`` is provided.
+            TimescaleError: If the dimension cannot be added.
 
         Example::
 
@@ -209,7 +294,7 @@ class HypertableManager:
                 number_partitions=4,
             )
         """
-        conn = connections.get("default")
+        conn = using_db or connections.get("default")
 
         if chunk_time_interval:
             sql = (
@@ -234,13 +319,21 @@ class HypertableManager:
                 "without an explicit partition interval or count"
             )
 
-        await conn.execute_query(sql)
+        try:
+            _ = await conn.execute_query(sql)
+        except Exception as exc:
+            msg = (
+                f"Failed to add dimension {column_name!r} to hypertable "
+                f"{table_name!r}: {exc}"
+            )
+            raise TimescaleError(msg) from exc
 
     @staticmethod
     async def show_chunks(
         table_name: str,
         start_time: str | None = None,
         end_time: str | None = None,
+        using_db: BaseDBAsyncClient | None = None,
     ) -> list[str]:
         """Show chunks for a hypertable.
 
@@ -248,6 +341,7 @@ class HypertableManager:
             table_name: Name of the hypertable
             start_time: Optional start time filter (e.g., '2024-01-01')
             end_time: Optional end time filter (e.g., '2024-02-01')
+            using_db: Database connection to use (default: 'default')
 
         Returns:
             List of chunk names
@@ -261,7 +355,7 @@ class HypertableManager:
             )
             print(f"Found {len(chunks)} chunks")
         """
-        conn = connections.get("default")
+        conn = using_db or connections.get("default")
 
         if start_time and end_time:
             sql = (
@@ -281,7 +375,11 @@ class HypertableManager:
         else:
             sql = f"SELECT show_chunks({quote_literal(table_name)})"
 
-        result = await conn.execute_query(sql)
+        try:
+            result = await conn.execute_query(sql)
+        except Exception as exc:
+            msg = f"Failed to show chunks for hypertable {table_name!r}: {exc}"
+            raise TimescaleError(msg) from exc
         rows = cast(
             Sequence[tuple[RowValue, ...]],
             result[1] if isinstance(result, tuple) else result,

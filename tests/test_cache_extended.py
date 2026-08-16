@@ -6,7 +6,9 @@ No Redis connection required.
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime
+from decimal import Decimal
 import socket
+from uuid import uuid4
 
 import pytest
 from tortoise import Tortoise, fields
@@ -14,6 +16,7 @@ from tortoise import models
 
 from tests.test_cache import MockRedisBackend
 
+from tortoise_extended.cache._coerce import coerce_cache_value
 from tortoise_extended.cache.base import (
     CacheKey,
     CacheNamespace,
@@ -27,6 +30,7 @@ from tortoise_extended.cache.redis import RedisCache, RedisCacheBackend
 from tortoise_extended._types import CacheValue, RowValue
 from tortoise_extended.exceptions import (
     CacheBackendNotInitializedError,
+    CacheDataError,
     CacheError,
     CacheKeyError,
     CacheSerializationError,
@@ -66,6 +70,38 @@ class TestCacheKeyEdgeCases:
         """Hash should be exactly 16 characters."""
         h = CacheKey.hash("anything")
         assert len(h) == 16
+
+    def test_values_with_separator_do_not_collide(self) -> None:
+        """Length-prefixing keeps 'id=1:x:2' distinct from 'id=1, x=2'."""
+        one = CacheKey.from_dict("u", {"id": "1:x:2"}).build()
+        two = CacheKey.from_dict("u", {"id": 1, "x": "2"}).build()
+        assert one != two
+
+
+# ---------------------------------------------------------------------------
+# Cache value coercion — Decimal / UUID fields
+# ---------------------------------------------------------------------------
+
+
+class TestCoerceCacheValue:
+    """coerce_cache_value restores Decimal and UUID types (G12)."""
+
+    def test_decimal_roundtrip(self) -> None:
+        field = fields.DecimalField(max_digits=10, decimal_places=2)
+        assert coerce_cache_value("123.45", field) == Decimal("123.45")
+
+    def test_decimal_invalid_returns_raw(self) -> None:
+        field = fields.DecimalField(max_digits=10, decimal_places=2)
+        assert coerce_cache_value("not-a-number", field) == "not-a-number"
+
+    def test_uuid_roundtrip(self) -> None:
+        field = fields.UUIDField()
+        uid = uuid4()
+        assert coerce_cache_value(str(uid), field) == uid
+
+    def test_uuid_invalid_returns_raw(self) -> None:
+        field = fields.UUIDField()
+        assert coerce_cache_value("not-a-uuid", field) == "not-a-uuid"
 
 
 # ---------------------------------------------------------------------------
@@ -364,9 +400,9 @@ class FakeRedisPipeline:
 
         self._ops.append(run)
 
-    def set(self, key: str, value: bytes) -> None:
+    def set(self, key: str, value: bytes, ex: int | None = None) -> None:
         async def run() -> None:
-            await self._pool.set(key, value)
+            await self._pool.set(key, value, ex=ex)
 
         self._ops.append(run)
 
@@ -424,7 +460,7 @@ class RaisingRedisPipeline:
     def setex(self, key: str, ttl: int, value: bytes) -> None:
         pass
 
-    def set(self, key: str, value: bytes) -> None:
+    def set(self, key: str, value: bytes, ex: int | None = None) -> None:
         pass
 
     async def execute(self) -> list[CacheValue]:
@@ -536,6 +572,37 @@ class TestRedisCacheSingleton:
         assert RedisCache.get_pool() is second
         assert first.store == {}  # closed before replacement
 
+    @pytest.mark.asyncio
+    async def test_init_failure_keeps_old_pool(self, monkeypatch) -> None:
+        """If re-initialization fails, the previously working pool stays."""
+        import tortoise_extended.cache.redis as redis_module
+
+        class UnpingablePool(FakeRedisPool):
+            async def ping(self) -> bool:
+                msg = "unreachable"
+                raise ConnectionError(msg)
+
+        first = FakeRedisPool()
+
+        class FakeAIORedis:
+            @classmethod
+            def from_url(
+                cls, url, max_connections=None, decode_responses=None, **kwargs
+            ):
+                if "bad" in url:
+                    return UnpingablePool()
+                return first
+
+        monkeypatch.setattr(redis_module, "aioredis", FakeAIORedis)
+        await RedisCache.init(url="redis://a/0")
+        assert RedisCache.get_pool() is first
+
+        # Next init fails the ping — the old pool must remain installed.
+        with pytest.raises(ConnectionError, match="unreachable"):
+            await RedisCache.init(url="redis://bad/0")
+        assert RedisCache.get_pool() is first
+        assert first.store == {}  # untouched by the failed attempt
+
     def test_get_pool_uninitialized_raises(self) -> None:
         """get_pool() before init() raises CacheBackendNotInitializedError."""
         with pytest.raises(CacheBackendNotInitializedError):
@@ -599,6 +666,20 @@ class TestRedisCacheBackend:
         await backend.set("k", "v", ttl=0)
         assert "ns:k" in self.pool.store
         assert self.pool.ttls.get("ns:k") is None
+
+    @pytest.mark.asyncio
+    async def test_set_explicit_ttl_zero_no_expiry(self) -> None:
+        """Explicit ttl=0 must mean 'no expiry', not 'fall back to default'."""
+        await self.backend.set("k", "v", ttl=0)
+        assert "ns:k" in self.pool.store
+        assert self.pool.ttls.get("ns:k") is None
+
+    @pytest.mark.asyncio
+    async def test_set_many_explicit_ttl_zero_no_expiry(self) -> None:
+        """Explicit ttl=0 in set_many must mean 'no expiry'."""
+        await self.backend.set_many({"a": 1}, ttl=0)
+        assert "ns:a" in self.pool.store
+        assert self.pool.ttls.get("ns:a") is None
 
     @pytest.mark.asyncio
     async def test_set_unserializable_raises(self) -> None:
@@ -1003,6 +1084,27 @@ class TestCacheableModel:
         # _invalidate_cache is a no-op when ttl<=0
         assert await thing._invalidate_cache() is None
 
+    @pytest.mark.asyncio
+    async def test_save_and_delete_survive_backend_error(self) -> None:
+        """A CacheError during invalidation must not fail the DB write
+        (invalidation runs after the write and fails open)."""
+        cls = self._model()
+
+        class BrokenBackend(MockRedisBackend):
+            async def delete(self, key: str) -> bool:
+                raise CacheError("boom")
+
+        cls._cache_backend = BrokenBackend(default_ttl=300)  # type: ignore[assignment]
+
+        thing = await cls.create(title="survives")
+        thing.title = "updated"
+        await thing.save()
+        got = await cls.get(id=thing.pk)
+        assert got.title == "updated"
+
+        await thing.delete()
+        assert await cls.filter(id=thing.pk).count() == 0
+
 
 # ---------------------------------------------------------------------------
 # CachedQuerySet — fake-backend tests (SQLite in-memory, no Redis)
@@ -1037,7 +1139,23 @@ class TestCachedQuerySet:
     def test_build_cache_key_default_hash(self) -> None:
         qs = self._qs()
         key = qs._build_cache_key()
-        assert key.startswith("CacheThing:hash:")
+        # Length-prefixed CacheKey format: "<len>CacheThing:<len>hash:<len><hash>"
+        assert key.startswith("10:CacheThing:4:hash:16:")
+
+    def test_build_cache_key_annotations_expression_sensitive(self) -> None:
+        """Two expressions under the same alias must not share a cache key,
+        while identical expressions still do."""
+        from tortoise.functions import Count, Sum
+
+        qs1 = self._qs()
+        qs1._annotations = {"total": Sum("title")}
+        qs2 = self._qs()
+        qs2._annotations = {"total": Count("id")}
+        assert qs1._build_cache_key() != qs2._build_cache_key()
+
+        qs3 = self._qs()
+        qs3._annotations = {"total": Sum("title")}
+        assert qs3._build_cache_key() == qs1._build_cache_key()
 
     def test_build_cache_key_includes_query_parts(self) -> None:
         from tortoise.expressions import Q
@@ -1170,6 +1288,7 @@ class TestCachedQuerySet:
         assert serialized[0]["title"] == "t"
         assert serialized[0]["created_at"] == "2024-01-01T00:00:00+00:00"
         assert serialized[0]["_model"] == "CacheThing"
+        assert serialized[0]["_model_app"] == "models"
 
     def test_serialize_results_non_model(self) -> None:
         serialized = CachedQuerySet._serialize_results([{"raw": 1}])  # type: ignore[arg-type]
@@ -1184,6 +1303,36 @@ class TestCachedQuerySet:
         qs = self._qs()
         results = qs._deserialize_results([{"_model": "NoSuchModel", "title": "x"}])  # type: ignore[arg-type]
         assert results == [{"_model": "NoSuchModel", "title": "x"}]
+
+    def test_deserialize_results_with_app_marker(self) -> None:
+        """Records carrying the app marker hydrate normally."""
+        qs = self._qs()
+        results = qs._deserialize_results(  # type: ignore[arg-type]
+            [
+                {
+                    "_model": "CacheThing",
+                    "_model_app": "models",
+                    "title": "x",
+                    "created_at": "2024-01-01T00:00:00",
+                }
+            ]
+        )
+        assert len(results) == 1
+        assert results[0].title == "x"
+
+    def test_deserialize_results_app_mismatch_raises(self) -> None:
+        """A record claiming a model in an unknown app is a cache miss."""
+        qs = self._qs()
+        with pytest.raises(CacheDataError, match="not registered"):
+            qs._deserialize_results(  # type: ignore[arg-type]
+                [{"_model": "CacheThing", "_model_app": "other_app", "title": "x"}]
+            )
+
+    def test_resolve_model_app_scoped(self) -> None:
+        """App-scoped lookup beats the name-only fallback."""
+        assert CachedQuerySet._resolve_model("CacheThing", "models") is CacheThing
+        assert CachedQuerySet._resolve_model("CacheThing", "other_app") is None
+        assert CachedQuerySet._resolve_model("CacheThing") is CacheThing
 
     def test_deserialize_results_construct(self) -> None:
         qs = self._qs()

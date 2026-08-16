@@ -9,10 +9,14 @@ import json
 import logging
 from collections.abc import Callable, Sequence
 from datetime import date, datetime, time
-from typing import cast, override
+from typing import Protocol, cast, override
 
-from tortoise.expressions import Q
+from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
+from pypika_tortoise.queries import Table
+from pypika_tortoise.terms import Term
+from tortoise.expressions import Expression, Q, ResolveContext
 from tortoise.fields.base import Field
+from tortoise.filters import FilterInfoDict
 from tortoise.models import Model
 from tortoise.queryset import QuerySet
 
@@ -24,11 +28,25 @@ from tortoise_extended._types import (
     SerializedRecord,
 )
 from tortoise_extended.cache._coerce import coerce_cache_value
-from tortoise_extended.cache.base import CacheBackend, CacheKey
+from tortoise_extended.cache.base import CacheBackend, CacheKey, SingleFlight
 from tortoise_extended.exceptions import CacheDataError, CacheError
 from tortoise_extended.cache.redis import RedisCache
 
 logger = logging.getLogger(__name__)
+
+# Process-local deduplication of concurrent cache misses per cache key.
+_single_flight = SingleFlight()
+
+
+class _MetaWithBasetable(Protocol):
+    """Minimal ``_meta`` surface needed for expression resolution.
+
+    The stub overlay's :class:`MetaInfo` does not declare ``basetable``
+    (a pypika ``Table`` created lazily by the runtime metaclass); the
+    protocol keeps the resolve path type-safe without widening the overlay.
+    """
+
+    basetable: Table
 
 
 def _record_as_model(record: Model | SerializedRecord) -> Model:
@@ -95,9 +113,15 @@ class CachedQuerySet(QuerySet[Model]):
         if self._cache_key:
             return self._cache_key
 
-        # Build deterministic key from query
+        # Build deterministic key from query.
+        # NOTE: ``_group_bys``, ``_joins`` and ``_select_related`` are
+        # intentionally omitted: they are not part of the pre-existing key,
+        # and ``_select_related`` is a set whose repr is order-nondeterministic.
         model_name = self.model.__name__
-        filters: dict[str, RowValue | list[RowValue]] = {}
+        filters: dict[
+            str,
+            RowValue | list[RowValue] | dict[str, str],
+        ] = {}
         if hasattr(self, "_q_objects") and self._q_objects:
             # Sort so reordered-but-identical filters share one cache key.
             filters["q"] = cast(
@@ -105,7 +129,14 @@ class CachedQuerySet(QuerySet[Model]):
                 sorted(self._q_signature(f) for f in self._q_objects),
             )
         if self._annotations:
-            filters["annotations"] = list(self._annotations.keys())
+            # Two annotations under the same alias with different expressions
+            # must not share a cache entry — include the resolved SQL, not
+            # just the aliases (the pre-fix ``str()`` of an annotation embeds
+            # the object id and is nondeterministic across instances).
+            filters["annotations"] = {
+                name: self._annotation_signature(annotation)
+                for name, annotation in sorted(self._annotations.items())
+            }
         if self._orderings:
             filters["order"] = cast(list[RowValue], self._orderings)
         if self._limit:
@@ -121,6 +152,40 @@ class CachedQuerySet(QuerySet[Model]):
         key_hash = hashlib.sha256(key_data.encode()).hexdigest()[:16]
 
         return CacheKey.from_dict(model_name, {"hash": key_hash}).build()
+
+    def _annotation_signature(self, annotation: Expression | Term) -> str:
+        """Render an annotation expression to SQL for the cache key.
+
+        ``str(annotation)`` embeds the object id (``<tortoise.functions.Sum
+        object at 0x...>``) and is therefore nondeterministic across
+        instances; keying annotations by alias alone would let
+        ``annotate(total=Sum(x))`` and ``annotate(total=Count(y))`` share one
+        cache entry. Resolving the expression to its SQL text (e.g.
+        ``SUM("title")``) keeps distinct expressions apart while identical
+        expressions produce identical keys. If resolution fails (e.g. test
+        doubles that are not real expressions), fall back to the stable
+        type name.
+        """
+        if isinstance(annotation, Term):
+            return annotation.get_sql(DEFAULT_SQL_CONTEXT)
+
+        try:
+            result = annotation.resolve(
+                ResolveContext(
+                    model=self.model,
+                    table=cast(
+                        _MetaWithBasetable, cast(object, self.model._meta)
+                    ).basetable,
+                    annotations=self._annotations,
+                    custom_filters=cast(
+                        dict[str, FilterInfoDict],
+                        getattr(self, "_custom_filters", None) or {},
+                    ),
+                )
+            )
+            return result.term.get_sql(DEFAULT_SQL_CONTEXT)
+        except Exception:
+            return f"{type(annotation).__module__}.{type(annotation).__qualname__}"
 
     @override
     async def _execute(self) -> list[Model]:
@@ -151,19 +216,36 @@ class CachedQuerySet(QuerySet[Model]):
         except CacheError:
             logger.debug("Cache read error for key %s", cache_key, exc_info=True)
 
-        # Execute query
-        results: list[Model] = await super()._execute()
+        # Cache stampede control: on concurrent misses for the same key only
+        # one coroutine executes the query; the others await the shared
+        # future and receive the same serialized result.
+        claimed, future = _single_flight.claim(cache_key)
+        if not claimed:
+            return cast(list[Model], await future)
 
-        # Cache results
         try:
-            serialized = self._serialize_results(results)
-            await backend.set(
-                cache_key, cast(CacheValue, serialized), ttl=self._cache_ttl
-            )
-        except CacheError:
-            logger.debug("Cache write error for key %s", cache_key, exc_info=True)
+            results: list[Model] = await super()._execute()
 
-        return results
+            # Cache results
+            serialized = self._serialize_results(results)
+            try:
+                await backend.set(
+                    cache_key, cast(CacheValue, serialized), ttl=self._cache_ttl
+                )
+            except CacheError:
+                logger.debug("Cache write error for key %s", cache_key, exc_info=True)
+
+            if not future.done():
+                future.set_result(cast(CacheValue, serialized))
+            return results
+        except BaseException as exc:
+            # Propagate the failure to awaiters instead of leaving them
+            # hanging on an unresolved future.
+            if not future.done():
+                future.set_exception(exc)
+            raise
+        finally:
+            _single_flight.release(cache_key, future)
 
     @staticmethod
     def _serialize_results(
@@ -178,6 +260,10 @@ class CachedQuerySet(QuerySet[Model]):
                 continue
             data: SerializedRecord = {
                 "_model": instance.__class__.__name__,
+                # ``_meta.app`` is the Tortoise app name the model was
+                # registered under; it disambiguates same-named models from
+                # different apps during deserialization.
+                "_model_app": instance._meta.app,
             }
             for field_name in instance._meta.fields:
                 value: CoercedValue = getattr(instance, field_name, None)
@@ -210,9 +296,21 @@ class CachedQuerySet(QuerySet[Model]):
                 results.append(_record_as_model(item))
                 continue
 
-            model_cls = self._resolve_model(model_name)
+            app_name = cast(str | None, item.get("_model_app"))
+            model_cls = self._resolve_model(model_name, app_name)
             if model_cls is None:
-                # Defensive: record whose model class is not registered.
+                if app_name is not None:
+                    # New-style record (has an app marker) whose model is not
+                    # registered — stale or corrupt entry. Raising makes the
+                    # caller treat it as a cache miss instead of silently
+                    # serving the passthrough record.
+                    msg = (
+                        f"Cached record references model {model_name!r} in "
+                        f"app {app_name!r} which is not registered"
+                    )
+                    raise CacheDataError(msg)
+                # Defensive: legacy record (no app marker) whose model class
+                # is not registered — pass through as-is (pre-fix behavior).
                 results.append(_record_as_model(item))
                 continue
 
@@ -231,11 +329,30 @@ class CachedQuerySet(QuerySet[Model]):
         return results
 
     @staticmethod
-    def _resolve_model(model_name: str) -> type[Model] | None:
-        """Look up a Tortoise model class by name."""
+    def _resolve_model(
+        model_name: str, app_name: str | None = None
+    ) -> type[Model] | None:
+        """Look up a Tortoise model class by name.
+
+        Two apps can register models with the same class name (e.g. ``User``
+        in ``auth`` and ``admin``), so the app-scoped lookup is preferred
+        whenever the caller has the ``_model_app`` marker. When *app_name* is
+        None (legacy records written before the marker existed) fall back to
+        a name-only search.
+        """
         from tortoise import Tortoise
 
         if not Tortoise.apps:
+            return None
+
+        if app_name is not None:
+            try:
+                app_config = Tortoise.apps[app_name]
+            except KeyError:
+                return None
+            model_cls = app_config.get(model_name)
+            if model_cls is not None:
+                return model_cls
             return None
 
         for app_config in Tortoise.apps.values():

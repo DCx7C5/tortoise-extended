@@ -29,10 +29,7 @@ Usage::
     )
 
     # Enable compression
-    await CompressionManager.enable_compression(
-        "events",
-        compress_after="7 days",
-    )
+    await CompressionManager.enable_compression("events")
 
     # Set retention policy
     await RetentionPolicy.set_retention(
