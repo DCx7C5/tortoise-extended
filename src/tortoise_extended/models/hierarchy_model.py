@@ -41,7 +41,7 @@ from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
 from tortoise_extended.exceptions import HierarchyError
-from tortoise_extended.fields.ltree_field import LTreeField
+from tortoise_extended.fields.ltree import LTreeField
 from tortoise_extended.indexes.ltree_index import GiSTIndex
 
 # ── Internal helpers ────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ from tortoise_extended.expressions.ltree_filters import (
     get_ltree_filters,
     ltree_encoder,
 )
-from tortoise_extended.fields.ltree_field import LTreeField
+from tortoise_extended.fields.ltree import LTreeField
 
 
 class TestLTreeField:

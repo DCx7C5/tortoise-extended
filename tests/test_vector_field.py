@@ -2,7 +2,7 @@
 
 import struct
 
-from tortoise_extended.fields.vector_field import VectorField
+from tortoise_extended.fields.vector import VectorField
 
 
 class TestVectorField:

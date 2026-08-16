@@ -24,7 +24,7 @@ from tortoise_extended import (
     _pgvector_codec_init,
 )
 from tortoise_extended._types import AsyncpgConnection
-from tortoise_extended.fields.ltree_field import LTreeField
+from tortoise_extended.fields.ltree import LTreeField
 from tortoise_extended.migrations.operations import _patch_format_operation
 
 

@@ -12,7 +12,7 @@ from tortoise.models import Model
 
 from tortoise_extended.exceptions import HybridSearchError
 from tortoise_extended.expressions.hybrid_search import HybridSearch
-from tortoise_extended.fields.vector_field import VectorField
+from tortoise_extended.fields.vector import VectorField
 
 
 class SearchEntity(Model):

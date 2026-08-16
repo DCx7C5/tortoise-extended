@@ -11,7 +11,7 @@ import datetime
 import decimal
 import uuid
 from collections.abc import Callable
-from typing import Any, Literal, overload
+from typing import Any, Literal, TypeVar, overload, override
 
 import tortoise.validators
 from tortoise.fields.base import (
@@ -39,7 +39,11 @@ from tortoise.fields.relational import (
     ReverseRelation,
 )
 from tortoise.models import Model
-from tortoise_extended.fields.vector_field import VectorField
+from tortoise_extended.fields.ipv4 import IPv4Field
+from tortoise_extended.fields.path import PathField
+from tortoise_extended.fields.url import URLField
+from tortoise_extended.fields.uuid import UUID4Field, UUID7Field
+from tortoise_extended.fields.vector import VectorField
 
 __all__ = [
     "CASCADE",
@@ -66,6 +70,7 @@ __all__ = [
     "IntEnumField",
     "IntEnumType",
     "IntField",
+    "IPv4Field",
     "JSONField",
     "ManyToManyField",
     "ManyToManyRelation",
@@ -73,11 +78,15 @@ __all__ = [
     "OneToOneField",
     "OneToOneNullableRelation",
     "OneToOneRelation",
+    "PathField",
     "ReverseRelation",
     "SmallIntField",
     "TextField",
     "TimeDeltaField",
     "TimeField",
+    "URLField",
+    "UUID4Field",
+    "UUID7Field",
     "UUIDField",
     "VectorField",
 ]
@@ -382,7 +391,38 @@ def TimeField(
 
 # ── UUIDField ───────────────────────────────────────────────────────────
 
-@overload
-def UUIDField(*, null: Literal[False] = False, **kwargs: Any) -> Field[uuid.UUID]: ...
-@overload
-def UUIDField(*, null: Literal[True], **kwargs: Any) -> Field[uuid.UUID | None]: ...
+T_UUID = TypeVar("T_UUID", uuid.UUID, uuid.UUID | None)
+
+
+class UUIDField(Field[T_UUID]):
+    """UUID field — a runtime CLASS (``isinstance``-safe).
+
+    Generic over the Python value: ``UUIDField[UUID]`` for non-null
+    columns, ``UUIDField[UUID | None]`` for ``null=True`` columns. Being a
+    class it can be subclassed (``UUID4Field``/``UUID7Field`` in
+    ``tortoise_extended.fields.uuid``). The PostgreSQL SQL type is ``UUID``
+    via ``_db_postgres``; SQLite uses ``CHAR(36)``.
+    """
+
+    SQL_TYPE: str
+
+    class _db_postgres:
+        SQL_TYPE: str
+
+    @overload
+    def __init__(
+        self: UUIDField[uuid.UUID], *, null: Literal[False] = False, **kwargs: Any
+    ) -> None: ...
+    @overload
+    def __init__(
+        self: UUIDField[uuid.UUID | None], *, null: Literal[True], **kwargs: Any
+    ) -> None: ...
+    @overload
+    def __init__(
+        self: UUIDField[uuid.UUID], *, null: bool = False, **kwargs: Any
+    ) -> None: ...
+    def __init__(self, **kwargs: Any) -> None: ...
+    @override
+    def to_db_value(self, value: Any, instance: Any) -> str | None: ...
+    @override
+    def to_python_value(self, value: Any) -> uuid.UUID | None: ...

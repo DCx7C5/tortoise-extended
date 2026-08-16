@@ -82,7 +82,7 @@ class VectorField(Field[list[float]]):
 
     @override
     def to_db_value(
-        self, value: list[float] | None, instance: Model | None
+        self, value: list[float] | None, instance: type[Model] | Model | None
     ) -> list[float] | None:
         """Convert a Python vector to the database representation.
 
@@ -127,7 +127,7 @@ class VectorField(Field[list[float]]):
         return list(value)
 
     @staticmethod
-    def _decode_binary(data: bytes, vector_type: VectorType = "vector") -> list[float]:
+    def _decode_binary(data: bytes, vector_type: str = "vector") -> list[float]:
         """Decode pgvector binary format: 4-byte header + N elements.
 
         ``vector`` columns store 4-byte big-endian floats; ``halfvec``

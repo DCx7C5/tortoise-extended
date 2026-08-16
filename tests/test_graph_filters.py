@@ -18,7 +18,7 @@ from tortoise_extended.expressions.graph_filters import (
     get_vector_filters,
     vector_encoder,
 )
-from tortoise_extended.fields.vector_field import VectorField
+from tortoise_extended.fields.vector import VectorField
 
 
 class TestVectorEncoder:

@@ -6,7 +6,7 @@ Requires: CREATE EXTENSION IF NOT EXISTS ltree;
 Usage::
 
     from tortoise import models, fields
-    from tortoise_extended.fields.ltree_field import LTreeField
+    from tortoise_extended.fields.ltree import LTreeField
 
     class Category(models.Model):
         name = fields.CharField(max_length=100)
@@ -104,12 +104,12 @@ class LTreeField(Field[list[str]]):
 
     @override
     def to_db_value(
-        self, value: list[str] | None, instance: Model | None
+        self, value: str | list[str] | None, instance: type[Model] | Model | None
     ) -> str | None:
         """Convert Python list to ltree string.
 
         Args:
-            value: List of path components
+            value: List of path components, or a pre-joined ltree string
             instance: Model instance (unused)
 
         Returns:
