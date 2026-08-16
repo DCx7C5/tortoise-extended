@@ -185,6 +185,8 @@ class TestGetVectorFilters:
             "embedding__l2_distance",
             "embedding__cosine_distance",
             "embedding__inner_product",
+            "embedding__hamming_distance",
+            "embedding__jaccard_distance",
         ]
         for key in expected:
             assert key in filters, f"Missing key: {key}"
@@ -214,6 +216,8 @@ class TestGetVectorFilters:
             "embedding__l2_distance",
             "embedding__cosine_distance",
             "embedding__inner_product",
+            "embedding__hamming_distance",
+            "embedding__jaccard_distance",
         ):
             assert filters[key]["value_encoder"] is _vector_value_passthrough
 

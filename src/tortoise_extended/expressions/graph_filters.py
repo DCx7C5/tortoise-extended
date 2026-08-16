@@ -1,7 +1,8 @@
 """pgvector similarity filter operators for tortoise-orm.
 
 Custom Criterion subclasses for pgvector distance operators:
-<-> L2 distance, <#> inner product, <=> cosine distance
+<-> L2 distance, <#> inner product, <=> cosine distance,
+<~> Hamming distance, <%> Jaccard distance
 """
 
 from typing import TYPE_CHECKING, TypeAlias, cast
@@ -214,6 +215,18 @@ def get_vector_filters(field_name: str, source_field: str) -> dict[str, FilterIn
             "operator": _inner_product_gte,
             "value_encoder": _vector_value_passthrough,
         },
+        f"{field_name}__hamming_distance": {
+            "field": field_name,
+            "source_field": source_field,
+            "operator": _hamming_distance_lte,
+            "value_encoder": _vector_value_passthrough,
+        },
+        f"{field_name}__jaccard_distance": {
+            "field": field_name,
+            "source_field": source_field,
+            "operator": _jaccard_distance_lte,
+            "value_encoder": _vector_value_passthrough,
+        },
     }
 
 
@@ -266,3 +279,15 @@ def _inner_product_gte(field: Term, value: _VectorFilterValue) -> BasicCriterion
     """
     query_vector, threshold = _parse_vector_threshold(value, 0.0, "__inner_product")
     return InnerProduct(field, ValueWrapper(query_vector)).lte(-threshold)
+
+
+def _hamming_distance_lte(field: Term, value: _VectorFilterValue) -> BasicCriterion:
+    """Filter: Hamming distance <= threshold."""
+    query_vector, threshold = _parse_vector_threshold(value, 1.0, "__hamming_distance")
+    return HammingDistance(field, ValueWrapper(query_vector)).lte(threshold)
+
+
+def _jaccard_distance_lte(field: Term, value: _VectorFilterValue) -> BasicCriterion:
+    """Filter: Jaccard distance <= threshold."""
+    query_vector, threshold = _parse_vector_threshold(value, 1.0, "__jaccard_distance")
+    return JaccardDistance(field, ValueWrapper(query_vector)).lte(threshold)

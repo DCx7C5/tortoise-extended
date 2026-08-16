@@ -25,6 +25,7 @@ package (and calling :func:`patch` if used) must happen before
     await Tortoise.init(
         db_url="...",
         modules={"models": ["..."]},
+    )
 """
 
 from collections.abc import Awaitable, Callable
@@ -65,7 +66,9 @@ from tortoise_extended.exceptions import (
 )
 from tortoise_extended.expressions.graph_filters import (
     CosineDistance,
+    HammingDistance,
     InnerProduct,
+    JaccardDistance,
     L2Distance,
     get_vector_filters,
     vector_encoder,
@@ -328,6 +331,7 @@ __all__ = [
     "GraphVectorHit",
     "GraphVectorSearch",
     "HNSWIndex",
+    "HammingDistance",
     "HierarchyError",
     "HybridSearch",
     "HybridSearchError",
@@ -335,6 +339,7 @@ __all__ = [
     "IVFFlatIndex",
     "IndexDefinitionError",
     "InnerProduct",
+    "JaccardDistance",
     "L2Distance",
     "LTreeField",
     "LTreeFieldError",

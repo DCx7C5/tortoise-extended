@@ -16,7 +16,9 @@ from uuid import UUID
 
 from tortoise import connections
 
+from tortoise_extended._quote import quote_ident
 from tortoise_extended._types import RowMapping
+from tortoise_extended.exceptions import GraphTraversalError
 from tortoise_extended.expressions._edge_filter import et_clause as _et_clause
 
 if TYPE_CHECKING:
@@ -47,7 +49,32 @@ def _as_path_row(row: RowMapping | PathRow) -> PathRow:
     return cast(PathRow, row)
 
 
-def _walk_cte(node_table: str, edge_table: str, et_clause: str) -> str:
+def _validate_edge_fields(
+    edge_model: type[Model], source_field: str, target_field: str
+) -> None:
+    """Validate source/target field names against the edge model.
+
+    :param edge_model: The Tortoise ORM model for graph edges.
+    :param source_field: FK field name on edge for source node.
+    :param target_field: FK field name on edge for target node.
+    :raises GraphTraversalError: If either field is not declared on the model.
+    """
+    edge_fields = edge_model._meta.fields_map
+    for name in (source_field, target_field):
+        if name not in edge_fields:
+            raise GraphTraversalError(
+                f"Unknown edge field {name!r} on {edge_model.__name__}; "
+                f"expected one of {', '.join(sorted(edge_fields))}"
+            )
+
+
+def _walk_cte(
+    node_table: str,
+    edge_table: str,
+    source_field: str,
+    target_field: str,
+    et_clause: str,
+) -> str:
     """Build the shared recursive-CTE walk used by pathfinding queries.
 
     Walks the edge table from the anchor node (``$1``) up to ``$2`` hops,
@@ -55,11 +82,15 @@ def _walk_cte(node_table: str, edge_table: str, et_clause: str) -> str:
     The optional ``et_clause`` (already parameterized) restricts the edge
     type; its placeholder offset is baked in by the caller.
 
-    :param node_table: Node table name.
-    :param edge_table: Edge table name.
+    :param node_table: Node table name (quote_ident()-ed here).
+    :param edge_table: Edge table name (quote_ident()-ed here).
+    :param source_field: Edge field holding the source node id.
+    :param target_field: Edge field holding the target node id.
     :param et_clause: Optional edge-type filter fragment (empty when unused).
     :returns: The ``WITH RECURSIVE paths AS (...)`` statement body.
     """
+    src = quote_ident(source_field)
+    tgt = quote_ident(target_field)
     return f"""
         WITH RECURSIVE paths AS (
             SELECT
@@ -67,7 +98,7 @@ def _walk_cte(node_table: str, edge_table: str, et_clause: str) -> str:
                 ARRAY[n.id] AS path_ids,
                 ARRAY[n.name::text] AS path_names,
                 0 AS hops
-            FROM {node_table} n
+            FROM {quote_ident(node_table)} n
             WHERE n.id = $1
 
             UNION
@@ -78,13 +109,13 @@ def _walk_cte(node_table: str, edge_table: str, et_clause: str) -> str:
                 p.path_names || n.name,
                 p.hops + 1
             FROM paths p
-            JOIN {edge_table} e ON (
-                e.source_id = p.id
-                OR (e.is_bidirectional AND e.target_id = p.id)
+            JOIN {quote_ident(edge_table)} e ON (
+                e.{src} = p.id
+                OR (e.is_bidirectional AND e.{tgt} = p.id)
             )
-            JOIN {node_table} n ON (
-                (e.source_id = p.id AND n.id = e.target_id)
-                OR (e.is_bidirectional AND e.target_id = p.id AND n.id = e.source_id)
+            JOIN {quote_ident(node_table)} n ON (
+                (e.{src} = p.id AND n.id = e.{tgt})
+                OR (e.is_bidirectional AND e.{tgt} = p.id AND n.id = e.{src})
             )
             WHERE p.hops < $2
             AND NOT (n.id = ANY(p.path_ids))
@@ -116,6 +147,8 @@ async def shortest_path(
     to_id: int | str | UUID,
     max_hops: int = 6,
     edge_type: str | None = None,
+    source_field: str = "source_id",
+    target_field: str = "target_id",
 ) -> list[RowMapping] | None:
     """Find shortest path between two nodes using BFS in SQL.
 
@@ -128,7 +161,11 @@ async def shortest_path(
     :param to_id: Target node ID.
     :param max_hops: Maximum path length.
     :param edge_type: Filter by edge type (None = all types).
+    :param source_field: Edge field holding the source node id (default ``"source_id"``).
+    :param target_field: Edge field holding the target node id (default ``"target_id"``).
     :returns: List of node dicts forming the path, or None if no path exists.
+    :raises GraphTraversalError: If ``source_field``/``target_field`` is not
+        declared on the edge model.
 
     Usage::
 
@@ -142,12 +179,13 @@ async def shortest_path(
             for node in path:
                 print(node["name"])
     """
+    _validate_edge_fields(edge_model, source_field, target_field)
     node_table = node_model._meta.db_table
     edge_table = edge_model._meta.db_table
     et_clause, et_params = _et_clause(edge_type, 4)
 
     sql = f"""
-        {_walk_cte(node_table, edge_table, et_clause)}
+        {_walk_cte(node_table, edge_table, source_field, target_field, et_clause)}
         SELECT path_ids, path_names, hops
         FROM paths
         WHERE id = $3
@@ -171,6 +209,8 @@ async def all_paths(
     max_hops: int = 6,
     max_paths: int = 10,
     edge_type: str | None = None,
+    source_field: str = "source_id",
+    target_field: str = "target_id",
 ) -> list[list[RowMapping]]:
     """Find all paths between two nodes.
 
@@ -184,7 +224,11 @@ async def all_paths(
     :param max_hops: Maximum path length.
     :param max_paths: Maximum number of paths to return.
     :param edge_type: Filter by edge type (None = all types).
+    :param source_field: Edge field holding the source node id (default ``"source_id"``).
+    :param target_field: Edge field holding the target node id (default ``"target_id"``).
     :returns: List of paths, each path is a list of node dicts.
+    :raises GraphTraversalError: If ``source_field``/``target_field`` is not
+        declared on the edge model.
 
     Usage::
 
@@ -198,12 +242,13 @@ async def all_paths(
         for path in paths:
             print(" → ".join(n["name"] for n in path))
     """
+    _validate_edge_fields(edge_model, source_field, target_field)
     node_table = node_model._meta.db_table
     edge_table = edge_model._meta.db_table
     et_clause, et_params = _et_clause(edge_type, 5)
 
     sql = f"""
-        {_walk_cte(node_table, edge_table, et_clause)}
+        {_walk_cte(node_table, edge_table, source_field, target_field, et_clause)}
         SELECT DISTINCT path_ids, path_names, hops
         FROM paths
         WHERE id = $3
@@ -223,6 +268,9 @@ async def find_cycles(
     edge_model: type[Model],
     max_depth: int = 10,
     edge_type: str | None = None,
+    source_field: str = "source_id",
+    target_field: str = "target_id",
+    max_cycles: int | None = 100,
 ) -> list[list[RowMapping]]:
     """Detect cycles in the graph.
 
@@ -235,8 +283,13 @@ async def find_cycles(
     :param edge_model: Tortoise ORM model for edges.
     :param max_depth: Maximum cycle length to detect.
     :param edge_type: Filter by edge type (None = all types).
+    :param source_field: Edge field holding the source node id (default ``"source_id"``).
+    :param target_field: Edge field holding the target node id (default ``"target_id"``).
+    :param max_cycles: Maximum number of cycles to return (``None`` = no limit).
     :returns: List of cycles, each cycle is a list of node dicts
         (without the repeated closing node).
+    :raises GraphTraversalError: If ``source_field``/``target_field`` is not
+        declared on the edge model.
 
     Usage::
 
@@ -244,9 +297,17 @@ async def find_cycles(
         for cycle in cycles:
             print(" → ".join(n["name"] for n in cycle) + " → " + cycle[0]["name"])
     """
+    _validate_edge_fields(edge_model, source_field, target_field)
     node_table = node_model._meta.db_table
     edge_table = edge_model._meta.db_table
     et_clause, et_params = _et_clause(edge_type, 2)
+
+    if max_cycles is None:
+        limit_clause = ""
+        params: list[int | str | UUID] = [max_depth, *et_params]
+    else:
+        limit_clause = f"\n        LIMIT ${2 + len(et_params)}"
+        params = [max_depth, *et_params, max_cycles]
 
     sql = f"""
         WITH RECURSIVE walk AS (
@@ -256,7 +317,7 @@ async def find_cycles(
                 ARRAY[n.id] AS path_ids,
                 ARRAY[n.name::text] AS path_names,
                 0 AS depth
-            FROM {node_table} n
+            FROM {quote_ident(node_table)} n
 
             UNION
 
@@ -267,13 +328,17 @@ async def find_cycles(
                 w.path_names || n.name,
                 w.depth + 1
             FROM walk w
-            JOIN {edge_table} e ON (
-                e.source_id = w.curr_id
-                OR (e.is_bidirectional AND e.target_id = w.curr_id)
+            JOIN {quote_ident(edge_table)} e ON (
+                e.{quote_ident(source_field)} = w.curr_id
+                OR (e.is_bidirectional AND e.{quote_ident(target_field)} = w.curr_id)
             )
-            JOIN {node_table} n ON (
-                (e.source_id = w.curr_id AND n.id = e.target_id)
-                OR (e.is_bidirectional AND e.target_id = w.curr_id AND n.id = e.source_id)
+            JOIN {quote_ident(node_table)} n ON (
+                (e.{quote_ident(source_field)} = w.curr_id AND n.id = e.{quote_ident(target_field)})
+                OR (
+                    e.is_bidirectional
+                    AND e.{quote_ident(target_field)} = w.curr_id
+                    AND n.id = e.{quote_ident(source_field)}
+                )
             )
             WHERE w.depth < $1 {et_clause}
             -- Allow the anchor (depth 0) to take its first hop, but never
@@ -289,11 +354,10 @@ async def find_cycles(
         WHERE depth > 0
         AND curr_id = path_ids[1]
         ORDER BY depth
-        LIMIT 100
+        {limit_clause}
     """
 
     conn = connections.get("default")
-    params: list[int | str] = [max_depth, *et_params]
     _, results = await conn.execute_query(sql, params)
 
     return [

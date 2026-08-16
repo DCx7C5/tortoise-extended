@@ -42,8 +42,9 @@ from uuid import UUID
 import msgspec
 from tortoise import connections
 
+from tortoise_extended._quote import quote_ident
 from tortoise_extended._types import RowMapping, RowValue
-from tortoise_extended.exceptions import HybridSearchError
+from tortoise_extended.exceptions import GraphTraversalError
 from tortoise_extended.expressions._edge_filter import et_clause as _et_clause
 from tortoise_extended.expressions.graph_filters import vector_encoder
 
@@ -96,7 +97,8 @@ class GraphVectorSearch:
         ``inner_product`` (``None`` = no filter).
     :param source_field: Edge field holding the source node id (default ``"source_id"``).
     :param target_field: Edge field holding the target node id (default ``"target_id"``).
-    :raises HybridSearchError: If *distance_metric* or *direction* is unsupported.
+    :raises GraphTraversalError: If *distance_metric* or *direction* is
+        unsupported, or a referenced field is not declared on the model.
     """
 
     _METRICS: tuple[str, ...] = ("l2", "cosine", "inner_product")
@@ -120,40 +122,42 @@ class GraphVectorSearch:
         target_field: str = "target_id",
     ) -> None:
         if distance_metric not in self._METRICS:
-            raise HybridSearchError(
+            raise GraphTraversalError(
                 f"Unsupported distance_metric {distance_metric!r}; "
                 f"expected one of {', '.join(self._METRICS)}"
             )
         if direction not in self._DIRECTIONS:
-            raise HybridSearchError(
+            raise GraphTraversalError(
                 f"Unsupported direction {direction!r}; "
                 f"expected one of {', '.join(self._DIRECTIONS)}"
             )
         if vector_field not in node_model._meta.fields_map:
-            raise HybridSearchError(
+            raise GraphTraversalError(
                 f"Unknown vector field {vector_field!r} on {node_model.__name__}; "
                 f"expected one of {', '.join(sorted(node_model._meta.fields_map))}"
             )
         edge_fields = edge_model._meta.fields_map
         for name in (source_field, target_field):
             if name not in edge_fields:
-                raise HybridSearchError(
+                raise GraphTraversalError(
                     f"Unknown edge field {name!r} on {edge_model.__name__}; "
                     f"expected one of {', '.join(sorted(edge_fields))}"
                 )
         if edge_type is not None and "edge_type" not in edge_fields:
-            raise HybridSearchError(
+            raise GraphTraversalError(
                 f"edge_type filtering requires an 'edge_type' field on "
                 f"{edge_model.__name__}; found {', '.join(sorted(edge_fields))}"
             )
         self._node_model = node_model
         self._edge_model = edge_model
-        self._node_table = node_model._meta.db_table
-        self._edge_table = edge_model._meta.db_table
-        self._pk_col = node_model._meta.db_pk_column
-        self._vector_field = vector_field
-        self._source_field = source_field
-        self._target_field = target_field
+        # Quoted once at construction; every SQL block interpolates only
+        # quote_ident()-wrapped identifiers (never raw caller input).
+        self._node_table = quote_ident(node_model._meta.db_table)
+        self._edge_table = quote_ident(edge_model._meta.db_table)
+        self._pk_col = quote_ident(node_model._meta.db_pk_column)
+        self._vector_field = quote_ident(vector_field)
+        self._source_field = quote_ident(source_field)
+        self._target_field = quote_ident(target_field)
         self._has_bidirectional = "is_bidirectional" in edge_model._meta.fields_map
         self._seed_id: int | str | UUID = seed_id
         self._max_hops = max_hops
@@ -276,17 +280,19 @@ class GraphVectorSearch:
 
         sql = f"""
             WITH RECURSIVE reach AS (
-                SELECT n.{pk} AS node_id, 0 AS hops
+                SELECT n.{pk} AS node_id, 0 AS hops,
+                       ARRAY[n.{pk}] AS path_ids
                 FROM {self._node_table} n
                 WHERE n.{pk} = $1
 
                 UNION
 
-                SELECT {nxt} AS node_id, b.hops + 1
+                SELECT {nxt} AS node_id, b.hops + 1,
+                       b.path_ids || {nxt}
                 FROM reach b
                 JOIN {self._edge_table} e ON ({join})
                 WHERE b.hops < $2
-                  AND {nxt} != $1
+                  AND NOT ({nxt} = ANY(b.path_ids))
                   {et_clause}
             )
             SELECT

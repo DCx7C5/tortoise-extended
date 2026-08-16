@@ -15,6 +15,7 @@ from tortoise import Tortoise, fields
 from tortoise.models import Model
 
 import tortoise_extended  # noqa: F401 — apply patches
+from tortoise_extended.exceptions import GraphTraversalError
 from tortoise_extended.expressions.graph_traversal import GraphTraversal
 from tortoise_extended.expressions.pathfinding import (
     all_paths,
@@ -224,6 +225,42 @@ class TestTraversal:
         descendants = await trav.descendants(a.id, max_depth=5)
         assert sorted(r["name"] for r in descendants) == ["b", "c"]
 
+    @pytest.mark.asyncio
+    async def test_unknown_edge_field_raises(self) -> None:
+        """F2 — an undeclared source/target field is rejected at init."""
+        with pytest.raises(GraphTraversalError, match="Unknown edge field"):
+            GraphTraversal(ItNode, ItEdge, source_field="nope")
+        with pytest.raises(GraphTraversalError, match="Unknown edge field"):
+            GraphTraversal(ItNode, ItEdge, target_field="nope")
+
+    @pytest.mark.asyncio
+    async def test_invalid_direction_raises(self) -> None:
+        """F7 — unsupported neighbors direction must raise, not fall through."""
+        a, b, c, d, x = await _make_tree()
+        trav = GraphTraversal(ItNode, ItEdge)
+        with pytest.raises(GraphTraversalError, match="Unsupported direction"):
+            await trav.neighbors(a.id, direction="diagonal")
+
+    @pytest.mark.asyncio
+    async def test_cycle_not_involving_start_terminates(self) -> None:
+        """F4 — a cycle away from the start must not cause re-expansion.
+
+        a -> p -> q -> r -> q forms a cycle (q<->r) that never touches the
+        start node; the path-array guard stops it after one lap, so each
+        node is reported exactly once and the query terminates.
+        """
+        a = await ItNode.create(name="a", depth=0)
+        p = await ItNode.create(name="p", depth=0)
+        q = await ItNode.create(name="q", depth=0)
+        r = await ItNode.create(name="r", depth=0)
+        for src, tgt in [(a.id, p.id), (p.id, q.id), (q.id, r.id), (r.id, q.id)]:
+            await ItEdge.create(source_id=src, target_id=tgt)
+        trav = GraphTraversal(ItNode, ItEdge)
+        descendants = await trav.descendants(a.id, max_depth=6)
+        names = [r["name"] for r in descendants]
+        assert sorted(names) == ["p", "q", "r"]
+        assert len(names) == len(set(names))
+
 
 # ---------------------------------------------------------------------------
 # GraphTraversal — has_cycle
@@ -329,6 +366,36 @@ class TestShortestPath:
         )
         assert path is None
 
+    @pytest.mark.asyncio
+    async def test_custom_source_target_fields(self) -> None:
+        """F3 — source_field/target_field must drive the pathfinding SQL."""
+        a, b, c, d, _ = await _make_tree()
+        for src, tgt in [(a.id, b.id), (b.id, c.id), (c.id, d.id)]:
+            await ItCustomEdge.create(from_node=src, to_node=tgt)
+        path = await shortest_path(
+            ItNode,
+            ItCustomEdge,
+            from_id=a.id,
+            to_id=d.id,
+            max_hops=6,
+            source_field="from_node",
+            target_field="to_node",
+        )
+        assert path is not None
+        assert [n["name"] for n in path] == ["a", "b", "c", "d"]
+
+    @pytest.mark.asyncio
+    async def test_unknown_edge_field_raises(self) -> None:
+        """F3 — an undeclared source/target field is rejected up front."""
+        with pytest.raises(GraphTraversalError, match="Unknown edge field"):
+            await shortest_path(
+                ItNode, ItEdge, from_id=1, to_id=2, source_field="nope"
+            )
+        with pytest.raises(GraphTraversalError, match="Unknown edge field"):
+            await all_paths(
+                ItNode, ItEdge, from_id=1, to_id=2, target_field="nope"
+            )
+
 
 class TestAllPaths:
     """all_paths against real PostgreSQL."""
@@ -405,3 +472,43 @@ class TestFindCycles:
         names = [tuple(n["name"] for n in cyc) for cyc in cycles]
         assert len(names) == 1, names
         assert set(names[0]) == {"a", "x"}, names
+
+    @pytest.mark.asyncio
+    async def test_max_cycles_limit(self) -> None:
+        """F8 — max_cycles caps the result; None removes the LIMIT."""
+        a, b, c, d, _ = await _make_tree()
+        await ItEdge.create(source_id=d.id, target_id=a.id, edge_type="back")
+        y = await ItNode.create(name="y", depth=0)
+        await ItEdge.create(source_id=y.id, target_id=y.id, edge_type="self")
+        # 3 simple cycles: 4-cycle, triangle (via skip), and self-loop
+        unlimited = await find_cycles(ItNode, ItEdge, max_depth=10, max_cycles=None)
+        assert len(unlimited) == 3
+        limited = await find_cycles(ItNode, ItEdge, max_depth=10, max_cycles=2)
+        assert len(limited) == 2
+
+    @pytest.mark.asyncio
+    async def test_custom_source_target_fields(self) -> None:
+        """F3 — find_cycles respects custom source/target field names."""
+        a, b, c, d, _ = await _make_tree()
+        p = await ItNode.create(name="p", depth=0)
+        q = await ItNode.create(name="q", depth=0)
+        await ItCustomEdge.create(from_node=p.id, to_node=q.id)
+        await ItCustomEdge.create(from_node=q.id, to_node=p.id)
+        cycles = await find_cycles(
+            ItNode,
+            ItCustomEdge,
+            max_depth=10,
+            source_field="from_node",
+            target_field="to_node",
+        )
+        names = [tuple(n["name"] for n in cyc) for cyc in cycles]
+        assert len(names) == 1, names
+        assert set(names[0]) == {"p", "q"}, names
+
+    @pytest.mark.asyncio
+    async def test_unknown_edge_field_raises(self) -> None:
+        """F3 — an undeclared source/target field is rejected up front."""
+        with pytest.raises(GraphTraversalError, match="Unknown edge field"):
+            await find_cycles(
+                ItNode, ItEdge, max_depth=5, target_field="nope"
+            )

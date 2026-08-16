@@ -145,9 +145,10 @@ class TestHybridSearchIntegration:
         results = await search.search(query_vector=[0.85, 0.15, 0.0])
         assert results[0]["name"] == "ml"
         assert all(r["text_score"] == 0.0 for r in results)
-        # combined_score is 1 - cosine distance in the vector-only branch
+        # combined_score is 1/(1 + cosine distance) in the vector-only branch
+        # (F6 — normalized so the score stays bounded for any distance)
         assert results[0]["combined_score"] == pytest.approx(
-            1.0 - results[0]["distance"]
+            1.0 / (1.0 + results[0]["distance"])
         )
 
     @pytest.mark.asyncio

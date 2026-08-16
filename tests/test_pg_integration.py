@@ -727,10 +727,10 @@ class TestGraphVectorSearchIntegration:
 
     @pytest.mark.asyncio
     async def test_invalid_metric_raises(self) -> None:
-        """Unsupported metric raises HybridSearchError before any SQL."""
-        from tortoise_extended.exceptions import HybridSearchError
+        """Unsupported metric raises GraphTraversalError before any SQL."""
+        from tortoise_extended.exceptions import GraphTraversalError
 
-        with pytest.raises(HybridSearchError):
+        with pytest.raises(GraphTraversalError):
             self._search(distance_metric="bogus")
 
 

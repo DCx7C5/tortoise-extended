@@ -8,10 +8,14 @@ import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.exceptions import VectorFieldError
 from tortoise_extended.expressions.graph_filters import (
     CosineDistance,
+    HammingDistance,
     InnerProduct,
+    JaccardDistance,
     L2Distance,
     _cosine_distance_lte,
+    _hamming_distance_lte,
     _inner_product_gte,
+    _jaccard_distance_lte,
     _l2_distance_lte,
     _parse_vector_threshold,
     _vector_eq_guard,
@@ -57,6 +61,14 @@ class TestGetVectorFilters:
         filters = get_vector_filters("embedding", "embedding")
         assert "embedding__inner_product" in filters
 
+    def test_has_hamming_distance(self) -> None:
+        filters = get_vector_filters("embedding", "embedding")
+        assert "embedding__hamming_distance" in filters
+
+    def test_has_jaccard_distance(self) -> None:
+        filters = get_vector_filters("embedding", "embedding")
+        assert "embedding__jaccard_distance" in filters
+
     def test_has_isnull(self) -> None:
         filters = get_vector_filters("embedding", "embedding")
         assert "embedding__isnull" in filters
@@ -65,6 +77,8 @@ class TestGetVectorFilters:
         filters = get_vector_filters("vec", "vec")
         assert "vec__l2_distance" in filters
         assert "vec__cosine_distance" in filters
+        assert "vec__hamming_distance" in filters
+        assert "vec__jaccard_distance" in filters
 
 
 class TestDistanceOperators:
@@ -97,6 +111,54 @@ class TestDistanceOperators:
         op = InnerProduct(t.embedding, ValueWrapper("[0.1,0.2]"))
         sql = op.get_sql(DEFAULT_SQL_CONTEXT)
         assert "<#>" in sql
+
+    def test_hamming_distance(self) -> None:
+        from pypika_tortoise import Table
+        from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
+        from pypika_tortoise.terms import ValueWrapper
+
+        t = Table("test")
+        op = HammingDistance(t.embedding, ValueWrapper("[1,0,1]"))
+        sql = op.get_sql(DEFAULT_SQL_CONTEXT)
+        assert "<~>" in sql
+
+    def test_jaccard_distance(self) -> None:
+        from pypika_tortoise import Table
+        from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
+        from pypika_tortoise.terms import ValueWrapper
+
+        t = Table("test")
+        op = JaccardDistance(t.embedding, ValueWrapper("[1,0,1]"))
+        sql = op.get_sql(DEFAULT_SQL_CONTEXT)
+        assert "<%>" in sql
+
+    def test_hamming_distance_lte_with_threshold(self) -> None:
+        from pypika_tortoise import Table
+        from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
+
+        t = Table("test")
+        op = _hamming_distance_lte(t.embedding, [[1, 0, 1], 0.5])
+        sql = op.get_sql(DEFAULT_SQL_CONTEXT)
+        assert "<~>" in sql
+        assert "0.5" in sql
+
+    def test_jaccard_distance_lte_with_threshold(self) -> None:
+        from pypika_tortoise import Table
+        from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
+
+        t = Table("test")
+        op = _jaccard_distance_lte(t.embedding, [[1, 0, 1], 0.5])
+        sql = op.get_sql(DEFAULT_SQL_CONTEXT)
+        assert "<%>" in sql
+        assert "0.5" in sql
+
+    def test_hamming_jaccard_reject_nested_vectors(self) -> None:
+        from pypika_tortoise.terms import Field
+
+        with pytest.raises(VectorFieldError):
+            _hamming_distance_lte(Field("embedding"), [[0.1], [0.2]])
+        with pytest.raises(VectorFieldError):
+            _jaccard_distance_lte(Field("embedding"), [[0.1], [0.2]])
 
 
 class TestFilterPatchIdempotent:

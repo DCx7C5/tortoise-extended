@@ -25,7 +25,9 @@ from uuid import UUID
 
 from tortoise import connections
 
+from tortoise_extended._quote import quote_ident
 from tortoise_extended._types import RowMapping
+from tortoise_extended.exceptions import GraphTraversalError
 from tortoise_extended.expressions._edge_filter import et_clause as _et_clause
 
 if TYPE_CHECKING:
@@ -43,6 +45,18 @@ class GraphTraversal:
     :param edge_model: The Tortoise ORM model for graph edges.
     :param source_field: FK field name on edge for source node (default: ``source_id``).
     :param target_field: FK field name on edge for target node (default: ``target_id``).
+    :raises GraphTraversalError: If ``source_field``/``target_field`` is not
+        declared on the edge model.
+
+    The node and edge models must declare the following schema contract:
+
+    - ``n.id`` — primary key of the node table
+    - ``n.name`` — display-name column on the node table
+    - ``n.depth`` — integer depth/hierarchy column on the node table
+    - ``e.is_bidirectional`` — boolean column on the edge table (``True`` =
+      the edge may be followed in both directions)
+    - ``e.edge_type`` — string column on the edge table; required only when
+      ``edge_type`` filtering is used
 
     Usage::
 
@@ -65,6 +79,8 @@ class GraphTraversal:
         )
     """
 
+    _DIRECTIONS: tuple[str, ...] = ("outgoing", "incoming", "both")
+
     def __init__(
         self,
         node_model: type[Model],
@@ -72,12 +88,21 @@ class GraphTraversal:
         source_field: str = "source_id",
         target_field: str = "target_id",
     ) -> None:
+        edge_fields = edge_model._meta.fields_map
+        for name in (source_field, target_field):
+            if name not in edge_fields:
+                raise GraphTraversalError(
+                    f"Unknown edge field {name!r} on {edge_model.__name__}; "
+                    f"expected one of {', '.join(sorted(edge_fields))}"
+                )
         self.node_model = node_model
         self.edge_model = edge_model
-        self._node_table = node_model._meta.db_table
-        self._edge_table = edge_model._meta.db_table
-        self._source_field = source_field
-        self._target_field = target_field
+        # Quoted once at construction; every SQL block interpolates only
+        # quote_ident()-wrapped identifiers (never raw caller input).
+        self._node_table = quote_ident(node_model._meta.db_table)
+        self._edge_table = quote_ident(edge_model._meta.db_table)
+        self._source_field = quote_ident(source_field)
+        self._target_field = quote_ident(target_field)
 
     async def ancestors(
         self,
@@ -99,13 +124,15 @@ class GraphTraversal:
 
         sql = f"""
             WITH RECURSIVE ancestors AS (
-                SELECT n.id, n.name, n.depth, 0 AS path_depth
+                SELECT n.id, n.name, n.depth, 0 AS path_depth,
+                       ARRAY[n.id] AS path_ids
                 FROM {self._node_table} n
                 WHERE n.id = $1
 
                 UNION
 
-                SELECT n.id, n.name, n.depth, a.path_depth + 1
+                SELECT n.id, n.name, n.depth, a.path_depth + 1,
+                       a.path_ids || n.id
                 FROM ancestors a
                 JOIN {self._edge_table} e ON (
                     e.{self._target_field} = a.id
@@ -117,6 +144,7 @@ class GraphTraversal:
                 )
                 WHERE a.path_depth < $2 {et_clause}
                 AND n.id != $1
+                AND NOT (n.id = ANY(a.path_ids))
             )
             SELECT id, MIN(name) AS name, MIN(depth) AS depth, MIN(path_depth) AS path_depth
             FROM ancestors
@@ -150,13 +178,15 @@ class GraphTraversal:
 
         sql = f"""
             WITH RECURSIVE descendants AS (
-                SELECT n.id, n.name, n.depth, 0 AS path_depth
+                SELECT n.id, n.name, n.depth, 0 AS path_depth,
+                       ARRAY[n.id] AS path_ids
                 FROM {self._node_table} n
                 WHERE n.id = $1
 
                 UNION
 
-                SELECT n.id, n.name, n.depth, d.path_depth + 1
+                SELECT n.id, n.name, n.depth, d.path_depth + 1,
+                       d.path_ids || n.id
                 FROM descendants d
                 JOIN {self._edge_table} e ON (
                     e.{self._source_field} = d.id
@@ -168,6 +198,7 @@ class GraphTraversal:
                 )
                 WHERE d.path_depth < $2 {et_clause}
                 AND n.id != $1
+                AND NOT (n.id = ANY(d.path_ids))
             )
             SELECT id, MIN(name) AS name, MIN(depth) AS depth, MIN(path_depth) AS path_depth
             FROM descendants
@@ -194,8 +225,16 @@ class GraphTraversal:
         :param direction: ``"outgoing"``, ``"incoming"``, or ``"both"``.
         :param edge_type: Filter by edge type (None = all types).
         :param max_depth: Maximum traversal depth (1 = direct neighbors only).
-        :returns: List of neighbor node dicts with edge metadata.
+        :returns: List of neighbor node dicts (node columns plus ``hops``),
+            ordered by hops ascending (closest neighbors first).
+        :raises GraphTraversalError: If *direction* is not one of
+            ``"outgoing"``, ``"incoming"``, or ``"both"``.
         """
+        if direction not in self._DIRECTIONS:
+            raise GraphTraversalError(
+                f"Unsupported direction {direction!r}; "
+                f"expected one of {', '.join(self._DIRECTIONS)}"
+            )
         et_clause, et_params = _et_clause(edge_type, 3)
 
         if direction == "outgoing":
@@ -228,18 +267,21 @@ class GraphTraversal:
 
         sql = f"""
             WITH RECURSIVE bfs AS (
-                SELECT n.id, n.name, n.depth, 0 AS hops
+                SELECT n.id, n.name, n.depth, 0 AS hops,
+                       ARRAY[n.id] AS path_ids
                 FROM {self._node_table} n
                 WHERE n.id = $1
 
                 UNION
 
-                SELECT n.id, n.name, n.depth, b.hops + 1
+                SELECT n.id, n.name, n.depth, b.hops + 1,
+                       b.path_ids || n.id
                 FROM bfs b
                 JOIN {self._edge_table} e ON ({edge_join})
                 JOIN {self._node_table} n ON ({node_join})
                 WHERE b.hops < $2 {et_clause}
                 AND n.id != $1
+                AND NOT (n.id = ANY(b.path_ids))
             )
             SELECT id, MIN(name) AS name, MIN(depth) AS depth, MIN(hops) AS hops
             FROM bfs WHERE id != $1
