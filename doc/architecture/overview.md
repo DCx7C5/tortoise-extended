@@ -81,8 +81,12 @@ Results (list[dict])
 
 | Module | Responsibility | Key Functions |
 |--------|---------------|---------------|
-| `fields/vector_field.py` | pgvector column type | Binary decoding, string parsing |
-| `fields/ltree_field.py` | ltree column type | Materialized path storage |
+| `fields/vector.py` | pgvector column type | Binary decoding, string parsing |
+| `fields/ltree.py` | ltree column type | Materialized path storage |
+| `fields/ipv4.py` | inet column type | IPv4 validation, dotted-quad conversion |
+| `fields/path.py` | text path column | `pathlib.Path` normalization |
+| `fields/url.py` | validated URL column | Scheme/netloc validation |
+| `fields/uuid.py` | UUID4/UUID7 columns | Auto-generation defaults |
 | `indexes/hnsw_index.py` | ANN index creation | HNSW, IVFFlat DDL |
 | `indexes/ltree_index.py` | GiST index creation | ltree GiST DDL |
 | `expressions/graph_filters.py` | Distance operators | L2, cosine, inner product |

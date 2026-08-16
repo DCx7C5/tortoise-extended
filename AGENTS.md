@@ -157,8 +157,12 @@ src/tortoise_extended/
 │   ├── cacheable_model.py     # BaseCacheableModel (model-level Redis caching)
 │   └── event_stream.py        # BaseEventStreamModel (TimescaleDB multi-stream hypertable)
 ├── fields/
-│   ├── vector_field.py      # VectorField (pgvector vector type, 3 input formats)
-│   └── ltree_field.py       # LTreeField (PostgreSQL ltree type)
+│   ├── vector.py          # VectorField (pgvector vector type, 3 input formats)
+│   ├── ltree.py           # LTreeField (PostgreSQL ltree type)
+│   ├── ipv4.py            # IPv4Field (PostgreSQL inet type, IPv4 validation)
+│   ├── path.py            # PathField (text path column, pathlib.Path support)
+│   ├── url.py             # URLField (validated URL column)
+│   └── uuid.py            # UUID4Field / UUID7Field (auto-generating UUID columns)
 ├── indexes/
 │   ├── hnsw_index.py        # HNSWIndex, IVFFlatIndex (pgvector index DDL)
 │   ├── ltree_index.py       # GiSTIndex
