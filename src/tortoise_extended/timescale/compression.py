@@ -317,7 +317,9 @@ class CompressionManager:
                 "uncompressed_size": row[0],
                 "compressed_size": row[1],
                 "compression_ratio": (
-                    float(row[2]) if row[2] is not None else None
+                    float(cast("str | int | float", row[2]))
+                    if row[2] is not None
+                    else None
                 ),
                 "uncompressed_chunks": row[3],
                 "compressed_chunks": row[4],

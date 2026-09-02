@@ -382,7 +382,10 @@ class HypertableManager:
             raise TimescaleError(msg) from exc
         rows = cast(
             Sequence[tuple[RowValue, ...]],
-            result[1] if isinstance(result, tuple) else result,
+            cast(
+                object,
+                result[1] if isinstance(result, tuple) else result,
+            ),
         )
 
         return [cast(str, row[0]) for row in rows]

@@ -303,7 +303,11 @@ def _apply_patches() -> None:
         return await _original_create_pool(self, **kwargs)
 
     _asyncpg_client_mod.AsyncpgDBClient.create_pool = _patched_create_pool
-    _asyncpg_client_mod.AsyncpgDBClient._tortoise_extended_codec_patched = True
+    setattr(
+        _asyncpg_client_mod.AsyncpgDBClient,
+        "_tortoise_extended_codec_patched",
+        True,
+    )
 
 
 __all__ = [

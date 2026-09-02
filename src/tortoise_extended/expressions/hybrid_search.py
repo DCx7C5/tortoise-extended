@@ -19,7 +19,7 @@ Usage::
     )
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from tortoise import connections
 
@@ -158,7 +158,7 @@ class HybridSearch:
         """
         conn = connections.get("default")
         _, results = await conn.execute_query(sql, params)
-        return [dict(r) for r in results]
+        return [cast(RowMapping, dict(r)) for r in results]
 
     async def search(
         self,
@@ -246,7 +246,10 @@ class HybridSearch:
                 ORDER BY combined_score DESC
                 LIMIT $2
             """
-            params = [vector_literal, max_results]
+            params = cast(
+                list[str | int | float | None],
+                [vector_literal, max_results],
+            )
             if min_distance is not None:
                 params.append(min_distance)
 

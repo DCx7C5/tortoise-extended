@@ -67,7 +67,7 @@ def _stable_signature(
 
 
 def _build_cache_key(
-    func: Callable[..., str],
+    func: Callable[..., object],
     args: tuple[CacheValue, ...],
     kwargs: dict[str, CacheValue],
     prefix: str | None = None,
@@ -87,7 +87,7 @@ def _build_cache_key(
 
 
 def _build_method_cache_key(
-    func: Callable[..., str],
+    func: Callable[..., object],
     args: tuple[CacheValue, ...],
     kwargs: dict[str, CacheValue],
     prefix: str | None = None,
@@ -148,7 +148,7 @@ def cached(
                 backend = RedisCache.get_backend(namespace=namespace, default_ttl=ttl)
 
             cache_key = _build_cache_key(
-                cast(Callable[..., str], func),
+                func,
                 cast(tuple[CacheValue, ...], args),
                 cast(dict[str, CacheValue], kwargs),
                 prefix,
@@ -196,7 +196,7 @@ def cached(
         def _invalidate(*_a: CacheValue, **_kw: CacheValue) -> Awaitable[None]:
             """Invalidate cache for this decorated function."""
             return _invalidate_cached(
-                cast(Callable[..., str], func),
+                func,
                 _a,
                 _kw,
                 prefix,
@@ -208,7 +208,7 @@ def cached(
         def _cache_key(*a: CacheValue, **kw: CacheValue) -> str:
             """Get cache key for given arguments."""
             return _build_cache_key(
-                cast(Callable[..., str], func), a, kw, prefix, key_builder
+                func, a, kw, prefix, key_builder
             )
 
         setattr(wrapper, "invalidate", _invalidate)
@@ -253,7 +253,7 @@ def cached_method(
 
             # Build key without self
             cache_key = _build_method_cache_key(
-                cast(Callable[..., str], func),
+                func,
                 cast(tuple[CacheValue, ...], args),
                 cast(dict[str, CacheValue], kwargs),
                 prefix,
@@ -296,7 +296,7 @@ def cached_method(
         def _invalidate(*_a: CacheValue, **_kw: CacheValue) -> Awaitable[None]:
             """Invalidate cache for this decorated method."""
             return _invalidate_cached(
-                cast(Callable[..., str], func),
+                func,
                 _a,
                 _kw,
                 prefix,
@@ -308,7 +308,7 @@ def cached_method(
         def _cache_key(*a: CacheValue, **kw: CacheValue) -> str:
             """Get cache key for given arguments (self excluded)."""
             return _build_method_cache_key(
-                cast(Callable[..., str], func), a, kw, prefix
+                func, a, kw, prefix
             )
 
         setattr(wrapper, "invalidate", _invalidate)
@@ -320,7 +320,7 @@ def cached_method(
 
 
 async def _invalidate_cached(
-    func: Callable[..., str],
+    func: Callable[..., object],
     args: tuple[CacheValue, ...],
     kwargs: dict[str, CacheValue],
     prefix: str | None,
