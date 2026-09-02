@@ -30,6 +30,7 @@ import argon2
 from argon2.exceptions import InvalidHashError, VerificationError
 from tortoise import fields
 
+from tortoise_extended._types import CoercedValue, ModelKwargs
 from tortoise_extended.models.base import BaseModel
 
 _ARGON2_TIME_COST = 3  # t
@@ -99,16 +100,25 @@ class BaseUserModel(BaseModel):
         abstract = True
 
     @classmethod
-    async def create_user(cls, email: str, password: str, **kwargs: object) -> Self:
+    async def create_user(
+        cls,
+        email: str,
+        password: str,
+        *,
+        is_active: bool = True,
+        **kwargs: CoercedValue,
+    ) -> Self:
         """Create and persist a regular user.
 
         Normalizes the email to lowercase, hashes the password, and saves the
-        new instance. ``is_active`` defaults to ``True`` and can be overridden
+        new instance. ``is_active`` defaults to ``True`` and can be overridden.
+        Additional model field values (including subclass fields) are passed
         via ``kwargs``.
 
         Args:
             email: Login identifier (normalized to lowercase).
             password: Raw password to hash and store.
+            is_active: Whether the account starts active (default: ``True``).
             **kwargs: Extra model field values.
 
         Returns:
@@ -120,7 +130,6 @@ class BaseUserModel(BaseModel):
         email = cls.normalize_email(email)
         if not email or not password:
             raise ValueError("email and password must not be empty")
-        is_active = kwargs.pop("is_active", True)
         user = cls(email=email, is_active=is_active, **kwargs)
         await user.set_password(password)
         await user.save()
@@ -128,16 +137,26 @@ class BaseUserModel(BaseModel):
 
     @classmethod
     async def create_superuser(
-        cls, email: str, password: str, **kwargs: object
+        cls,
+        email: str,
+        password: str,
+        *,
+        is_active: bool = True,
+        is_staff: bool = True,
+        is_superuser: bool = True,
+        **kwargs: CoercedValue,
     ) -> Self:
         """Create and persist a superuser.
 
         Same as :meth:`create_user` but forces ``is_active``, ``is_staff``,
-        and ``is_superuser`` to ``True``.
+        and ``is_superuser`` to ``True`` by default (they can be overridden).
 
         Args:
             email: Login identifier (normalized to lowercase).
             password: Raw password to hash and store.
+            is_active: Account-active flag (default: ``True``).
+            is_staff: Staff flag (default: ``True``).
+            is_superuser: Superuser flag (default: ``True``).
             **kwargs: Extra model field values.
 
         Returns:
@@ -146,10 +165,17 @@ class BaseUserModel(BaseModel):
         Raises:
             ValueError: If ``email`` or ``password`` is empty.
         """
-        kwargs["is_active"] = True
-        kwargs["is_staff"] = True
-        kwargs["is_superuser"] = True
-        return await cls.create_user(email, password, **kwargs)
+        extra: ModelKwargs = {
+            **kwargs,
+            "is_staff": is_staff,
+            "is_superuser": is_superuser,
+        }
+        return await cls.create_user(
+            email,
+            password,
+            is_active=is_active,
+            **extra,
+        )
 
     async def set_password(self, raw_password: str) -> None:
         """Hash ``raw_password`` and assign it to ``password_hash``.

@@ -26,6 +26,7 @@ from uuid import UUID, uuid4
 from tortoise import fields
 from tortoise.expressions import F
 from tortoise.models import Model
+from tortoise.transactions import in_transaction
 
 from tortoise_extended.exceptions import GraphError
 
@@ -181,37 +182,51 @@ class BaseGraphNodeModel(Model):
         is_create = force_create or (
             not already_saved and update_fields is None and not force_update
         )
-        old_parent_id: UUID | None = None
-        if not is_create:
-            old_parent_id = await self._previous_parent_id(using_db)
 
-        await super().save(
-            using_db=using_db,
-            update_fields=update_fields,
-            force_create=force_create,
-            force_update=force_update,
-        )
+        async def _persist_and_sync() -> None:
+            old_parent_id: UUID | None = None
+            if not is_create:
+                old_parent_id = await self._previous_parent_id(using_db)
 
-        if is_create:
-            if self.parent_id is not None:
-                _ = await (
-                    self.__class__.filter(pk=self.parent_id)
-                    .using_db(using_db)
-                    .update(child_count=F("child_count") + 1)
-                )
-        elif update_fields_list is None or "parent_id" in update_fields_list:
-            if old_parent_id is not None:
-                _ = await (
-                    self.__class__.filter(pk=old_parent_id)
-                    .using_db(using_db)
-                    .update(child_count=F("child_count") - 1)
-                )
-            if self.parent_id is not None:
-                _ = await (
-                    self.__class__.filter(pk=self.parent_id)
-                    .using_db(using_db)
-                    .update(child_count=F("child_count") + 1)
-                )
+            await super(BaseGraphNodeModel, self).save(
+                using_db=using_db,
+                update_fields=update_fields,
+                force_create=force_create,
+                force_update=force_update,
+            )
+
+            if is_create:
+                if self.parent_id is not None:
+                    _ = await (
+                        self.__class__.filter(pk=self.parent_id)
+                        .using_db(using_db)
+                        .update(child_count=F("child_count") + 1)
+                    )
+            elif update_fields_list is None or "parent_id" in update_fields_list:
+                if old_parent_id is not None:
+                    _ = await (
+                        self.__class__.filter(pk=old_parent_id)
+                        .using_db(using_db)
+                        .update(child_count=F("child_count") - 1)
+                    )
+                if self.parent_id is not None:
+                    _ = await (
+                        self.__class__.filter(pk=self.parent_id)
+                        .using_db(using_db)
+                        .update(child_count=F("child_count") + 1)
+                    )
+
+        # The node write and the denormalized counter maintenance must be a
+        # single atomic unit. When no connection was supplied, run both on the
+        # default connection inside one transaction so a partial failure cannot
+        # leave ``child_count`` drifted. When ``using_db`` is supplied the
+        # caller already scopes the connection (possibly an outer transaction)
+        # — never open a nested transaction on a different connection.
+        if using_db is None:
+            async with in_transaction():
+                await _persist_and_sync()
+        else:
+            await _persist_and_sync()
 
     async def _previous_parent_id(
         self, using_db: BaseDBAsyncClient | None = None
@@ -248,13 +263,24 @@ class BaseGraphNodeModel(Model):
                     f"{remaining} child node(s) reference it as parent."
                 )
                 raise GraphError(msg)
-        await super().delete(using_db=using_db)
-        if self.parent_id is not None:
-            _ = await (
-                self.__class__.filter(pk=self.parent_id)
-                .using_db(using_db)
-                .update(child_count=F("child_count") - 1)
-            )
+
+        async def _delete_and_sync() -> None:
+            await super(BaseGraphNodeModel, self).delete(using_db=using_db)
+            if self.parent_id is not None:
+                _ = await (
+                    self.__class__.filter(pk=self.parent_id)
+                    .using_db(using_db)
+                    .update(child_count=F("child_count") - 1)
+                )
+
+        # Keep the row delete and the parent ``child_count`` decrement atomic
+        # on the default connection, mirroring save(); see there for the
+        # ``using_db`` rationale.
+        if using_db is None:
+            async with in_transaction():
+                await _delete_and_sync()
+        else:
+            await _delete_and_sync()
 
     def children(self) -> QuerySet[Self]:
         """Get direct children of this node.
