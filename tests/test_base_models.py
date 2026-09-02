@@ -1,8 +1,9 @@
 """Tests for the Tier-1 base-model family.
 
-Covers ``BaseModel`` (BigInt pk), ``TimestampMixin``, and
-``BaseSoftDeleteModel``/``SoftDeleteQuerySet`` (auto-filtered soft delete).
-Runs against SQLite — soft delete is backend-agnostic.
+Covers ``BaseModel`` (BigInt pk), ``TimestampMixin``,
+``TimestampEndMixin``, and ``BaseSoftDeleteModel``/``SoftDeleteQuerySet``
+(auto-filtered soft delete).  Runs against SQLite — soft delete and
+timestamps are backend-agnostic.
 """
 
 from collections.abc import AsyncGenerator
@@ -13,7 +14,12 @@ from tortoise import Tortoise
 from tortoise import fields as tf
 from tortoise.exceptions import DoesNotExist
 
-from tortoise_extended.models import BaseModel, BaseSoftDeleteModel, TimestampMixin
+from tortoise_extended.models import (
+    BaseModel,
+    BaseSoftDeleteModel,
+    TimestampEndMixin,
+    TimestampMixin,
+)
 
 # --- Test models ---------------------------------------------------------
 
@@ -27,7 +33,7 @@ class BaseThing(BaseModel):
         verbose_name_plural = "Base Things"
 
 
-class TimestampedThing(TimestampMixin, BaseModel):
+class TimestampedThing(BaseModel, TimestampMixin):
     name = tf.CharField(max_length=64)
 
     class Meta:
@@ -43,6 +49,28 @@ class SoftThing(BaseSoftDeleteModel, BaseModel):  # pyright: ignore[reportIncomp
         table = "soft_things"
         verbose_name = "Soft Thing"
         verbose_name_plural = "Soft Things"
+
+
+class EndedThing(BaseModel, TimestampEndMixin):
+    """Model using TimestampEndMixin (created_at + ended_at)."""
+
+    name = tf.CharField(max_length=64)
+
+    class Meta:
+        table = "ended_things"
+        verbose_name = "Ended Thing"
+        verbose_name_plural = "Ended Things"
+
+
+class FullyStampedThing(BaseModel, BaseSoftDeleteModel, TimestampMixin):  # pyright: ignore[reportIncompatibleMethodOverride]
+    """Model stacking BaseModel + SoftDelete + Timestamp (mixin-last)."""
+
+    name = tf.CharField(max_length=64)
+
+    class Meta:
+        table = "fully_stamped_things"
+        verbose_name = "Fully Stamped Thing"
+        verbose_name_plural = "Fully Stamped Things"
 
 
 # --- Fixtures -------------------------------------------------------------
@@ -182,3 +210,70 @@ class TestSoftDeleteModel:
         # Filtering after with_deleted() must not re-inject the live filter.
         rows = await SoftThing.with_deleted().filter(name="dead")
         assert [r.name for r in rows] == ["dead"]
+
+
+# --- TimestampEndMixin tests -----------------------------------------------
+
+
+class TestTimestampEndMixin:
+    """created_at (auto) + ended_at (caller-managed) timestamps."""
+
+    async def test_created_set_on_create(self) -> None:
+        thing = await EndedThing.create(name="a")
+        assert isinstance(thing.created_at, datetime)
+        assert thing.created_at is not None
+
+    async def test_ended_at_defaults_to_none(self) -> None:
+        thing = await EndedThing.create(name="a")
+        assert thing.ended_at is None
+
+    async def test_ended_at_set_explicitly(self) -> None:
+        thing = await EndedThing.create(name="a")
+        now = datetime.now().astimezone()
+        thing.ended_at = now
+        await thing.save(update_fields=["ended_at"])
+        await thing.refresh_from_db()
+        assert thing.ended_at is not None
+
+    async def test_created_at_does_not_change_on_update(self) -> None:
+        thing = await EndedThing.create(name="a")
+        original_created = thing.created_at
+        thing.name = "b"
+        await thing.save(update_fields=["name"])
+        await thing.refresh_from_db()
+        assert thing.created_at == original_created
+
+
+# --- Mixin stacking tests --------------------------------------------------
+
+
+class TestMixinStacking:
+    """Model + SoftDelete + TimestampMixin (mixin-last) all compose correctly."""
+
+    async def test_has_timestamp_fields(self) -> None:
+        thing = await FullyStampedThing.create(name="a")
+        assert isinstance(thing.created_at, datetime)
+        assert isinstance(thing.updated_at, datetime)
+
+    async def test_has_soft_delete_field(self) -> None:
+        thing = await FullyStampedThing.create(name="a")
+        assert thing.deleted_at is None
+
+    async def test_soft_delete_filters(self) -> None:
+        await FullyStampedThing.create(name="live")
+        dead = await FullyStampedThing.create(name="dead")
+        await dead.delete()
+        rows = await FullyStampedThing.all()
+        assert [r.name for r in rows] == ["live"]
+
+    async def test_with_deleted_includes_all(self) -> None:
+        await FullyStampedThing.create(name="live")
+        dead = await FullyStampedThing.create(name="dead")
+        await dead.delete()
+        rows = await FullyStampedThing.with_deleted().order_by("name")
+        assert [r.name for r in rows] == ["dead", "live"]
+
+    async def test_pk_is_bigint(self) -> None:
+        _ = await FullyStampedThing.create(name="a")
+        pk_field = FullyStampedThing._meta.fields_map["id"]
+        assert isinstance(pk_field, tf.BigIntField)

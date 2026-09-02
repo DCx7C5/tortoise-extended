@@ -69,7 +69,7 @@ Pick the base per model — each is opt-in and independent:
 |------|------|-----------|------------|
 | Nothing special | `tortoise.models.Model` | — | — |
 | 64-bit pk (large tables, JOIN-heavy) | `BaseModel` | — | builds graph/timescale bases internally |
-| `created_at`/`updated_at` | `TimestampMixin` | any base (put it **first** in bases tuple) | stack with `BaseModel`, `BaseSoftDeleteModel` |
+| `created_at`/`updated_at` | `TimestampMixin` | any base (put it **last** in bases tuple, after the model base) | stack with `BaseModel`, `BaseSoftDeleteModel` |
 | Soft delete (`deleted_at`, auto-filtered) | `BaseSoftDeleteModel` | pairs with `SoftDeleteQuerySet` | stack with `BaseModel`, `TimestampMixin` |
 | Graph nodes / edges | `BaseGraphNodeModel` / `BaseGraphEdgeModel` | declare their own `UUID` pk | use with `GraphTraversal`, `shortest_path` |
 | ltree trees | `BaseHierarchyModel` | declares `path`, `name`, `parent_id`, `depth`, `namespace` | use with `GiSTIndex` |
@@ -479,7 +479,7 @@ from tortoise import fields
 from tortoise_extended import BaseModel, TimestampMixin, BaseSoftDeleteModel
 
 
-class Order(TimestampMixin, BaseSoftDeleteModel, BaseModel):
+class Order(BaseModel, BaseSoftDeleteModel, TimestampMixin):
     total = fields.DecimalField(max_digits=12, decimal_places=2)
     status = fields.CharField(max_length=32, default="open")
 

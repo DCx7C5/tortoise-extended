@@ -11,7 +11,7 @@ Usage::
     from tortoise_extended.models.base import BaseModel
     from tortoise_extended.models.mixins import TimestampMixin
 
-    class Account(TimestampMixin, BaseModel):
+    class Account(BaseModel, TimestampMixin):
         name = fields.CharField(max_length=64)
 
         class Meta:

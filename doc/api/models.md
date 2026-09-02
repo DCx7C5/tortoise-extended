@@ -99,15 +99,16 @@ from tortoise_extended.models.base import BaseModel
 from tortoise_extended.models.mixins import TimestampMixin
 
 
-class Account(TimestampMixin, BaseModel):
+class Account(BaseModel, TimestampMixin):
     name = fields.CharField(max_length=64)
 
     class Meta:
         table = "accounts"
 ```
 
-> Mixin goes **first** in the bases tuple; `BaseModel` must stay after it so
-> `Model` resolution lands correctly.
+> **Mixin-last convention:** the real model base (``BaseModel``,
+> ``BaseSoftDeleteModel``, …) goes **first**, mixins (``TimestampMixin``,
+> ``TimestampEndMixin``) go **last**.
 
 ---
 

@@ -38,3 +38,7 @@ htmlcov/
 !.env.example
 
 .ai
+
+**/Projects/
+!**/Projects/python-development/tortoise-extended/
+!**/Projects/mcp-development/css-mcp/
