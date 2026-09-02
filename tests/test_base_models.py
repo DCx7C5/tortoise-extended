@@ -7,7 +7,7 @@ timestamps are backend-agnostic.
 """
 
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 from tortoise import Tortoise
@@ -43,6 +43,8 @@ class TimestampedThing(BaseModel, TimestampMixin):
 
 
 class SoftThing(BaseSoftDeleteModel, BaseModel):  # pyright: ignore[reportIncompatibleMethodOverride]
+    """BaseSoftDeleteModel narrows Model.all/filter/delete return types — intentional MRO stacking."""
+
     name = tf.CharField(max_length=64)
 
     class Meta:
@@ -63,7 +65,11 @@ class EndedThing(BaseModel, TimestampEndMixin):
 
 
 class FullyStampedThing(BaseModel, BaseSoftDeleteModel, TimestampMixin):  # pyright: ignore[reportIncompatibleMethodOverride]
-    """Model stacking BaseModel + SoftDelete + Timestamp (mixin-last)."""
+    """Model stacking BaseModel + SoftDelete + Timestamp (mixin-last).
+
+    BaseSoftDeleteModel narrows Model.all/filter/delete return types —
+    intentional MRO stacking.
+    """
 
     name = tf.CharField(max_length=64)
 
@@ -117,17 +123,35 @@ class TestTimestampMixin:
         thing = await TimestampedThing.create(name="a")
         assert isinstance(thing.created_at, datetime)
         assert isinstance(thing.updated_at, datetime)
-        assert thing.created_at is not None
         assert thing.updated_at is not None
+        # use_tz=True — timestamps are timezone-aware
+        assert thing.created_at.tzinfo is not None
+        assert thing.updated_at.tzinfo is not None
 
-    async def test_updated_at_changes_on_update(self) -> None:
+    async def test_updated_at_fires_on_full_save(self) -> None:
+        """auto_now must fire on a full save (no update_fields)."""
+        thing = await TimestampedThing.create(name="a")
+        original_created = thing.created_at
+        original_updated = thing.updated_at
+        thing.name = "b"
+        await thing.save()  # full save — auto_now fires
+        await thing.refresh_from_db()
+        assert thing.updated_at > original_updated
+        assert thing.created_at == original_created
+
+    async def test_updated_at_not_fired_on_partial_save(self) -> None:
+        """Tortoise auto_now only fires when the field is in update_fields.
+
+        A partial save with ``update_fields=[\"name\"]`` excludes
+        ``updated_at``, so it must NOT be rewritten — documents the
+        intentional Tortoise 1.1.7 behavior (differs from Django).
+        """
         thing = await TimestampedThing.create(name="a")
         original_updated = thing.updated_at
         thing.name = "b"
         await thing.save(update_fields=["name"])
         await thing.refresh_from_db()
-        assert thing.updated_at >= original_updated
-        assert thing.created_at <= thing.updated_at
+        assert thing.updated_at == original_updated
 
 
 async def _seed() -> SoftThing:
@@ -229,17 +253,38 @@ class TestTimestampEndMixin:
 
     async def test_ended_at_set_explicitly(self) -> None:
         thing = await EndedThing.create(name="a")
-        now = datetime.now().astimezone()
+        now = datetime.now(UTC)
         thing.ended_at = now
         await thing.save(update_fields=["ended_at"])
         await thing.refresh_from_db()
         assert thing.ended_at is not None
+        assert thing.ended_at == now
+
+    async def test_ended_at_not_clobbered_by_later_save(self) -> None:
+        """ended_at is caller-managed (NOT auto_now); it must survive saves."""
+        thing = await EndedThing.create(name="a")
+        now = datetime.now(UTC)
+        thing.ended_at = now
+        await thing.save(update_fields=["ended_at"])
+        saved_end = thing.ended_at
+        thing.name = "b"
+        await thing.save()  # full save — must NOT clobber ended_at
+        await thing.refresh_from_db()
+        assert thing.ended_at == saved_end
 
     async def test_created_at_does_not_change_on_update(self) -> None:
         thing = await EndedThing.create(name="a")
         original_created = thing.created_at
         thing.name = "b"
         await thing.save(update_fields=["name"])
+        await thing.refresh_from_db()
+        assert thing.created_at == original_created
+
+    async def test_created_at_survives_full_save(self) -> None:
+        thing = await EndedThing.create(name="a")
+        original_created = thing.created_at
+        thing.name = "b"
+        await thing.save()  # full save
         await thing.refresh_from_db()
         assert thing.created_at == original_created
 
@@ -254,10 +299,22 @@ class TestMixinStacking:
         thing = await FullyStampedThing.create(name="a")
         assert isinstance(thing.created_at, datetime)
         assert isinstance(thing.updated_at, datetime)
+        assert thing.created_at.tzinfo is not None
+        assert thing.updated_at.tzinfo is not None
 
     async def test_has_soft_delete_field(self) -> None:
         thing = await FullyStampedThing.create(name="a")
         assert thing.deleted_at is None
+
+    async def test_soft_delete_does_not_bump_updated_at(self) -> None:
+        """Soft-delete uses save(update_fields=[\"deleted_at\"]) — auto_now is
+        NOT in the list, so updated_at is not rewritten by a soft delete."""
+        thing = await FullyStampedThing.create(name="a")
+        orig_updated = thing.updated_at
+        await thing.delete()  # soft delete
+        await thing.refresh_from_db()
+        assert thing.deleted_at is not None
+        assert thing.updated_at == orig_updated
 
     async def test_soft_delete_filters(self) -> None:
         await FullyStampedThing.create(name="live")

@@ -11,6 +11,7 @@ forced on a model that doesn't need it.
 from tortoise_extended import (
     BaseModel,
     TimestampMixin,
+    TimestampEndMixin,
     BaseSoftDeleteModel,
     SoftDeleteQuerySet,
     BaseGraphNodeModel,
@@ -207,7 +208,7 @@ from tortoise_extended.models.base import BaseModel
 from tortoise_extended.models.soft_delete import BaseSoftDeleteModel
 
 
-class Account(BaseSoftDeleteModel, BaseModel):
+class Account(BaseModel, BaseSoftDeleteModel):
     name = fields.CharField(max_length=64)
 
     class Meta:

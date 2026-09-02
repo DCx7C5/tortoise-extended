@@ -108,6 +108,7 @@ from tortoise_extended.models import (
     BaseSoftDeleteModel,
     BaseUserModel,
     SoftDeleteQuerySet,
+    TimestampEndMixin,
     TimestampMixin,
 )
 from tortoise_extended.timescale import TimeBucketRow
@@ -353,6 +354,7 @@ __all__ = [
     "SoftDeleteQuerySet",
     "TimeBucketRow",
     "TimescaleError",
+    "TimestampEndMixin",
     "TimestampMixin",
     "TortoiseExtendedError",
     "URLField",
