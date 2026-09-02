@@ -26,6 +26,7 @@
   - [Pathfinding](api/pathfinding.md)
   - [Hybrid Search](api/hybrid-search.md)
   - [Graph (Node/Edge/Hierarchy)](api/graph.md)
+  - [Model Bases](api/models.md)
   - [Event Streams](api/event-streams.md)
   - [TimescaleDB](api/timescale.md)
   - [Cache (Redis)](api/cache.md)

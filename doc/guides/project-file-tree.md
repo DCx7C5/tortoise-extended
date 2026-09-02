@@ -1,12 +1,11 @@
 # Project ↔ File Tree Wiring
 
 How to connect a `ProjectModel` entity to its `ProjectFileTree` using the
-ltree-based `BaseBaseHierarchyModel` base class.
+ltree-based `BaseHierarchyModel` base class.
 
-> **Why not `BaseBaseGraphNodeModelModel`?** A file tree is a *tree* — it never forks and
-> rejoins. `BaseBaseHierarchyModel` gives you materialized ltree paths backed by a
-> GiST index (`path__ancestor_of` / `path__descendant_of`), `move_to()`,
-> and `validate_hierarchy()`. Use `BaseBaseGraphNodeModelModel`/`BaseGraphEdgeModel` only when files
+> **Why not `BaseGraphNodeModel`?** A file tree is a *tree* — it never forks and
+> rejoins. `BaseHierarchyModel` gives you materialized ltree paths backed by a
+> and `validate_hierarchy()`. Use `BaseGraphNodeModel`/`BaseGraphEdgeModel` only when files
 > must participate in arbitrary, cyclic, or cross-project links.
 
 ## Models
@@ -48,7 +47,7 @@ class ProjectFileTree(BaseHierarchyModel):
         )
 ```
 
-The `namespace` column (inherited from `BaseBaseHierarchyModel`) mirrors
+The `namespace` column (inherited from `BaseHierarchyModel`) mirrors
 `project.id` so every tree query stays partition-safe **without a join** —
 all inherited helpers (`get_ancestors`, `get_descendants`, `get_root`)
 filter on it automatically.

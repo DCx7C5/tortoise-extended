@@ -127,7 +127,7 @@ blocked.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `email` | `CharField(255, unique=True, index=True)` | Login identifier, normalized to lowercase |
+| `email` | `CharField(255, unique=True)` | Login identifier, normalized to lowercase (unique index) |
 | `password_hash` | `CharField(255)` | argon2id hash, PHC format `$argon2id$v=19$m=...,t=...,p=...$salt$hash` |
 | `is_active` | `BooleanField(default=True)` | Login allowed |
 | `is_staff` | `BooleanField(default=False)` | Admin-area access |

@@ -89,7 +89,7 @@ results = await search.search(
 
 ## Notes
 
-- Scoring formula: `combined = vector_weight * (1 - distance) + text_weight * ts_rank_cd`
+- Scoring formula: `combined = vector_weight * (1 / (1 + distance)) + text_weight * ts_rank_cd`
 - Distance metrics: cosine (0=identical, 2=opposite), l2 (0=identical), inner_product (higher=more similar)
 - Raw SQL via `connections.get("default")` — requires initialized Tortoise ORM
 - The `tsvector_field` must exist on the table (add via trigger or computed column)

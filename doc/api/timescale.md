@@ -21,11 +21,11 @@ Convert regular tables to TimescaleDB hypertables.
 
 | Method | Description |
 |--------|-------------|
-| `create_hypertable(table, time_column?, chunk_interval?, if_not_exists?, migrate_data?)` | Convert table to hypertable |
+| `create_hypertable(table, time_column?, chunk_time_interval?, if_not_exists?, migrate_data?)` | Convert table to hypertable |
 | `drop_hypertable(table, if_exists?)` | Drop hypertable |
 | `is_hypertable(table)` | Check if table is a hypertable |
-| `list_hypertables()` | List all hypertables |
-| `add_dimension(table, column, chunk_interval?)` | Add partitioning dimension |
+| `list_hypertables(extension_schema?)` | List all hypertables |
+| `add_dimension(table, column, chunk_time_interval?, number_partitions?)` | Add partitioning dimension |
 | `show_chunks(table, start_time?, end_time?)` | List chunks for a hypertable |
 
 ```python
@@ -87,7 +87,7 @@ Manage materialized views that auto-refresh.
 | `create(view_name, source_table, query, with_data?)` | Create continuous aggregate |
 | `drop(view_name, if_exists?)` | Drop continuous aggregate |
 | `refresh(view_name, start_time?, end_time?)` | Refresh aggregate |
-| `set_refresh_policy(view, start_offset?, end_offset?, schedule?)` | Auto-refresh policy |
+| `set_refresh_policy(view, start_offset?, end_offset?, schedule_interval?)` | Auto-refresh policy |
 | `remove_refresh_policy(view)` | Remove refresh policy |
 | `add_realtime_aggregate(view)` | Enable realtime aggregation |
 | `list()` | List all continuous aggregates |

@@ -206,7 +206,7 @@ await Tortoise.init(
 
 
 # Model-level cache (BaseCacheableModel) — auto-invalidated on save/delete
-class Entity(BaseCacheableModel, models.Model):
+class Entity(BaseCacheableModel):
     _cache_ttl = 600
     title = fields.CharField(max_length=512)
 

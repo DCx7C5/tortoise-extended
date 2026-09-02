@@ -348,12 +348,18 @@ High-cardinality events (clicks, sensor reads) with per-stream bucketing,
 continuous aggregates, and retention.
 
 ```python
+from datetime import datetime, timedelta
 from tortoise_extended import BaseEventStreamModel, fields
 
 
 class ClickEvent(BaseEventStreamModel):
-    stream_id = fields.CharField(max_length=64)  # overrides default
-    ts = fields.DatetimeField()  # overrides default
+    time_field: ClassVar[str] = "ts"  # override default "created_at"
+    stream_field: ClassVar[str] = "stream_id"
+    compress_after: ClassVar[str | None] = "7 days"
+    drop_after: ClassVar[str | None] = "90 days"
+
+    stream_id = fields.CharField(max_length=64)
+    ts = fields.DatetimeField()
     user_id = fields.UUIDField()
     url = fields.TextField()
     latency_ms = fields.IntField()
@@ -362,15 +368,19 @@ class ClickEvent(BaseEventStreamModel):
         table = "click_events"
 
 
-# one-time setup (hypertable + partitions + policies)
-await ClickEvent.setup(compress_after="7 days", drop_after="90 days")
+# one-time setup (hypertable + partitions + policies) — reads the ClassVars above
+await ClickEvent.setup()
 
 # bulk COPY ingestion
 await ClickEvent.bulk_insert(rows)
 
-# latest row per stream / bucketed time series
+# latest row per stream / bucketed time series (time_series needs start/end)
 latest = await ClickEvent.latest_per_stream()
-series = await ClickEvent.time_series(bucket="1 hour")
+series = await ClickEvent.time_series(
+    bucket="1 hour",
+    start=datetime.utcnow() - timedelta(days=1),
+    end=datetime.utcnow(),
+)
 ```
 
 **Why:** `bulk_insert` uses COPY (much faster than per-row inserts);
@@ -460,10 +470,14 @@ from tortoise_extended.timescale import (
 await HypertableManager.create_hypertable(
     "metrics", time_column="ts", chunk_time_interval="1 day"
 )
-await CompressionManager.set_compression("metrics", compress_after="7 days")
+await CompressionManager.enable_compression("metrics")
+await CompressionManager.add_compression_policy("metrics", compress_after="7 days")
 await RetentionPolicy.set_retention("metrics", drop_after="90 days")
-await ContinuousAggregateManager.create_continuous_aggregate(
-    "metrics_daily", "SELECT ...", time_column="bucket", refresh_interval="1 hour"
+await ContinuousAggregateManager.create(
+    "metrics_daily", "metrics", "SELECT time_bucket('1 day', ts) AS bucket, COUNT(*) FROM metrics GROUP BY 1"
+)
+await ContinuousAggregateManager.set_refresh_policy(
+    "metrics_daily", start_offset="1 week", end_offset="1 day", schedule_interval="1 hour"
 )
 ```
 
@@ -518,7 +532,7 @@ auto-filters `deleted_at IS NULL` on every default-manager query while
 6. **BaseGraphEdgeModel helpers are sync QuerySet-returning**: call `.all()` (async) to execute
 7. **Cache is optional**: Redis must be initialized separately via `RedisCache.init()`
 8. **CachedQuerySet**: construct it directly (`CachedQuerySet(Model)`) or wire it as a custom manager — plain `Model.filter()` returns a standard QuerySet without `.cache()`
-9. **BaseEventStreamModel**: PostgreSQL + composite primary key (`stream_id`, `time_field`) required; `bulk_insert` uses COPY and cannot generate identity IDs
+9. **BaseEventStreamModel**: PostgreSQL + the time partition column must be covered by a PK / unique index (and any space-dimension column too when `number_partitions` is set — see `doc/api/event-streams.md`); `bulk_insert` uses COPY and cannot generate identity IDs
 10. **TimescaleDB**: Table must be a hypertable before compression/retention
 11. **Meta.indexes are not inherited** from abstract bases — redeclare them on every concrete subclass (`BaseHierarchyModel`, `BaseModel`, `BaseSoftDeleteModel`, `TimestampMixin`)
 12. **Bases with their own pk collide**: don't stack `BaseModel` with `BaseGraphNodeModel`/`BaseGraphEdgeModel`/`BaseHierarchyModel`/`BaseEventStreamModel`

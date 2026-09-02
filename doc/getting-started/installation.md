@@ -19,12 +19,14 @@ uv add tortoise-extended
 The package installs these dependencies automatically:
 
 ```
-tortoise-orm >=1.1.7,<1.2
-asyncpg >=0.31.0,<0.32
+tortoise-orm[asyncpg] >=1.1.7,<1.2   # asyncpg driver comes via this extra
+tortoise-orm-stubs >=1.0.2
 pypika-tortoise >=0.6.5,<0.7
+msgspec >=0.21.0
+argon2-cffi >=25.1.0
 ```
 
-Optional Redis caching:
+Optional Redis caching (`redis[hiredis]>=7.0.0`):
 
 ```bash
 uv add "tortoise-extended[redis]"
