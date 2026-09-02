@@ -17,6 +17,7 @@ Usage::
 
         class Meta:
             table = "categories"
+            indexes = (("namespace", "depth"),)
 """
 
 from collections import deque
@@ -64,6 +65,7 @@ class BaseGraphNodeModel(Model):
 
             class Meta:
                 table = "categories"
+                indexes = (("namespace", "depth"),)
 
         # Create root
         root = await Category.create(name="Electronics")
@@ -125,6 +127,43 @@ class BaseGraphNodeModel(Model):
         verbose_name = "Graph Node"
         verbose_name_plural = "Graph Nodes"
         abstract = True
+        # Tortoise does NOT propagate Meta.indexes from abstract bases to
+        # concrete subclasses — every concrete subclass must redeclare them
+        # (see __init_subclass__ guard below).
+        indexes = (
+            ("namespace", "depth"),
+        )
+
+    def __init_subclass__(cls, **kwargs: str | int | float | bool | None) -> None:
+        """Guard against silently losing the abstract base index.
+
+        Tortoise only copies base fields/indexes for abstract bases and does
+        not propagate ``Meta.indexes`` to concrete subclasses.  A subclass
+        that forgets to redeclare ``(namespace, depth)`` would run the common
+        multi-tenancy scoped traversal queries without composite index
+        support — raise at class-creation time instead.
+
+        Raise:
+            NotImplementedError: When a concrete subclass (or one without an
+                explicit ``Meta``) does not declare ``Meta.indexes``.  Opt
+                out deliberately with ``Meta.indexes = ()``.
+        """
+        super().__init_subclass__(**kwargs)
+        meta = cls.__dict__.get("Meta")
+        if meta is None:
+            raise NotImplementedError(
+                f"{cls.__name__} must declare a Meta class with table and indexes. "
+                "Tortoise does not propagate Meta.indexes from abstract bases; "
+                "redeclare the (namespace, depth) index on every concrete subclass."
+            )
+        if getattr(meta, "abstract", False):
+            return
+        if "indexes" not in meta.__dict__:
+            raise NotImplementedError(
+                f"{cls.__name__}.Meta must redeclare indexes — Tortoise does not "
+                "propagate Meta.indexes from abstract bases. Add the "
+                "(namespace, depth) index or opt out explicitly with indexes = ()."
+            )
 
     @override
     def __str__(self) -> str:

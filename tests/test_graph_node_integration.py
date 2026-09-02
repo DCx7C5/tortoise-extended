@@ -53,6 +53,7 @@ class ItGraphNode(BaseGraphNodeModel):
 
     class Meta:
         table = "graph_node_it_nodes"
+        indexes = (("namespace", "depth"),)
 
 
 # ---------------------------------------------------------------------------

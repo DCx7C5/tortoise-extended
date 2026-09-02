@@ -13,6 +13,7 @@ from tortoise_extended._quote import quote_ident as _quote_ident
 from tortoise_extended._quote import quote_literal as _quote_literal
 from tortoise_extended._types import SchemaEditorLike
 from tortoise_extended.exceptions import MigrationOperationError
+from tortoise_extended.timescale.continuous_aggregate import validate_cagg_query
 
 if TYPE_CHECKING:
     from tortoise.migrations.schema_editor.base import BaseSchemaEditor
@@ -300,19 +301,29 @@ class CreateContinuousAggregate(Operation):
 
         Creates the materialized view with ``timescaledb.continuous`` and
         registers an ``add_continuous_aggregate_policy`` refresh schedule.
+        ``query`` is validated as a single bare ``SELECT``/``WITH ... SELECT``
+        (no ``;``) before interpolation — the same shape contract enforced by
+        :meth:`ContinuousAggregateManager.create` — so a migration does not
+        silently execute a multi-statement or non-``SELECT`` payload.
 
         :param app_label: App the migration belongs to (unused).
         :param state: Current model state (unused).
         :param dry_run: Skip execution when ``True``.
         :param state_editor: Active schema editor for DDL execution.
+
+        Raises:
+            ValueError: If ``query`` is not a single bare SELECT/WITH
+                statement without ``;``.
         """
         if dry_run or state_editor is None:
             return
 
+        inner = validate_cagg_query(self.query)
+
         # Create the continuous aggregate view
         create_sql = (
             f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_quote_ident(self.view_name)} "
-            f"WITH (timescaledb.continuous) AS {self.query}"
+            f"WITH (timescaledb.continuous) AS {inner}"
         )
         await _run_sql(state_editor, create_sql)
 

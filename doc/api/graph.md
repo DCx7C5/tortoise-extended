@@ -60,6 +60,9 @@ class Category(BaseGraphNodeModel):
 
     class Meta:
         table = "categories"
+        # Tortoise does NOT inherit Meta.indexes from the abstract base —
+        # redeclare them on every concrete subclass.
+        indexes = (("namespace", "depth"),)
 
 
 # Create root

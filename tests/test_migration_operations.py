@@ -310,6 +310,18 @@ class TestCreateContinuousAggregateRun:
         assert "INTERVAL '30 minutes'" in editor.statements[1]
 
     @pytest.mark.asyncio
+    async def test_run_rejects_multi_statement_query(self) -> None:
+        """run() validates the query shape before interpolating — a
+        multi-statement payload must not reach the schema editor."""
+        op = CreateContinuousAggregate(
+            view_name="v", query="SELECT 1; DROP TABLE events"
+        )
+        editor = FakeSchemaEditor()
+        with pytest.raises(ValueError, match="single bare SELECT"):
+            await op.run("app", FakeState(), dry_run=False, state_editor=editor)
+        assert editor.statements == []
+
+    @pytest.mark.asyncio
     async def test_database_forward(self) -> None:
         op = CreateContinuousAggregate(view_name="v", query="SELECT 1")
         editor = FakeSchemaEditor()

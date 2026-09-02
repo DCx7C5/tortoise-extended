@@ -31,6 +31,7 @@ class QueryNode(BaseGraphNodeModel):
 
     class Meta:
         table = "query_nodes"
+        indexes = (("namespace", "depth"),)
 
 
 class GuardNode(BaseGraphNodeModel):
@@ -40,6 +41,7 @@ class GuardNode(BaseGraphNodeModel):
 
     class Meta:
         table = "guard_nodes"
+        indexes = (("namespace", "depth"),)
 
 
 @pytest.fixture(scope="module", autouse=True)

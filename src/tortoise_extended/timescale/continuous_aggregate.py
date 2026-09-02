@@ -39,6 +39,60 @@ from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import TimescaleError
 
 
+def validate_cagg_query(query: str, source_table: str | None = None) -> str:
+    """Validate a continuous-aggregate ``SELECT`` and return it stripped.
+
+    Ensures the query is a single bare ``SELECT``/``WITH ... SELECT`` statement
+    — guarding against multi-statement injection.  When ``source_table`` is
+    given it must also reference that hypertable, keeping a mismatched source
+    from silently aggregating the wrong table.  Shared by
+    :meth:`ContinuousAggregateManager.create` and the
+    :class:`~tortoise_extended.migrations.operations.CreateContinuousAggregate`
+    migration operation so both enforce the same shape contract.
+
+    Args:
+        query: The aggregate SELECT (or ``WITH ... SELECT``) statement.
+        source_table: Optional source hypertable the aggregate reads from.  When
+            ``None`` the source-reference cross-check is skipped.
+
+    Returns:
+        The stripped query string (validated).
+
+    Raises:
+        ValueError: If the query is not a bare SELECT/WITH statement without
+            ``;``, or (when ``source_table`` is given) does not reference it.
+    """
+    inner = query.strip()
+    first_keyword = inner.upper().split(None, 1)[0] if inner else ""
+    if ";" in inner or first_keyword not in ("SELECT", "WITH"):
+        raise ValueError(
+            "Continuous aggregate query must be a single bare "
+            "SELECT (or WITH ... SELECT) statement without ';'; "
+            f"got {first_keyword!r}..."
+        )
+    if source_table is None:
+        return inner
+    # The query must actually read from the declared source hypertable —
+    # validating it keeps a mismatched source_table from silently creating an
+    # aggregate over the wrong table.  ``source_table`` may be
+    # schema-qualified (``metrics.events``); single-quoted string literals are
+    # stripped first, then the table is matched on word boundaries with an
+    # optional schema prefix — so a schema-qualified source is accepted and a
+    # same-named table nested inside another identifier (``my_events``) or a
+    # string literal (``'events'``) is not falsely accepted.
+    no_literals = re.sub(r"'[^']*(?:''[^']*)*'", "", inner)
+    if "." in source_table:
+        source_pattern = re.escape(source_table)
+    else:
+        source_pattern = rf"(?:\w+\.)?{re.escape(source_table)}"
+    if re.search(rf"\b{source_pattern}\b", no_literals) is None:
+        raise ValueError(
+            f"Continuous aggregate query must reference the source "
+            f"table {source_table!r}"
+        )
+    return inner
+
+
 class ContinuousAggregateManager:
     """Manager for TimescaleDB continuous aggregates.
 
@@ -101,39 +155,12 @@ class ContinuousAggregateManager:
             # CREATE MATERIALIZED VIEW statement).
             query = query.strip()
         else:
-            inner = query.strip()
-            first_keyword = inner.upper().split(None, 1)[0] if inner else ""
-            if ";" in inner or first_keyword not in ("SELECT", "WITH"):
-                raise ValueError(
-                    "Continuous aggregate query must be a single bare "
-                    "SELECT (or WITH ... SELECT) statement without ';'; "
-                    f"got {first_keyword!r}..."
-                )
-            # The query must actually read from the declared source
-            # hypertable — validating it keeps a mismatched _source_table
-            # from silently creating an aggregate over the wrong table.
-            # ``_source_table`` may be schema-qualified (``metrics.events``);
-            # single-quoted string literals are stripped first, then the
-            # table is matched on word boundaries with an optional schema
-            # prefix — so a schema-qualified source is accepted and a
-            # same-named table nested inside another identifier
-            # (``my_events``) or a string literal (``'events'``) is not
-            # falsely accepted.
-            no_literals = re.sub(r"'[^']*(?:''[^']*)*'", "", inner)
-            if "." in _source_table:
-                source_pattern = re.escape(_source_table)
-            else:
-                source_pattern = rf"(?:\w+\.)?{re.escape(_source_table)}"
-            if re.search(rf"\b{source_pattern}\b", no_literals) is None:
-                raise ValueError(
-                    f"Continuous aggregate query must reference the source "
-                    f"table {_source_table!r}"
-                )
+            inner = validate_cagg_query(query, _source_table)
             data_clause = "DATA" if with_data else "NO DATA"
             query = f"""
                 CREATE MATERIALIZED VIEW {quote_ident(view_name)}
                 WITH (timescaledb.continuous)
-                AS ({query})
+                AS ({inner})
                 WITH {data_clause}
             """
 
