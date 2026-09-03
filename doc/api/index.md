@@ -6,6 +6,7 @@ Complete API documentation for all tortoise-extended modules.
 
 - **[VectorField](vector-field.md)** — pgvector column type for vector similarity search
 - **[LTreeField](ltree-field.md)** — PostgreSQL ltree type for hierarchical paths
+- **[Fields](fields.md)** — IPv4Field, PathField, URLField, UUID4Field, UUID7Field
 - **[Indexes](indexes.md)** — HNSW, IVFFlat, and GiST index types
 - **[Graph Filters](graph-filters.md)** — pgvector distance operators (L2, cosine, inner product)
 - **[Recursive CTE](recursive-cte.md)** — Recursive Common Table Expressions
@@ -13,6 +14,7 @@ Complete API documentation for all tortoise-extended modules.
 - **[Graph Vector Search](graph-vector-search.md)** — single-query vector + graph compositor with typed results
 - **[Pathfinding](pathfinding.md)** — Shortest path, all paths, cycle detection
 - **[Hybrid Search](hybrid-search.md)** — Vector + FTS weighted scoring
+- **[pgcrypto](pgcrypto.md)** — pgcrypto query helpers (Digest, HMAC, PGP encrypt/decrypt) + PGPEncryptedField
 - **[Graph (Node/Edge/Hierarchy)](graph.md)** — BaseGraphNodeModel, BaseGraphEdgeModel, BaseHierarchyModel base classes
 - **[Model Bases](models.md)** — BaseModel, BaseUserModel, BaseSoftDeleteModel + SoftDeleteQuerySet, TimestampMixin
 - **[TimescaleDB](timescale.md)** — HypertableManager, CompressionManager, RetentionPolicy, ContinuousAggregateManager
@@ -26,6 +28,7 @@ Complete API documentation for all tortoise-extended modules.
 ### Fields
 ```python
 from tortoise_extended import VectorField, LTreeField
+from tortoise_extended import IPv4Field, PathField, URLField, UUID4Field, UUID7Field
 ```
 
 ### Indexes
@@ -84,6 +87,14 @@ from tortoise_extended import (
     cached_method,
     invalidate,
 )
+```
+
+### pgcrypto
+```python
+from tortoise_extended.expressions.pgcrypto import (
+    Digest, DigestHex, HMACDigest, PGPSymEncrypt, PGPSymDecrypt,
+)
+from tortoise_extended.fields.pgcrypto import PGPEncryptedField
 ```
 
 ### Migrations

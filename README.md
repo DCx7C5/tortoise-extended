@@ -55,6 +55,7 @@ entities = (
   `BaseGraphEdgeModel` / `BaseHierarchyModel`, `BaseCacheableModel`, `BaseEventStreamModel`
 - **`LTreeField` + ltree filters** — PostgreSQL `ltree` hierarchical column type
 - **TimescaleDB** — hypertable/compression/retention/continuous-aggregate managers, `BaseEventStreamModel`, migration operations
+- **pgcrypto query helpers** — `Digest`/`DigestHex`/`HMACDigest`/`PGPSymEncrypt`/`PGPSymDecrypt` + `PGPEncryptedField`
 - **Redis caching** (optional `redis` extra) — `RedisCache`, `BaseCacheableModel`, `CachedQuerySet`, `@cached`
 
 ## Architecture
@@ -73,8 +74,13 @@ src/tortoise_extended/
 │   ├── cacheable_model.py     # BaseCacheableModel (model-level Redis caching)
 │   └── event_stream.py        # BaseEventStreamModel (TimescaleDB multi-stream hypertable)
 ├── fields/
-│   ├── vector_field.py      # VectorField (pgvector vector type)
-│   └── ltree_field.py       # LTreeField (PostgreSQL ltree type)
+│   ├── vector.py          # VectorField (pgvector vector type)
+│   ├── ltree.py           # LTreeField (PostgreSQL ltree type)
+│   ├── ipv4.py            # IPv4Field (PostgreSQL inet type)
+│   ├── path.py            # PathField (text path column)
+│   ├── url.py             # URLField (validated URL column)
+│   ├── uuid.py            # UUID4Field / UUID7Field
+│   └── pgcrypto.py        # PGPEncryptedField (BYTEA/BLOB ciphertext storage)
 ├── indexes/
 │   ├── hnsw_index.py        # HNSWIndex + IVFFlatIndex (pgvector DDL)
 │   └── ltree_index.py       # GiSTIndex
@@ -85,7 +91,8 @@ src/tortoise_extended/
 │   ├── graph_vector_search.py  # GraphVectorSearch (graph + vector compositor)
 │   ├── pathfinding.py       # shortest_path, all_paths, find_cycles
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)
-│   └── ltree_filters.py     # ltree query operators
+│   ├── ltree_filters.py     # ltree query operators
+│   └── pgcrypto.py          # pgcrypto helpers (Digest, HMAC, PGP encrypt/decrypt)
 ├── migrations/
 │   └── operations.py        # CreateHypertable, CreateContinuousAggregate
 ├── cache/                   # RedisCache, BaseCacheableModel, CachedQuerySet, decorators
@@ -133,7 +140,7 @@ await CategoryLink.create(source=root, target=laptops, edge_type="contains", wei
 
 ## Module Reference
 
-### `tortoise_extended.fields.vector_field.VectorField`
+### `tortoise_extended.fields.vector.VectorField`
 
 Self-contained pgvector field. Does **not** depend on `tortoise-embeddings`.
 

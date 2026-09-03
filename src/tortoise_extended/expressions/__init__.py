@@ -14,10 +14,20 @@ from tortoise_extended.expressions.ltree_filters import (
     LTreeDescendantOf,
     LTreeMatch,
 )
+from tortoise_extended.expressions.pgcrypto import (
+    Digest,
+    DigestHex,
+    HMACDigest,
+    PGPSymDecrypt,
+    PGPSymEncrypt,
+)
 from tortoise_extended.expressions.recursive_cte import RecursiveCTE
 
 __all__ = [
     "CosineDistance",
+    "Digest",
+    "DigestHex",
+    "HMACDigest",
     "HammingDistance",
     "InnerProduct",
     "JaccardDistance",
@@ -27,5 +37,7 @@ __all__ = [
     "LTreeDescendantMatch",
     "LTreeDescendantOf",
     "LTreeMatch",
+    "PGPSymDecrypt",
+    "PGPSymEncrypt",
     "RecursiveCTE",
 ]

@@ -97,6 +97,11 @@ Pick the base per model — each is opt-in and independent:
 | `IVFFlatIndex` | `from tortoise_extended import IVFFlatIndex` | Write-heavy ANN search (data must exist first) |
 | `GiSTIndex` | `from tortoise_extended import GiSTIndex` | ltree column index |
 | `LTreeField` | `from tortoise_extended import LTreeField` | Materialized paths (`a.b.c`) |
+| `IPv4Field` | `from tortoise_extended import IPv4Field` | IPv4 addresses (PostgreSQL `inet`) |
+| `PathField` | `from tortoise_extended import PathField` | Filesystem paths (text) |
+| `URLField` | `from tortoise_extended import URLField` | Validated URLs (text) |
+| `UUID4Field` | `from tortoise_extended import UUID4Field` | Auto-generated random UUIDs |
+| `UUID7Field` | `from tortoise_extended import UUID7Field` | Auto-generated time-ordered UUIDs |
 | `L2Distance` | `from tortoise_extended import L2Distance` | Euclidean distance filter |
 | `CosineDistance` | `from tortoise_extended import CosineDistance` | Cosine similarity filter |
 | `InnerProduct` | `from tortoise_extended import InnerProduct` | Inner product filter |
@@ -123,6 +128,12 @@ Pick the base per model — each is opt-in and independent:
 | `CompressionManager` | `from tortoise_extended.timescale import CompressionManager` | Chunk compression |
 | `RetentionPolicy` | `from tortoise_extended.timescale import RetentionPolicy` | Auto-delete old data |
 | `ContinuousAggregateManager` | `from tortoise_extended.timescale import ContinuousAggregateManager` | Auto-refresh aggregations |
+| `Digest` | `from tortoise_extended.expressions.pgcrypto import Digest` | Raw binary hash digest |
+| `DigestHex` | `from tortoise_extended.expressions.pgcrypto import DigestHex` | Hex-encoded hash digest |
+| `HMACDigest` | `from tortoise_extended.expressions.pgcrypto import HMACDigest` | Keyed HMAC hash |
+| `PGPSymEncrypt` | `from tortoise_extended.expressions.pgcrypto import PGPSymEncrypt` | Symmetric PGP encryption |
+| `PGPSymDecrypt` | `from tortoise_extended.expressions.pgcrypto import PGPSymDecrypt` | Symmetric PGP decryption |
+| `PGPEncryptedField` | `from tortoise_extended.fields.pgcrypto import PGPEncryptedField` | BYTEA/BLOB ciphertext storage column |
 | `CreateHypertable` | `from tortoise_extended.migrations.operations import CreateHypertable` | Hypertable via built-in migration writer |
 
 ## Filter Syntax Cheat Sheet
