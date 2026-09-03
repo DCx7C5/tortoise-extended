@@ -1,10 +1,10 @@
 """pgcrypto query expression helpers for tortoise-orm.
 
 PostgreSQL's ``pgcrypto`` extension provides cryptographic functions
-(``digest``, ``hmac``, ``pgp_sym_encrypt``, ``pgp_sym_decrypt``, ...) that run
-entirely inside the database.  Tortoise ORM has no built-in way to reference
-these functions in a ``QuerySet``, so this module exposes thin pypika/Tortoise
-``Function`` wrappers that render the correct SQL.
+(``digest``, ``hmac``, ...) that run entirely inside the database.  Tortoise
+ORM has no built-in way to reference these functions in a ``QuerySet``, so
+this module exposes thin pypika/Tortoise ``Function`` wrappers that render
+the correct SQL.
 
 .. important::
 
@@ -20,8 +20,6 @@ Usage::
         Digest,
         DigestHex,
         HMACDigest,
-        PGPSymDecrypt,
-        PGPSymEncrypt,
     )
 
     class Document(Model):
@@ -36,24 +34,10 @@ Usage::
         digest__isnotnull=True
     )
 
-    # Encrypt a plaintext value into the DB using pgp_sym_encrypt.
-    ciphertext = await Document.annotate(
-        enc=PGPSymEncrypt("body", "super-secret-key")
-    ).first()
-
-    # Decrypt stored ciphertext back to plaintext with pgp_sym_decrypt.
-    plaintext = await Document.annotate(
-        dec=PGPSymDecrypt("body", "super-secret-key")
-    ).first()
-
     # HMAC a value with a shared key.
     mac = await Document.annotate(
         tag=HMACDigest("body", "shared-key", "sha256")
     ).first()
-
-See also :mod:`tortoise_extended.fields.pgcrypto` for :class:`PGPEncryptedField`,
-a thin ``BYTEA`` storage column that holds the ciphertext these expressions
-produce (but never encrypts or decrypts itself).
 """
 
 from typing import TypeAlias
@@ -164,99 +148,8 @@ class HMACDigest(Function):
         super().__init__(data, key, algorithm)
 
 
-class _PGPSymEncryptFunction(PypikaFunction):
-    """pypika term emitting ``pgp_sym_encrypt(<data>, '<key>')``."""
-
-    def __init__(self, data: Term, key: str, options: str | None = None) -> None:
-        if options is None:
-            super().__init__("PGP_SYM_ENCRYPT", data, ValueWrapper(key))
-        else:
-            super().__init__(
-                "PGP_SYM_ENCRYPT", data, ValueWrapper(key), ValueWrapper(options)
-            )
-
-
-class PGPSymEncrypt(Function):
-    """pgcrypto ``pgp_sym_encrypt(<data>, '<key>'[, '<options>'])``.
-
-    Symmetric-key PGP encryption of *data* using *key*.  The result is a
-    ``bytea`` PGP-encrypted packet suitable for storage in a
-    :class:`tortoise_extended.fields.pgcrypto.PGPEncryptedField` column.
-
-    .. note::
-
-        This helper only *renders* the SQL — the actual encryption happens in
-        PostgreSQL.  The application supplies the key; the library never sees
-        or stores it.
-
-    Args:
-        data: The plaintext to encrypt (a field name, ``F()``, or
-            expression).
-        key: The symmetric passphrase, rendered as a SQL string literal.
-        options: Optional pgp_sym_encrypt options string (e.g.
-            ``"cipher-algo=aes256, compress-algo=0, disable-mdc"``), rendered
-            as a SQL string literal.
-
-    Returns:
-        ``bytea`` ciphertext.
-    """
-
-    database_func = _PGPSymEncryptFunction
-
-    def __init__(
-        self, data: DataArg, key: str, options: str | None = None
-    ) -> None:
-        super().__init__(data, key, options)
-
-
-class _PGPSymDecryptFunction(PypikaFunction):
-    """pypika term emitting ``pgp_sym_decrypt(<data>, '<key>')``."""
-
-    def __init__(self, data: Term, key: str, options: str | None = None) -> None:
-        if options is None:
-            super().__init__("PGP_SYM_DECRYPT", data, ValueWrapper(key))
-        else:
-            super().__init__(
-                "PGP_SYM_DECRYPT", data, ValueWrapper(key), ValueWrapper(options)
-            )
-
-
-class PGPSymDecrypt(Function):
-    """pgcrypto ``pgp_sym_decrypt(<data>, '<key>'[, '<options>'])``.
-
-    Symmetric-key PGP decryption of *data* using *key*.  *data* is typically
-    a :class:`tortoise_extended.fields.pgcrypto.PGPEncryptedField` column
-    holding the ciphertext produced by :class:`PGPSymEncrypt`.
-
-    .. note::
-
-        This helper only *renders* the SQL — the actual decryption happens in
-        PostgreSQL.  The application supplies the key; the library never sees
-        or stores it.
-
-    Args:
-        data: The ciphertext to decrypt (a field name, ``F()``, or
-            expression).
-        key: The symmetric passphrase, rendered as a SQL string literal.
-        options: Optional pgp_sym_decrypt options string, rendered as a SQL
-            string literal.
-
-    Returns:
-        ``str`` plaintext.
-    """
-
-    database_func = _PGPSymDecryptFunction
-
-    def __init__(
-        self, data: DataArg, key: str, options: str | None = None
-    ) -> None:
-        super().__init__(data, key, options)
-
-
 __all__ = [
     "Digest",
     "DigestHex",
     "HMACDigest",
-    "PGPSymDecrypt",
-    "PGPSymEncrypt",
 ]

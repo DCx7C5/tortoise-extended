@@ -131,9 +131,6 @@ Pick the base per model — each is opt-in and independent:
 | `Digest` | `from tortoise_extended.expressions.pgcrypto import Digest` | Raw binary hash digest |
 | `DigestHex` | `from tortoise_extended.expressions.pgcrypto import DigestHex` | Hex-encoded hash digest |
 | `HMACDigest` | `from tortoise_extended.expressions.pgcrypto import HMACDigest` | Keyed HMAC hash |
-| `PGPSymEncrypt` | `from tortoise_extended.expressions.pgcrypto import PGPSymEncrypt` | Symmetric PGP encryption |
-| `PGPSymDecrypt` | `from tortoise_extended.expressions.pgcrypto import PGPSymDecrypt` | Symmetric PGP decryption |
-| `PGPEncryptedField` | `from tortoise_extended.fields.pgcrypto import PGPEncryptedField` | BYTEA/BLOB ciphertext storage column |
 | `CreateHypertable` | `from tortoise_extended.migrations.operations import CreateHypertable` | Hypertable via built-in migration writer |
 
 ## Filter Syntax Cheat Sheet

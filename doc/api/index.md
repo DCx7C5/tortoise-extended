@@ -14,7 +14,7 @@ Complete API documentation for all tortoise-extended modules.
 - **[Graph Vector Search](graph-vector-search.md)** — single-query vector + graph compositor with typed results
 - **[Pathfinding](pathfinding.md)** — Shortest path, all paths, cycle detection
 - **[Hybrid Search](hybrid-search.md)** — Vector + FTS weighted scoring
-- **[pgcrypto](pgcrypto.md)** — pgcrypto query helpers (Digest, HMAC, PGP encrypt/decrypt) + PGPEncryptedField
+- **[pgcrypto](pgcrypto.md)** — pgcrypto query helpers (Digest, DigestHex, HMACDigest)
 - **[Graph (Node/Edge/Hierarchy)](graph.md)** — BaseGraphNodeModel, BaseGraphEdgeModel, BaseHierarchyModel base classes
 - **[Model Bases](models.md)** — BaseModel, BaseUserModel, BaseSoftDeleteModel + SoftDeleteQuerySet, TimestampMixin
 - **[TimescaleDB](timescale.md)** — HypertableManager, CompressionManager, RetentionPolicy, ContinuousAggregateManager
@@ -92,9 +92,8 @@ from tortoise_extended import (
 ### pgcrypto
 ```python
 from tortoise_extended.expressions.pgcrypto import (
-    Digest, DigestHex, HMACDigest, PGPSymEncrypt, PGPSymDecrypt,
+    Digest, DigestHex, HMACDigest,
 )
-from tortoise_extended.fields.pgcrypto import PGPEncryptedField
 ```
 
 ### Migrations

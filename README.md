@@ -55,7 +55,7 @@ entities = (
   `BaseGraphEdgeModel` / `BaseHierarchyModel`, `BaseCacheableModel`, `BaseEventStreamModel`
 - **`LTreeField` + ltree filters** — PostgreSQL `ltree` hierarchical column type
 - **TimescaleDB** — hypertable/compression/retention/continuous-aggregate managers, `BaseEventStreamModel`, migration operations
-- **pgcrypto query helpers** — `Digest`/`DigestHex`/`HMACDigest`/`PGPSymEncrypt`/`PGPSymDecrypt` + `PGPEncryptedField`
+- **pgcrypto query helpers** — `Digest`/`DigestHex`/`HMACDigest` (hash and HMAC expressions)
 - **Redis caching** (optional `redis` extra) — `RedisCache`, `BaseCacheableModel`, `CachedQuerySet`, `@cached`
 
 ## Architecture
@@ -80,7 +80,6 @@ src/tortoise_extended/
 │   ├── path.py            # PathField (text path column)
 │   ├── url.py             # URLField (validated URL column)
 │   ├── uuid.py            # UUID4Field / UUID7Field
-│   └── pgcrypto.py        # PGPEncryptedField (BYTEA/BLOB ciphertext storage)
 ├── indexes/
 │   ├── hnsw_index.py        # HNSWIndex + IVFFlatIndex (pgvector DDL)
 │   └── ltree_index.py       # GiSTIndex
@@ -92,7 +91,7 @@ src/tortoise_extended/
 │   ├── pathfinding.py       # shortest_path, all_paths, find_cycles
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)
 │   ├── ltree_filters.py     # ltree query operators
-│   └── pgcrypto.py          # pgcrypto helpers (Digest, HMAC, PGP encrypt/decrypt)
+│   └── pgcrypto.py          # pgcrypto helpers (Digest, DigestHex, HMACDigest)
 ├── migrations/
 │   └── operations.py        # CreateHypertable, CreateContinuousAggregate
 ├── cache/                   # RedisCache, BaseCacheableModel, CachedQuerySet, decorators

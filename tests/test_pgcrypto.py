@@ -1,9 +1,8 @@
-"""Tests for pgcrypto expression wrappers and PGPEncryptedField.
+"""Tests for pgcrypto expression wrappers (hash/digest only).
 
 Sections:
   1. ``TestPgcryptoSQL`` — SQL rendering (unit, no DB required).
-  2. ``TestPGPEncryptedField`` — SQLite in-memory round-trip for the storage field.
-  3. ``TestPgcryptoIntegration`` — live PostgreSQL integration (skipped when PG is down).
+  2. ``TestPgcryptoIntegration`` — live PostgreSQL integration (skipped when PG is down).
 """
 
 import hashlib
@@ -22,17 +21,12 @@ from tortoise_extended.expressions.pgcrypto import (
     Digest,
     DigestHex,
     HMACDigest,
-    PGPSymDecrypt,
-    PGPSymEncrypt,
 )
 from tortoise_extended.expressions.pgcrypto import (
     _DigestFunction,
     _DigestHexFunction,
     _HMACFunction,
-    _PGPSymDecryptFunction,
-    _PGPSymEncryptFunction,
 )
-from tortoise_extended.fields.pgcrypto import PGPEncryptedField
 
 
 # =========================================================================
@@ -70,45 +64,6 @@ class TestPgcryptoSQL:
         assert "HMAC(" in upper
         assert "'my-secret'" in sql
         assert "'sha256'" in sql
-
-    def test_pgp_sym_encrypt_without_options(self) -> None:
-        """PGPSymEncrypt('body', 'key') -> PGP_SYM_ENCRYPT(..., 'key')."""
-        sql = _PGPSymEncryptFunction(Field("body"), "passphrase").get_sql(
-            DEFAULT_SQL_CONTEXT
-        )
-        upper = sql.upper()
-        assert "PGP_SYM_ENCRYPT(" in upper
-        assert "'passphrase'" in sql
-        # no options argument should appear
-        assert "cipher" not in sql.lower()
-
-    def test_pgp_sym_encrypt_with_options(self) -> None:
-        """PGPSymEncrypt with options includes the options string literal."""
-        sql = _PGPSymEncryptFunction(
-            Field("body"), "passphrase", "cipher-algo=aes256"
-        ).get_sql(DEFAULT_SQL_CONTEXT)
-        upper = sql.upper()
-        assert "PGP_SYM_ENCRYPT(" in upper
-        assert "'passphrase'" in sql
-        assert "'cipher-algo=aes256'" in sql
-
-    def test_pgp_sym_decrypt_without_options(self) -> None:
-        """PGPSymDecrypt('body', 'key') -> PGP_SYM_DECRYPT(..., 'key')."""
-        sql = _PGPSymDecryptFunction(Field("body"), "passphrase").get_sql(
-            DEFAULT_SQL_CONTEXT
-        )
-        upper = sql.upper()
-        assert "PGP_SYM_DECRYPT(" in upper
-        assert "'passphrase'" in sql
-
-    def test_pgp_sym_decrypt_with_options(self) -> None:
-        """PGPSymDecrypt with options includes the options string literal."""
-        sql = _PGPSymDecryptFunction(
-            Field("body"), "passphrase", "convert-crlf=1"
-        ).get_sql(DEFAULT_SQL_CONTEXT)
-        upper = sql.upper()
-        assert "PGP_SYM_DECRYPT(" in upper
-        assert "'convert-crlf=1'" in sql
 
     def test_algorithm_and_key_are_string_literals(self) -> None:
         """Algorithm must render as a quoted string literal, never a bare column ref."""
@@ -156,90 +111,7 @@ class TestPgcryptoSQL:
 
 
 # =========================================================================
-# Section 2 — Encrypted-field storage (SQLite unit)
-# =========================================================================
-
-
-class SecureNote(Model):
-    """Minimal model for testing PGPEncryptedField on SQLite."""
-
-    id = fields.IntField(primary_key=True)
-    body = fields.TextField()
-    secret = PGPEncryptedField(null=True)
-
-    class Meta:
-        table = "test_secure_notes"
-
-
-class TestPGPEncryptedField:
-    """SQLite round-trip: PGPEncryptedField stores bytes without encryption."""
-
-    async def test_bytes_roundtrip(self) -> None:
-        """Create a row with ciphertext bytes and read them back unchanged."""
-        await Tortoise.init(
-            db_url="sqlite::memory:",
-            modules={"models": ["tests.test_pgcrypto"]},
-        )
-        await Tortoise.generate_schemas()
-        try:
-            ciphertext = b"\x89\x50\x4e\x47\x0d\x0a\x1a\x0a"  # arbitrary bytes
-            note = await SecureNote.create(body="hello", secret=ciphertext)
-            fetched = await SecureNote.get(id=note.id)
-            assert fetched.secret == ciphertext
-        finally:
-            await Tortoise.close_connections()
-
-    async def test_null_roundtrip(self) -> None:
-        """A NULL secret stores as None and reads back as None."""
-        await Tortoise.init(
-            db_url="sqlite::memory:",
-            modules={"models": ["tests.test_pgcrypto"]},
-        )
-        await Tortoise.generate_schemas()
-        try:
-            note = await SecureNote.create(body="empty", secret=None)
-            fetched = await SecureNote.get(id=note.id)
-            assert fetched.secret is None
-        finally:
-            await Tortoise.close_connections()
-
-    async def test_column_is_blob_on_sqlite(self) -> None:
-        """The SQLite column type for PGPEncryptedField is BLOB."""
-        await Tortoise.init(
-            db_url="sqlite::memory:",
-            modules={"models": ["tests.test_pgcrypto"]},
-        )
-        await Tortoise.generate_schemas()
-        try:
-            conn = Tortoise.get_connection("default")
-            result = await conn.execute_query(
-                "SELECT sql FROM sqlite_master WHERE name = 'test_secure_notes'"
-            )
-            create_sql = result[1][0]["sql"].upper()
-            assert "BLOB" in create_sql
-        finally:
-            await Tortoise.close_connections()
-
-    async def test_no_encryption_happens(self) -> None:
-        """The field stores raw bytes — no encryption is applied by the field itself."""
-        await Tortoise.init(
-            db_url="sqlite::memory:",
-            modules={"models": ["tests.test_pgcrypto"]},
-        )
-        await Tortoise.generate_schemas()
-        try:
-            plaintext_bytes = b"not-encrypted-at-all"
-            note = await SecureNote.create(body="test", secret=plaintext_bytes)
-            fetched = await SecureNote.get(id=note.id)
-            # field does NOT encrypt — stored bytes must be identical
-            assert fetched.secret == plaintext_bytes
-            assert fetched.secret != b""  # non-trivial check
-        finally:
-            await Tortoise.close_connections()
-
-
-# =========================================================================
-# Section 3 — Live PostgreSQL integration
+# Section 2 — Live PostgreSQL integration
 # =========================================================================
 
 # ---------------------------------------------------------------------------
@@ -267,15 +139,14 @@ def _pg_available() -> bool:
 # ---------------------------------------------------------------------------
 
 
-class SecretDocument(Model):
-    """Document with plaintext and encrypted secret fields."""
+class SimpleDocument(Model):
+    """Minimal document model for testing hash/digest functions on PostgreSQL."""
 
     id = fields.IntField(primary_key=True)
     plain_text = fields.TextField()
-    secret = PGPEncryptedField(null=True)
 
     class Meta:
-        table = "test_secret_documents"
+        table = "test_simple_documents"
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +155,7 @@ class SecretDocument(Model):
 
 
 class TestPgcryptoIntegration:
-    """Live PostgreSQL tests for pgcrypto functions and PGPEncryptedField.
+    """Live PostgreSQL tests for pgcrypto hash/digest functions.
 
     Skipped (entire class) when PostgreSQL is not available on
     ``localhost:5433``, so unit/sqlite tests still run on non-PG machines.
@@ -309,7 +180,7 @@ class TestPgcryptoIntegration:
         await Tortoise.generate_schemas()
         yield
         conn = Tortoise.get_connection("default")
-        await conn.execute_query("DROP TABLE IF EXISTS test_secret_documents CASCADE")
+        await conn.execute_query("DROP TABLE IF EXISTS test_simple_documents CASCADE")
         await Tortoise.close_connections()
 
     async def test_digest_hex_roundtrip(self) -> None:
@@ -318,10 +189,8 @@ class TestPgcryptoIntegration:
         expected_hex = hashlib.sha256(plaintext.encode()).hexdigest()
         assert len(expected_hex) == 64
 
-        doc = await SecretDocument.create(
-            plain_text=plaintext, secret=None
-        )
-        result = await SecretDocument.annotate(
+        doc = await SimpleDocument.create(plain_text=plaintext)
+        result = await SimpleDocument.annotate(
             h=DigestHex("plain_text", "sha256")
         ).get(id=doc.id)
 
@@ -329,78 +198,11 @@ class TestPgcryptoIntegration:
         assert len(str(result.h)) == 64
         assert str(result.h) == expected_hex
 
-    async def test_pgp_sym_encrypt_decrypt_roundtrip(self) -> None:
-        """Encrypt then decrypt returns the original plaintext."""
-        plaintext = "sensitive data here"
-        passphrase = "test-passphrase-123"
-
-        # Insert plaintext, then UPDATE secret with pgp_sym_encrypt
-        doc = await SecretDocument.create(
-            plain_text=plaintext, secret=None
-        )
-        await SecretDocument.filter(id=doc.id).update(
-            secret=PGPSymEncrypt("plain_text", passphrase)
-        )
-
-        # Decrypt the stored ciphertext
-        result = await SecretDocument.annotate(
-            dec=PGPSymDecrypt("secret", passphrase)
-        ).get(id=doc.id)
-
-        assert result.dec == plaintext
-
-    async def test_wrong_key_raises(self) -> None:
-        """Decrypting with the wrong key raises a PostgreSQL error."""
-        plaintext = "protected content"
-        correct_key = "right-key"
-        wrong_key = "wrong-key"
-
-        doc = await SecretDocument.create(
-            plain_text=plaintext, secret=None
-        )
-        await SecretDocument.filter(id=doc.id).update(
-            secret=PGPSymEncrypt("plain_text", correct_key)
-        )
-
-        with pytest.raises(Exception):
-            await SecretDocument.annotate(
-                dec=PGPSymDecrypt("secret", wrong_key)
-            ).get(id=doc.id)
-
-    async def test_pg_encrypted_field_stores_bytes(self) -> None:
-        """PGPEncryptedField stores raw ciphertext bytes on real PostgreSQL (BYTEA)."""
-        ciphertext = b"\x01\x02\x03\x04\x05"
-        doc = await SecretDocument.create(
-            plain_text="unused", secret=ciphertext
-        )
-        fetched = await SecretDocument.get(id=doc.id)
-        assert fetched.secret == ciphertext
-
-    async def test_pgp_sym_encrypt_with_options(self) -> None:
-        """pgp_sym_encrypt with cipher-algo option round-trips correctly."""
-        plaintext = "aes256-test"
-        passphrase = "options-key"
-
-        doc = await SecretDocument.create(
-            plain_text=plaintext, secret=None
-        )
-        await SecretDocument.filter(id=doc.id).update(
-            secret=PGPSymEncrypt("plain_text", passphrase, "cipher-algo=aes256")
-        )
-
-        result = await SecretDocument.annotate(
-            dec=PGPSymDecrypt("secret", passphrase)
-        ).get(id=doc.id)
-
-        assert result.dec == plaintext
-
     async def test_digest_raw_binary(self) -> None:
         """Digest returns a bytea value (raw binary hash)."""
         plaintext = "binary-test"
-        doc = await SecretDocument.create(
-            plain_text=plaintext, secret=None
-        )
-        result = await SecretDocument.annotate(
+        doc = await SimpleDocument.create(plain_text=plaintext)
+        result = await SimpleDocument.annotate(
             raw=Digest("plain_text", "sha256")
         ).get(id=doc.id)
 
@@ -413,10 +215,8 @@ class TestPgcryptoIntegration:
         """HMACDigest produces a bytea value (keyed hash)."""
         plaintext = "hmac-test"
         key = "shared-secret"
-        doc = await SecretDocument.create(
-            plain_text=plaintext, secret=None
-        )
-        result = await SecretDocument.annotate(
+        doc = await SimpleDocument.create(plain_text=plaintext)
+        result = await SimpleDocument.annotate(
             mac=HMACDigest("plain_text", key, "sha256")
         ).get(id=doc.id)
 

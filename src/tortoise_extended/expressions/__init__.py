@@ -18,8 +18,6 @@ from tortoise_extended.expressions.pgcrypto import (
     Digest,
     DigestHex,
     HMACDigest,
-    PGPSymDecrypt,
-    PGPSymEncrypt,
 )
 from tortoise_extended.expressions.recursive_cte import RecursiveCTE
 
@@ -37,7 +35,5 @@ __all__ = [
     "LTreeDescendantMatch",
     "LTreeDescendantOf",
     "LTreeMatch",
-    "PGPSymDecrypt",
-    "PGPSymEncrypt",
     "RecursiveCTE",
 ]

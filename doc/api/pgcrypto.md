@@ -1,14 +1,12 @@
 # pgcrypto
 
-PostgreSQL pgcrypto query-expression helpers and a thin PGP ciphertext storage field.
+PostgreSQL pgcrypto hash/digest query-expression helpers.
 
 ## Overview
 
 This module provides thin pypika/Tortoise `Function` wrappers that render
 [pgcrypto](https://www.postgresql.org/docs/current/pgcrypto.html) SQL
-(`digest`, `hmac`, `pgp_sym_encrypt`, `pgp_sym_decrypt`, …) and a
-`PGPEncryptedField` storage column for the ciphertext those expressions
-produce.
+hash and digest functions (`digest`, `hmac`) inside Tortoise ORM queries.
 
 > **Important:** The library performs **no encryption itself**.  The helpers
 > only make it easy to call pgcrypto from inside Tortoise queries.  Your
@@ -17,65 +15,12 @@ produce.
 ## Import
 
 ```python
-# Expressions (query helpers)
 from tortoise_extended.expressions.pgcrypto import (
     Digest,
     DigestHex,
     HMACDigest,
-    PGPSymEncrypt,
-    PGPSymDecrypt,
-)
-
-# Field (storage)
-from tortoise_extended.fields.pgcrypto import PGPEncryptedField
-```
-
-## PGPEncryptedField
-
-A thin `BYTEA` / `BLOB` storage field that holds ciphertext bytes your
-application produces.  It subclasses `tortoise.fields.data.BinaryField`
-unchanged — the column is `BYTEA` on PostgreSQL and `BLOB` on SQLite, and
-the Python value type is `bytes`.
-
-```python
-from tortoise import fields
-from tortoise_extended.fields.pgcrypto import PGPEncryptedField
-
-class SecureNote(Model):
-    id = fields.IntField(pk=True)
-    body = fields.TextField()
-    secret = PGPEncryptedField(null=True)
-```
-
-**Parameters:** inherited from `BinaryField` (`null`, `default`, `description`,
-`pk`, `unique`, `index`, …).
-
-The field **does not** encrypt or decrypt — it only stores `bytes`.  Pair it
-with `PGPSymEncrypt` / `PGPSymDecrypt` (below) to encrypt on write and
-decrypt on read.
-
-### Encrypt into a column
-
-```python
-from tortoise_extended.expressions.pgcrypto import PGPSymEncrypt
-
-await SecureNote.filter(id=1).update(
-    secret=PGPSymEncrypt("body", "my-passphrase")
 )
 ```
-
-### Decrypt from a column
-
-```python
-from tortoise_extended.expressions.pgcrypto import PGPSymDecrypt
-
-note = await SecureNote.annotate(
-    decrypted=PGPSymDecrypt("secret", "my-passphrase")
-).get(id=1)
-print(note.decrypted)
-```
-
----
 
 ## Digest
 
@@ -146,57 +91,6 @@ rows = await Document.annotate(
 
 ---
 
-## PGPSymEncrypt
-
-`pgp_sym_encrypt(data, key[, options])` — symmetric PGP encryption.
-
-```python
-from tortoise_extended.expressions.pgcrypto import PGPSymEncrypt
-
-# Encrypt and store
-await Document.filter(id=1).update(
-    secret=PGPSymEncrypt("body", "my-passphrase")
-)
-
-# Annotate with encrypted value (for inspecting ciphertext)
-rows = await Document.annotate(
-    enc=PGPSymEncrypt("body", "my-passphrase")
-).all()
-```
-
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `data` | `str \| F \| Function \| Term` | Required | Plaintext to encrypt |
-| `key` | `str` | Required | Symmetric passphrase (SQL literal) |
-| `options` | `str \| None` | `None` | pgcrypto options, e.g. `"cipher-algo=aes256, compress-algo=0"` |
-
-**Returns:** `bytea` — PGP-encrypted packet, suitable for storage in
-`PGPEncryptedField`.
-
----
-
-## PGPSymDecrypt
-
-`pgp_sym_decrypt(data, key[, options])` — symmetric PGP decryption.
-
-```python
-from tortoise_extended.expressions.pgcrypto import PGPSymDecrypt
-
-# Decrypt stored ciphertext
-note = await SecureNote.annotate(
-    decrypted=PGPSymDecrypt("secret", "my-passphrase")
-).get(id=1)
-print(note.decrypted)
-```
-
-**Parameters:** same as `PGPSymEncrypt`.
-
-**Returns:** `str` — plaintext.
-
----
-
 ## Requirements
 
 - PostgreSQL with the `pgcrypto` extension enabled:
@@ -216,8 +110,5 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
   cached by tortoise-extended.
 - **Use application-managed keys.**  Store passphrases/secrets in environment
   variables or a secrets manager; do not hardcode them in model definitions.
-- **`PGPEncryptedField` does not encrypt.**  It is a plain `BYTEA` storage
-  column.  If rows are leaked, the ciphertext is only as safe as the key
-  protecting it.
 - **`Digest` is not HMAC.**  For keyed hashing, prefer `HMACDigest` which is
   not vulnerable to length-extension attacks.
