@@ -31,6 +31,7 @@ from argon2.exceptions import InvalidHashError, VerificationError
 from tortoise import fields
 
 from tortoise_extended._types import CoercedValue, ModelKwargs
+from tortoise_extended.fields import CharField
 from tortoise_extended.models.base import BaseModel
 
 _ARGON2_TIME_COST = 3  # t
@@ -66,12 +67,12 @@ class BaseUserModel(BaseModel):
         USERNAME_FIELD: Field used as the login identifier (Django naming).
     """
 
-    email = fields.CharField(
+    email = CharField(
         max_length=255,
         unique=True,
         description="Login identifier (normalized to lowercase)",
     )
-    password_hash = fields.CharField(
+    password_hash = CharField(
         max_length=255,
         description="argon2id hash, PHC format $argon2id$v=19$m=...,t=...,p=...$salt$hash",
     )

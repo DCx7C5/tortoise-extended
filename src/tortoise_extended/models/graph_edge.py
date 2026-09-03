@@ -29,6 +29,8 @@ from uuid import UUID, uuid4
 from tortoise import fields
 from tortoise.models import Model
 
+from tortoise_extended.fields import CharField
+
 if TYPE_CHECKING:
     from tortoise.queryset import QuerySet
 
@@ -82,7 +84,7 @@ class BaseGraphEdgeModel(Model):
         description="Target node ID (to)",
         db_index=True,
     )
-    edge_type = fields.CharField(
+    edge_type = CharField(
         max_length=50,
         description="Type of relationship (e.g., parent_of, references)",
         db_index=True,
@@ -95,7 +97,7 @@ class BaseGraphEdgeModel(Model):
         default=dict,
         description="Arbitrary metadata for the edge",
     )
-    namespace = fields.CharField(
+    namespace = CharField(
         max_length=100,
         default="default",
         description="Namespace for multi-tenancy",

@@ -14,6 +14,7 @@ from tortoise import Tortoise
 from tortoise import fields as tf
 from tortoise.exceptions import DoesNotExist
 
+from tortoise_extended.fields import CharField
 from tortoise_extended.models import (
     BaseModel,
     BaseSoftDeleteModel,
@@ -25,7 +26,7 @@ from tortoise_extended.models import (
 
 
 class BaseThing(BaseModel):
-    name = tf.CharField(max_length=64)
+    name = CharField(max_length=64)
 
     class Meta:
         table = "base_things"
@@ -34,7 +35,7 @@ class BaseThing(BaseModel):
 
 
 class TimestampedThing(BaseModel, TimestampMixin):
-    name = tf.CharField(max_length=64)
+    name = CharField(max_length=64)
 
     class Meta:
         table = "timestamped_things"
@@ -45,7 +46,7 @@ class TimestampedThing(BaseModel, TimestampMixin):
 class SoftThing(BaseSoftDeleteModel, BaseModel):  # pyright: ignore[reportIncompatibleMethodOverride]
     """BaseSoftDeleteModel narrows Model.all/filter/delete return types — intentional MRO stacking."""
 
-    name = tf.CharField(max_length=64)
+    name = CharField(max_length=64)
 
     class Meta:
         table = "soft_things"
@@ -56,7 +57,7 @@ class SoftThing(BaseSoftDeleteModel, BaseModel):  # pyright: ignore[reportIncomp
 class EndedThing(BaseModel, TimestampEndMixin):
     """Model using TimestampEndMixin (created_at + ended_at)."""
 
-    name = tf.CharField(max_length=64)
+    name = CharField(max_length=64)
 
     class Meta:
         table = "ended_things"
@@ -71,7 +72,7 @@ class FullyStampedThing(BaseModel, BaseSoftDeleteModel, TimestampMixin):  # pyri
     intentional MRO stacking.
     """
 
-    name = tf.CharField(max_length=64)
+    name = CharField(max_length=64)
 
     class Meta:
         table = "fully_stamped_things"

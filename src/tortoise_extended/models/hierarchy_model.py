@@ -41,6 +41,7 @@ from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
 from tortoise_extended.exceptions import HierarchyError
+from tortoise_extended.fields import CharField
 from tortoise_extended.fields.ltree import LTreeField
 from tortoise_extended.indexes.ltree_index import GiSTIndex
 
@@ -139,7 +140,7 @@ class BaseHierarchyModel(Model):
         description="Materialized ltree path from root to this node "
         "(e.g. 'root.parent.child')",
     )
-    name = fields.CharField(
+    name = CharField(
         max_length=255,
         description="Human-readable node name (must match the last path component)",
     )
@@ -153,7 +154,7 @@ class BaseHierarchyModel(Model):
         default=0,
         description="Denormalized hierarchy depth — root is 0",
     )
-    namespace = fields.CharField(
+    namespace = CharField(
         max_length=100,
         default="default",
         description="Multi-tenancy partition key",

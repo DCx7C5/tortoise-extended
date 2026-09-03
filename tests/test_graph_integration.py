@@ -16,6 +16,7 @@ from tortoise.models import Model
 
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.exceptions import GraphTraversalError
+from tortoise_extended.fields import CharField
 from tortoise_extended.expressions.graph_traversal import GraphTraversal
 from tortoise_extended.expressions.pathfinding import (
     all_paths,
@@ -58,7 +59,7 @@ class ItNode(Model):
     """Graph node for traversal/pathfinding tests."""
 
     id = fields.UUIDField(primary_key=True, default=uuid.uuid4)
-    name = fields.CharField(max_length=100)
+    name = CharField(max_length=100)
     depth = fields.IntField(default=0)
 
     class Meta:
@@ -71,7 +72,7 @@ class ItEdge(Model):
     id = fields.UUIDField(primary_key=True, default=uuid.uuid4)
     source_id = fields.UUIDField()
     target_id = fields.UUIDField()
-    edge_type = fields.CharField(max_length=50, default="rel")
+    edge_type = CharField(max_length=50, default="rel")
     is_bidirectional = fields.BooleanField(default=False)
 
     class Meta:
@@ -84,7 +85,7 @@ class ItCustomEdge(Model):
     id = fields.UUIDField(primary_key=True, default=uuid.uuid4)
     from_node = fields.UUIDField()
     to_node = fields.UUIDField()
-    edge_type = fields.CharField(max_length=50, default="rel")
+    edge_type = CharField(max_length=50, default="rel")
     is_bidirectional = fields.BooleanField(default=False)
 
     class Meta:

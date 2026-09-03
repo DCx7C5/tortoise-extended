@@ -17,6 +17,7 @@ from tortoise import models
 from tests.test_cache import MockRedisBackend
 
 from tortoise_extended.cache._coerce import coerce_cache_value
+from tortoise_extended.fields import CharField
 from tortoise_extended.cache.base import (
     CacheKey,
     CacheNamespace,
@@ -810,7 +811,7 @@ class CacheThing(BaseCacheableModel):
     _cache_ttl = 300
     _cache_fields = ["title", "created_at"]
 
-    title = fields.CharField(max_length=255)
+    title = CharField(max_length=255)
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
@@ -820,7 +821,7 @@ class CacheThing(BaseCacheableModel):
 class CacheCategory(models.Model):
     """Category parent used to exercise relation serialization."""
 
-    name = fields.CharField(max_length=50)
+    name = CharField(max_length=50)
 
     class Meta:
         table = "cache_categories"
@@ -831,7 +832,7 @@ class CacheArticle(BaseCacheableModel):
 
     _cache_ttl = 300
 
-    title = fields.CharField(max_length=255)
+    title = CharField(max_length=255)
     category = fields.ForeignKeyField(
         "models.CacheCategory",
         null=True,

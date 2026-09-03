@@ -10,12 +10,14 @@ that the overlay mirrors.
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise import fields, models
 
+from tortoise_extended.fields import CharField
+
 
 class BooleanPage(models.Model):
     """Model with a non-null and a nullable BooleanField."""
 
     id = fields.IntField(primary_key=True)
-    title = fields.CharField(max_length=255)
+    title = CharField(max_length=255)
     published = fields.BooleanField(default=False)
     archived = fields.BooleanField(null=True)
 

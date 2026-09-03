@@ -6,6 +6,7 @@ from tortoise.models import Model
 
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.exceptions import VectorFieldError
+from tortoise_extended.fields import CharField
 from tortoise_extended.expressions.graph_filters import (
     CosineDistance,
     HammingDistance,
@@ -232,7 +233,7 @@ class _VecDoc(Model):
     """SQLite-compatible VectorField model (BLOB fallback) for filter tests."""
 
     id = fields.IntField(primary_key=True)
-    name = fields.CharField(max_length=50)
+    name = CharField(max_length=50)
     embedding = VectorField(dimensions=2, null=True)
 
     class Meta:

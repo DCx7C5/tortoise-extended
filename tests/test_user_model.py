@@ -10,16 +10,16 @@ from datetime import UTC, datetime
 
 import pytest
 from tortoise import Tortoise
-from tortoise import fields as tf
 from tortoise.exceptions import IntegrityError
 
+from tortoise_extended.fields import CharField
 from tortoise_extended.models import BaseUserModel
 
 # --- Test models ---------------------------------------------------------
 
 
 class User(BaseUserModel):
-    display_name = tf.CharField(max_length=64, null=True)
+    display_name = CharField(max_length=64, null=True)
 
     class Meta:
         table = "users"

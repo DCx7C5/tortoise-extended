@@ -12,13 +12,14 @@ from tortoise import Tortoise
 from tortoise import fields as tf
 from tortoise.exceptions import IntegrityError
 
+from tortoise_extended.fields import CharField
 from tortoise_extended.models.unified import UnifiedIdModel
 
 # --- Test models -----------------------------------------------------------
 
 
 class UnifiedThing(UnifiedIdModel):
-    name = tf.CharField(max_length=64)
+    name = CharField(max_length=64)
 
     class Meta:
         table = "unified_things"

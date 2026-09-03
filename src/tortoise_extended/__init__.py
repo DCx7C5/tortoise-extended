@@ -93,6 +93,7 @@ from tortoise_extended.expressions.pgcrypto import (
     PGPSymEncrypt,
 )
 from tortoise_extended.expressions.recursive_cte import RecursiveCTE
+from tortoise_extended.fields.char import CharField
 from tortoise_extended.fields.ipv4 import IPv4Field
 from tortoise_extended.fields.ltree import LTreeField
 from tortoise_extended.fields.path import PathField
@@ -334,6 +335,7 @@ __all__ = [
     "CacheKeyError",
     "CacheSerializationError",
     "CachedQuerySet",
+    "CharField",
     "CosineDistance",
     "CreateContinuousAggregate",
     "CreateHypertable",

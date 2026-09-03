@@ -17,6 +17,7 @@ from tortoise.exceptions import OperationalError
 from tortoise.models import Model
 
 import tortoise_extended  # noqa: F401 — apply patches
+from tortoise_extended.fields import CharField
 from tortoise_extended.models import BaseEventStreamModel
 from tortoise_extended.timescale import (
     CompressionManager,
@@ -95,7 +96,7 @@ class TimescaleProbe(Model):
     """Minimal model so Tortoise.init has a non-empty module."""
 
     id = fields.IntField(primary_key=True)
-    label = fields.CharField(max_length=32)
+    label = CharField(max_length=32)
 
     class Meta:
         table = "test_timescale_probe"
@@ -108,7 +109,7 @@ class StreamEvent(BaseEventStreamModel):
     stream_id = fields.IntField()
     value = fields.FloatField()
     token_count = fields.IntField(default=0)
-    kind = fields.CharField(max_length=20, default="event")
+    kind = CharField(max_length=20, default="event")
 
     class Meta:
         table = "test_stream_events"
@@ -120,7 +121,7 @@ class AutoStreamEvent(BaseEventStreamModel):
     created_at = fields.DatetimeField(auto_now_add=True, use_tz=True)
     stream_id = fields.IntField()
     value = fields.FloatField()
-    kind = fields.CharField(max_length=20, db_default="event")
+    kind = CharField(max_length=20, db_default="event")
 
     class Meta:
         table = "test_auto_stream_events"

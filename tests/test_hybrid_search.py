@@ -11,6 +11,7 @@ from tortoise import fields
 from tortoise.models import Model
 
 from tortoise_extended.exceptions import HybridSearchError
+from tortoise_extended.fields import CharField
 from tortoise_extended.expressions.hybrid_search import HybridSearch
 from tortoise_extended.fields.vector import VectorField
 
@@ -19,7 +20,7 @@ class SearchEntity(Model):
     """Concrete model used by unit and integration hybrid-search tests."""
 
     id = fields.UUIDField(primary_key=True)
-    name = fields.CharField(max_length=100)
+    name = CharField(max_length=100)
     embedding = VectorField(dimensions=3)
     description = fields.TextField()
 

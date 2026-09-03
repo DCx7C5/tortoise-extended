@@ -16,6 +16,7 @@ from tortoise import Tortoise, fields
 from tortoise.models import Model
 
 import tortoise_extended  # noqa: F401 — apply patches
+from tortoise_extended.fields import CharField
 from tortoise_extended import (
     CosineDistance,
     GraphVectorSearch,
@@ -81,7 +82,7 @@ class Article(Model):
     """Article with nullable embedding (IVFFlat tested via raw SQL)."""
 
     id = fields.IntField(primary_key=True)
-    title = fields.CharField(max_length=255)
+    title = CharField(max_length=255)
     body_embedding = VectorField(dimensions=3, null=True)
 
     class Meta:
@@ -92,7 +93,7 @@ class HalfChunk(Model):
     """Chunk with a half-precision (halfvec) embedding column."""
 
     id = fields.IntField(primary_key=True)
-    text = fields.CharField(max_length=255)
+    text = CharField(max_length=255)
     embedding = VectorField(dimensions=3, vector_type="halfvec")
 
     class Meta:
@@ -111,7 +112,7 @@ class Node(Model):
     """Graph node for recursive CTE tests."""
 
     id = fields.IntField(primary_key=True)
-    name = fields.CharField(max_length=100)
+    name = CharField(max_length=100)
     parent = fields.ForeignKeyField(
         "models.Node",
         null=True,
@@ -127,7 +128,7 @@ class Document(Model):
     """Document with vector embedding — target of relational vector filters."""
 
     id = fields.IntField(primary_key=True)
-    title = fields.CharField(max_length=255)
+    title = CharField(max_length=255)
     embedding = VectorField(dimensions=3)
 
     class Meta:
@@ -153,7 +154,7 @@ class VecNode(Model):
     """Graph node with vector embedding for GraphVectorSearch."""
 
     id = fields.IntField(primary_key=True)
-    name = fields.CharField(max_length=100)
+    name = CharField(max_length=100)
     embedding = VectorField(dimensions=3)
 
     class Meta:
@@ -166,7 +167,7 @@ class VecEdge(Model):
     id = fields.IntField(primary_key=True)
     source_id = fields.IntField()
     target_id = fields.IntField()
-    edge_type = fields.CharField(max_length=50, default="rel")
+    edge_type = CharField(max_length=50, default="rel")
     is_bidirectional = fields.BooleanField(default=False)
 
     class Meta:

@@ -30,6 +30,7 @@ from tortoise.models import Model
 from tortoise.transactions import in_transaction
 
 from tortoise_extended.exceptions import GraphError
+from tortoise_extended.fields import CharField
 
 if TYPE_CHECKING:
     from tortoise.backends.base.client import BaseDBAsyncClient
@@ -82,7 +83,7 @@ class BaseGraphNodeModel(Model):
         default=uuid4,
         description="Unique identifier for the node",
     )
-    name = fields.CharField(
+    name = CharField(
         max_length=100,
         description="Human-readable node name",
     )
@@ -103,7 +104,7 @@ class BaseGraphNodeModel(Model):
         default=0,
         description="Denormalized count of direct children",
     )
-    namespace = fields.CharField(
+    namespace = CharField(
         max_length=100,
         default="default",
         description="Namespace for multi-tenancy",
