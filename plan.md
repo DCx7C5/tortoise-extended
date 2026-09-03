@@ -11,6 +11,12 @@
 > **Status (2026-08-13):** items 1–3 shipped in `6a308d9` (BaseModel,
 > TimestampMixin, BaseSoftDeleteModel + SoftDeleteQuerySet). `UnifiedIdModel`
 > still waits on Tier 1b (`UUID7Field`).
+>
+> **Reconciled (2026-09-02):** `UnifiedIdModel` is still **`todo`/pending** —
+> a `models/unified.py` module exists (BigInt pk + `uid = UUID7Field`) but it
+> is **not** wired into the public API (`models/__init__.py` / top-level
+> `__all__`). It is being implemented separately; only the plan's status is
+> updated here, no code.
 1. **Base-model family** (user picks per model, nothing forced):
    - **`BaseModel`** — abstract, `id = BigIntField(primary_key=True)` only.
      Default for internal-only tables (JOIN-fast ints, no extra index).
@@ -20,7 +26,7 @@
    - **`UnifiedIdModel(BaseModel)`** — adds
      `uid = UUID7Field(unique=True, index=True)`. For models that
      participate in cross-table refs, external lookups, cache keys, or
-     polymorphic refs. Ships once `UUID7Field` lands (Tier 1b).
+     polymorphic refs. *Still `todo` — ships with Tier 1b; not yet public.*
    - Rationale: forcing `uid` on *every* model is an anti-pattern (extra
      unique-index write on every insert; two-ID confusion on tables that
      never need cross-table refs). Choice = full accessibility.
@@ -40,6 +46,11 @@
 5. **PG type fields** — `InetField`, `MacAddrField`, `CitextField`
    (verified absent from `tortoise.fields`). Mirror `LTreeField`: codec +
    `to_db_value`/`to_python_value` + filter registration.
+   - **Reconciled (2026-09-02):** *shipped* `IPv4Field`, `PathField`, `URLField`,
+     `UUID4Field`, `UUID7Field`, and `LTreeField` already exist (see
+     "Implemented features not previously tracked"). Related-but-distinct:
+     the **todo** remainder here is only `InetField` / `MacAddrField` /
+     `CitextField` (`PathField` is shipped, not in the todo set).
 6. **`SearchVectorField`** — generated `tsvector` column (PG `GENERATED
    ALWAYS AS ... STORED` or maintained via trigger), complements
    `HybridSearch` (FTS currently raw-SQL-only).
@@ -74,9 +85,61 @@
     `WHERE version = <stored>`; raises `VersionMismatchError` on conflict.
     Tortoise has no optimistic locking.
 
+### Implemented features not previously tracked — `done`
+> These shipped and are exported in `__init__.py` `__all__` but were absent
+> from the roadmap. Reconciliation (2026-09-02) — *all `done`*, nothing to
+> implement.
+>
+> *italics = status notes; features below are fully landed.*
+- **`GraphVectorSearch` / `GraphVectorHit`** (`expressions/graph_vector_search.py`)
+  — graph + vector compositor. *`done`.*
+- **`ContinuousAggregateManager`** (`timescale/continuous_aggregate.py`) —
+  TimescaleDB continuous aggregates (`create`/`refresh`/`set_refresh_policy`/
+  `drop`). *`done`.*
+- **`HNSWIndex`, `IVFFlatIndex`, `GiSTIndex`** (`indexes/`) — pgvector and
+  GiST index DDL. *`done`.*
+- **`TimestampEndMixin`** (`models/mixins.py`) — adds an end-timestamp to the
+  existing `TimestampMixin` family. *`done`.*
+- **`IPv4Field`**, **`PathField`**, **`URLField`**, **`UUID4Field`**,
+  **`UUID7Field`** (`fields/`) — additional PostgreSQL-friendly column types.
+  *`done`.*
+- **`BaseCacheableModel`**, **`BaseEventStreamModel`** — already mentioned in
+  the plan; confirmed shipped. *`done`.*
+
+### Tier 5 — pgcrypto (encrypted storage + query helpers) — `done`
+> **Landing (2026-09-02):** shipped together — `PGPEncryptedField` (thin
+> ciphertext storage) plus the pgcrypto query-expression helpers. Scope rule:
+> **the library performs NO encryption itself** — it only provides the field
+> and the SQL wrappers so the *application* can invoke pgcrypto from inside
+> Tortoise queries. Requires `CREATE EXTENSION IF NOT EXISTS pgcrypto;` (added
+> to `docker/postgres-ext/scripts/00-extensions.sql`).
+
+14. **`PGPEncryptedField`** (`fields/pgcrypto.py`) — thin `BYTEA` (PG) /
+    `BLOB` (SQLite) storage field subclassing `BinaryField`. Stores ciphertext
+    `bytes` the application produces; does **not** encrypt/decrypt. Pair with
+    the `pgp_sym_*` helpers below (or any app-side encryptor).
+15. **pgcrypto query helpers** (`expressions/pgcrypto.py`) — tortoise
+    `Function` wrappers rendering pgcrypto SQL (algorithm/key/options as string
+    literals), usable in `.annotate()`/`.filter()`/`.update()`:
+    - `Digest(data, algo)` → `digest()` (`bytea`); `DigestHex(data, algo)` →
+      `encode(digest(...),'hex')` (`str`).
+    - `HMACDigest(data, key, algo)` → `hmac()` (keyed — preferred over raw
+      `digest` when a secret is involved).
+    - `PGPSymEncrypt(data, key[, opts])` / `PGPSymDecrypt(data, key[, opts])` →
+      `pgp_sym_encrypt()` / `pgp_sym_decrypt()` (app-level symmetric crypto).
+
+**Notes:**
+- Encrypted columns are **non-indexable / non-searchable** (non-deterministic
+  ciphertext). For searchable encrypted values, derive a blind index with
+  `HMACDigest`/`DigestHex` in a companion column.
+- Keys are application-supplied and never stored by the library. Prefer
+  `current_setting('app.encryption_key')` or env/secret-manager injection over
+  hardcoded in queries, to keep keys out of SQL logs.
+
 ### Tier 1b/4 — Python 3.14 stdlib notes
 - **`UUID7Field`** (Tier 1b) should use `uuid.uuid7()` as its default — Python
-  3.14 stdlib, time-ordered + sortable (see §F unified-id design).
+  3.14 stdlib, time-ordered + sortable (see §F unified-id design). *Shipped —
+  `UUID7Field` is `done`; only `UnifiedIdModel` (the consumer) remains `todo`.*
 - **Auth kit** (Tier 4.12): argon2 hashing is sync CPU-bound — run
   it in `asyncio.to_thread` inside `set_password`/`check_password`; never
   block the event loop with hashing.
@@ -201,7 +264,12 @@ Four layers (Redis):
 1. ✅ Tier 1 (`BaseModel`, `TimestampMixin`, `BaseSoftDeleteModel`) — landed
    (`6a308d9`). Unlocks the rest (BaseModel becomes the parent of `FileNode`).
 2. Tier 2 (`PartialIndex`/`ExpressionIndex`, PG fields) — `FileNode` needs
-   the partial index in section B.
+   the partial index in section B. **Reconciled (2026-09-02):** the PG fields
+   portion largely landed (`IPv4Field`/`PathField`/`URLField`/`UUID4Field`/
+   `UUID7Field`, plus index types) and is tracked separately under
+   "Implemented features"; **still `todo`** here: `PartialIndex`/
+   `ExpressionIndex`, `InetField`/`MacAddrField`/`CitextField`, and
+   `SearchVectorField`.
 3. B + C + D — files/ltree/cache feature as a vertical slice (models, cache
    layers, invalidation signals, tests).
 4. Tier 3 + 4 as independent PRs.
