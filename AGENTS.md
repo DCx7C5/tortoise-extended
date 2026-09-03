@@ -244,7 +244,7 @@ order:
 
 1. `uv run ruff check src tests` — clean
 2. `uv run basedpyright` — 0 errors (pass `src/tortoise_extended/migrations/` explicitly if touched)
-3. `uv run pytest tests/ -q` — 774 passed, 1 skipped (1 skip = `test_all.py` aggregator)
+3. `uv run pytest tests/ -q` — 1,010 passed, 1 skipped (1 skip = `test_all.py` aggregator)
 4. **`pycharm_lint_files`** on all changed files (min severity: error)
 5. **`pycharm_get_file_problems`** on all changed files — resolve any remaining IDE-reported issues
 
@@ -359,7 +359,12 @@ User-facing docs live in `doc/` and must stay in sync with code:
 When changing public API, update the relevant `doc/api/*.md` and the module docstring in the same
 change.
 
-## CRITICAL RULE:
+### Sub-agent audit report contract (read-only auditors)
 
-> [!CAUTION]
-> reduce your chat and thinking output to less than 1000 tokens. only headings for tools etc. 
+- An auditor MUST terminate by emitting its complete written findings as a single **non-tool**
+  final message. A final message consisting only of tool calls is a FAILURE.
+- If an auditor returns only tool calls (no report), do NOT loop re-dispatch it. Extract its
+  reads/conclusions from the session or re-dispatch once with an explicit
+  "write the full severity-rated report now" close, then move on.
+- Never trust an audit report's severity blindly: re-verify CRITICAL/HIGH claims against the
+  source before acting (see §Thinking Efficiency).

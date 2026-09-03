@@ -1,5 +1,11 @@
 # Database Schema
 
+> **Reference / example schema — not the library's internal schema.** This document
+> describes a 12-table GraphRAG schema for **modeling purposes** only. `tortoise-extended`
+> ships reusable base classes (e.g. `BaseGraphNodeModel`, `BaseGraphEdgeModel`) and fields;
+> it does not create or define this schema internally. Compose these tables into your own
+> application models as needed.
+
 ## Overview
 
 The GraphRAG schema consists of 12 tables organized into five domains:
