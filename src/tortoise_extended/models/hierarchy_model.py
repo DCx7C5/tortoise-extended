@@ -437,6 +437,14 @@ class BaseHierarchyModel(Model):
         prefix-only path rewrite so descendant paths that repeat the moved
         ancestor's label sequence deeper in the tree are not corrupted.
 
+        Both the source and target rows are re-read with ``FOR UPDATE`` row
+        locks at the start of the transaction, and the namespace / cycle /
+        self-move validation runs against those locked, fresh values.  This
+        closes a TOCTOU race: without the locks the pre-move checks would
+        validate against possibly-stale in-memory nodes while a concurrent
+        writer moved them, letting a cycle or cross-namespace move slip
+        through.
+
         Args:
             new_parent: The target parent node.
 
@@ -445,44 +453,55 @@ class BaseHierarchyModel(Model):
                 this node itself, or the move would create a cycle (moving a
                 node into its own descendant).
         """
-        self_path_str = _path_to_str(self.path)
-        new_parent_path_str = _path_to_str(new_parent.path)
-
-        if not self_path_str or not new_parent_path_str:
+        # Fast path: a missing/empty path is checkable without DB access, so
+        # surface it before locking rows.  This also covers detached (unpersisted)
+        # nodes, which have no row to lock.
+        if not _path_to_str(self.path) or not _path_to_str(new_parent.path):
             raise HierarchyError("Both source and target must have paths")
 
-        # Namespace guard — ltree paths are only unique within a namespace,
-        # so adopting a parent from another tenant would corrupt the moved
-        # subtree's paths (and leak into the other tenant's tree).
-        if new_parent.namespace != self.namespace:
-            raise HierarchyError(
-                "Cannot move a node across namespaces: "
-                f"source namespace {self.namespace!r}, "
-                f"target namespace {new_parent.namespace!r}"
+        async with in_transaction():
+            # Lock the source and target rows so no concurrent move of either
+            # node can interleave between our validation and our writes.
+            locked_self = await type(self).select_for_update().get(pk=self.pk)
+            locked_parent = await type(new_parent).select_for_update().get(
+                pk=new_parent.pk
             )
 
-        # Self-move — moving a node under itself is a cycle by definition and
-        # is not caught by the descendant prefix check below (paths are equal).
-        if new_parent.pk == self.pk:
-            raise HierarchyError("Cannot move a node under itself")
+            self_path_str = _path_to_str(locked_self.path)
+            new_parent_path_str = _path_to_str(locked_parent.path)
 
-        # Cycle guard — new_parent must not sit inside this node's subtree.
-        if new_parent_path_str.startswith(self_path_str + "."):
-            raise HierarchyError("Cannot move a node into its own descendant")
+            # Namespace guard — ltree paths are only unique within a namespace,
+            # so adopting a parent from another tenant would corrupt the moved
+            # subtree's paths (and leak into the other tenant's tree).
+            if locked_parent.namespace != locked_self.namespace:
+                raise HierarchyError(
+                    "Cannot move a node across namespaces: "
+                    f"source namespace {locked_self.namespace!r}, "
+                    f"target namespace {locked_parent.namespace!r}"
+                )
 
-        old_path = self_path_str
-        new_path = f"{new_parent_path_str}.{self.name}"
-        depth_delta = new_parent.depth - self.depth + 1
+            # Self-move — moving a node under itself is a cycle by definition
+            # and is not caught by the descendant prefix check below (paths
+            # are equal).
+            if locked_parent.pk == locked_self.pk:
+                raise HierarchyError("Cannot move a node under itself")
 
-        async with in_transaction():
+            # Cycle guard — new_parent must not sit inside this node's subtree.
+            if new_parent_path_str.startswith(self_path_str + "."):
+                raise HierarchyError("Cannot move a node into its own descendant")
+
+            old_path = self_path_str
+            new_path = f"{new_parent_path_str}.{locked_self.name}"
+            depth_delta = locked_parent.depth - locked_self.depth + 1
+
             # Update this node.
             _ = (
                 await type(self)
-                .filter(pk=self.pk)
+                .filter(pk=locked_self.pk)
                 .update(
                     path=new_path,
-                    parent_id=new_parent.pk,
-                    depth=new_parent.depth + 1,
+                    parent_id=locked_parent.pk,
+                    depth=locked_parent.depth + 1,
                 )
             )
 
@@ -493,10 +512,10 @@ class BaseHierarchyModel(Model):
             _ = (
                 await type(self)
                 .filter(
-                    path__descendant_of=self_path_str,
-                    namespace=self.namespace,
+                    path__descendant_of=old_path,
+                    namespace=locked_self.namespace,
                 )
-                .exclude(pk=self.pk)
+                .exclude(pk=locked_self.pk)
                 .update(
                     path=_PrefixReplace("path", old_path, new_path),
                     depth=F("depth") + depth_delta,

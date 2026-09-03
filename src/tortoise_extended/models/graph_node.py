@@ -418,6 +418,18 @@ class BaseGraphNodeModel(Model):
     async def subtree(self, max_depth: int | None = None) -> list[Self]:
         """Get entire subtree rooted at this node.
 
+        This is :meth:`descendants`' link-exact counterpart: it walks the
+        ``parent_id`` adjacency list directly (BFS) rather than approximating
+        via a depth range, so it returns exactly the nodes reachable from this
+        one through live parent links.
+
+        .. note::
+
+            The BFS issues one ``children()`` query per visited node — an
+            ``N + 1`` query pattern.  For deep or wide trees prefer
+            :meth:`descendants` (a single scoped query) when a depth-range
+            approximation is acceptable.
+
         Args:
             max_depth: Maximum depth to traverse (None = unlimited)
 
