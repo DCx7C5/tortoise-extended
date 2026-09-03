@@ -20,6 +20,8 @@ convention and lives under ``tortoise_extended.models``:
   model-level Redis caching.
 * :class:`~tortoise_extended.models.event_stream.BaseEventStreamModel` —
   TimescaleDB multi-stream hypertable model.
+* :class:`~tortoise_extended.models.unified.UnifiedIdModel` — BigInt pk +
+  UUID7 ``uid`` for cross-table / external references.
 * :class:`~tortoise_extended.models.mixins.TimestampMixin` — timestamps.
 
 All are opt-in abstract bases — nothing is forced on any model.
@@ -33,6 +35,7 @@ from .graph_node import BaseGraphNodeModel
 from .hierarchy_model import BaseHierarchyModel
 from .mixins import TimestampEndMixin, TimestampMixin
 from .soft_delete import BaseSoftDeleteModel, SoftDeleteQuerySet
+from .unified import UnifiedIdModel
 from .user import BaseUserModel
 
 __all__ = [
@@ -47,4 +50,5 @@ __all__ = [
     "SoftDeleteQuerySet",
     "TimestampEndMixin",
     "TimestampMixin",
+    "UnifiedIdModel",
 ]

@@ -85,10 +85,18 @@ from tortoise_extended.expressions.pathfinding import (
     find_cycles,
     shortest_path,
 )
+from tortoise_extended.expressions.pgcrypto import (
+    Digest,
+    DigestHex,
+    HMACDigest,
+    PGPSymDecrypt,
+    PGPSymEncrypt,
+)
 from tortoise_extended.expressions.recursive_cte import RecursiveCTE
 from tortoise_extended.fields.ipv4 import IPv4Field
 from tortoise_extended.fields.ltree import LTreeField
 from tortoise_extended.fields.path import PathField
+from tortoise_extended.fields.pgcrypto import PGPEncryptedField
 from tortoise_extended.fields.url import URLField
 from tortoise_extended.fields.uuid import UUID4Field, UUID7Field
 from tortoise_extended.fields.vector import VectorField
@@ -110,6 +118,7 @@ from tortoise_extended.models import (
     SoftDeleteQuerySet,
     TimestampEndMixin,
     TimestampMixin,
+    UnifiedIdModel,
 )
 from tortoise_extended.timescale import TimeBucketRow
 
@@ -328,6 +337,8 @@ __all__ = [
     "CosineDistance",
     "CreateContinuousAggregate",
     "CreateHypertable",
+    "Digest",
+    "DigestHex",
     "FieldDefinitionError",
     "GiSTIndex",
     "GraphError",
@@ -335,6 +346,7 @@ __all__ = [
     "GraphTraversalError",
     "GraphVectorHit",
     "GraphVectorSearch",
+    "HMACDigest",
     "HNSWIndex",
     "HammingDistance",
     "HierarchyError",
@@ -349,6 +361,9 @@ __all__ = [
     "LTreeField",
     "LTreeFieldError",
     "MigrationOperationError",
+    "PGPEncryptedField",
+    "PGPSymDecrypt",
+    "PGPSymEncrypt",
     "PathField",
     "RecursiveCTE",
     "RecursiveCTEError",
@@ -364,6 +379,7 @@ __all__ = [
     "URLField",
     "UUID4Field",
     "UUID7Field",
+    "UnifiedIdModel",
     "VectorField",
     "VectorFieldError",
     "all_paths",
