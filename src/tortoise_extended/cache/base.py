@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import pickle
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import cast, override
@@ -298,10 +299,16 @@ class SingleFlight:
     instances in ``queryset.py`` / ``decorators.py`` are intentionally
     process-local; per-process deduplication is sufficient because the
     fallback cache miss is harmless.
+
+    Thread-safe under free-threaded (nogil) Python 3.14 builds: the
+    internal future registry is guarded by a ``threading.Lock`` so that
+    concurrent ``claim`` / ``release`` calls from different OS threads
+    cannot corrupt the dict or lose a future reference.
     """
 
     def __init__(self) -> None:
         self._futures: dict[str, asyncio.Future[CacheValue]] = {}
+        self._lock = threading.Lock()
 
     def claim(
         self, key: str
@@ -311,15 +318,17 @@ class SingleFlight:
         The first caller wins (returns ``(True, future)``); subsequent
         callers share the same future (returns ``(False, future)``).
         """
-        future = self._futures.get(key)
-        if future is None:
-            loop = asyncio.get_running_loop()
-            future = loop.create_future()
-            self._futures[key] = future
-            return True, future
+        with self._lock:
+            future = self._futures.get(key)
+            if future is None:
+                loop = asyncio.get_running_loop()
+                future = loop.create_future()
+                self._futures[key] = future
+                return True, future
         return False, future
 
     def release(self, key: str, future: asyncio.Future[CacheValue]) -> None:
         """Release the claim for *key* once its future has settled."""
-        if self._futures.get(key) is future:
-            del self._futures[key]
+        with self._lock:
+            if self._futures.get(key) is future:
+                del self._futures[key]
