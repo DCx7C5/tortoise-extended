@@ -70,7 +70,7 @@ STREAM_DDL = """
         stream_id INT NOT NULL,
         value DOUBLE PRECISION NOT NULL,
         token_count INT NOT NULL DEFAULT 0,
-        kind VARCHAR(20) NOT NULL DEFAULT 'event',
+        kind TEXT NOT NULL DEFAULT 'event',
         PRIMARY KEY (id, created_at, stream_id)
     )
 """
@@ -133,7 +133,7 @@ AUTO_STREAM_DDL = """
         created_at TIMESTAMPTZ NOT NULL,
         stream_id INT NOT NULL,
         value DOUBLE PRECISION NOT NULL,
-        kind VARCHAR(20) NOT NULL DEFAULT 'event',
+        kind TEXT NOT NULL DEFAULT 'event',
         PRIMARY KEY (id, created_at, stream_id)
     )
 """
