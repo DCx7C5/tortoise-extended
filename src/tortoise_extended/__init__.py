@@ -237,6 +237,24 @@ def _apply_patches() -> None:
     import tortoise.filters as _filters_mod
     import tortoise.indexes as _indexes_mod
 
+    # Import-order safety guard: the patches (VectorField, index types,
+    # get_filters_for_field, asyncpg codec) are registered against
+    # tortoise-orm at patch-application time. If ``Tortoise.init()`` already
+    # ran, those registrations are silently missed and models using them
+    # break. Guard against that order violation — but only when the patches
+    # have NOT already been applied (idempotent re-application via the public
+    # ``patch()`` stays safe).
+    from tortoise import Tortoise
+
+    if Tortoise._inited and not hasattr(_fields_mod, "VectorField"):
+        raise TortoiseExtendedError(
+            "tortoise-orm is already initialized. `import tortoise_extended` "
+            "(or `tortoise_extended.patch()`) must run BEFORE "
+            "`Tortoise.init()` so VectorField, the index types, filters, and "
+            "the asyncpg codec are registered. Fix your import order / call "
+            "site."
+        )
+
     # 1. Register VectorField in the fields module
     if not hasattr(_fields_mod, "VectorField"):
         _fields_mod.VectorField = VectorField
