@@ -22,6 +22,7 @@ from tortoise_extended.expressions.pgcrypto import (
     DigestHex,
     HMACDigest,
 )
+from tortoise_extended.exceptions import PgCryptoError
 from tortoise_extended.expressions.pgcrypto import (
     _DigestFunction,
     _DigestHexFunction,
@@ -108,6 +109,36 @@ class TestPgcryptoSQL:
         sql = func.get_sql(DEFAULT_SQL_CONTEXT)
         assert "DIGEST(" in sql.upper()
         assert "'sha256'" in sql
+
+
+# =========================================================================
+# Section 1b — Algorithm allowlist (SEC-M03)
+# =========================================================================
+
+
+class TestPgcryptoAlgorithmAllowlist:
+    """SEC-M03: only built-in pgcrypto algorithms are accepted."""
+
+    def test_allows_all_six_algorithms(self) -> None:
+        for algo in ("md5", "sha1", "sha256", "sha224", "sha384", "sha512"):
+            assert Digest("body", algo) is not None
+
+    def test_digest_rejects_unknown_algorithm(self) -> None:
+        with pytest.raises(PgCryptoError, match="Unsupported pgcrypto algorithm"):
+            Digest("body", "nope")
+
+    def test_digest_hex_rejects_unknown_algorithm(self) -> None:
+        with pytest.raises(PgCryptoError, match="Unsupported pgcrypto algorithm"):
+            DigestHex("body", "nope")
+
+    def test_hmac_digest_rejects_unknown_algorithm(self) -> None:
+        with pytest.raises(PgCryptoError, match="Unsupported pgcrypto algorithm"):
+            HMACDigest("body", "key", "nope")
+
+    def test_rejects_sql_injection_attempt(self) -> None:
+        payload = "sha256'; DROP TABLE foo; --"
+        with pytest.raises(PgCryptoError, match="Unsupported pgcrypto algorithm"):
+            Digest("body", payload)
 
 
 # =========================================================================

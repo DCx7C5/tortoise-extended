@@ -66,6 +66,10 @@ class HybridSearchError(TortoiseExtendedError):
     """Invalid hybrid search configuration."""
 
 
+class PgCryptoError(TortoiseExtendedError):
+    """Invalid pgcrypto function argument (e.g. unsupported algorithm)."""
+
+
 class TimescaleError(TortoiseExtendedError):
     """TimescaleDB manager or migration failure."""
 

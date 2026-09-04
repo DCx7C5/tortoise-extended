@@ -46,9 +46,37 @@ from pypika_tortoise.terms import Term, ValueWrapper
 from pypika_tortoise.terms import Function as PypikaFunction
 from tortoise.expressions import CombinedExpression, F, Function
 
+from tortoise_extended.exceptions import PgCryptoError
+
 # A value usable as the ``data`` argument to a pgcrypto function: a field name,
 # an ``F()`` reference, a combined/plain expression, or a raw pypika term.
 DataArg: TypeAlias = str | F | CombinedExpression | Function | Term
+
+_PGCRYPTO_ALGORITHMS: frozenset[str] = frozenset({
+    "md5", "sha1", "sha256", "sha384", "sha512", "sha224",
+})
+"""Built-in pgcrypto hash algorithms.
+
+Only these six are accepted by the ``pgcrypto`` extension's ``digest()``
+and ``hmac()`` functions.  Any other value is rejected at query-construction
+time (rather than producing a confusing database error at execution).
+"""
+
+
+def _validate_algorithm(algorithm: str) -> None:
+    """Reject algorithm names not in the built-in pgcrypto allowlist.
+
+    Args:
+        algorithm: The algorithm name to validate.
+
+    Raises:
+        PgCryptoError: If *algorithm* is not in ``_PGCRYPTO_ALGORITHMS``.
+    """
+    if algorithm not in _PGCRYPTO_ALGORITHMS:
+        raise PgCryptoError(
+            f"Unsupported pgcrypto algorithm {algorithm!r}; "
+            f"expected one of {', '.join(sorted(_PGCRYPTO_ALGORITHMS))}"
+        )
 
 
 class _DigestFunction(PypikaFunction):
@@ -80,6 +108,7 @@ class Digest(Function):
     database_func = _DigestFunction
 
     def __init__(self, data: DataArg, algorithm: str = "sha256") -> None:
+        _validate_algorithm(algorithm)
         super().__init__(data, algorithm)
 
 
@@ -112,6 +141,7 @@ class DigestHex(Function):
     database_func = _DigestHexFunction
 
     def __init__(self, data: DataArg, algorithm: str = "sha256") -> None:
+        _validate_algorithm(algorithm)
         super().__init__(data, algorithm)
 
 
@@ -145,6 +175,7 @@ class HMACDigest(Function):
     database_func = _HMACFunction
 
     def __init__(self, data: DataArg, key: str, algorithm: str = "sha256") -> None:
+        _validate_algorithm(algorithm)
         super().__init__(data, key, algorithm)
 
 
