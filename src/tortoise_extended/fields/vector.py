@@ -5,8 +5,9 @@ No monkey-patch conflicts.
 """
 
 import struct
-from typing import Literal, Unpack, override
+from typing import Literal, Protocol, Unpack, cast, override
 
+from tortoise.exceptions import ConfigurationError
 from tortoise.fields.base import Field
 from tortoise.models import Model
 
@@ -20,6 +21,25 @@ VectorType = Literal["vector", "halfvec"]
 a modest precision trade-off, identical ``list[float]`` Python API.
 """
 
+
+class _DialectCapabilities(Protocol):
+    """Duck-typed ``Capabilities`` surface exposing the dialect name."""
+
+    dialect: str
+
+
+class _DialectDB(Protocol):
+    """Duck-typed DB client surface exposing the capabilities dialect."""
+
+    @property
+    def capabilities(self) -> _DialectCapabilities: ...
+
+
+class _DialectMeta(Protocol):
+    """Duck-typed model ``_meta`` surface exposing the bound DB client."""
+
+    @property
+    def db(self) -> _DialectDB: ...
 
 
 class VectorField(Field[list[float]]):
@@ -59,6 +79,10 @@ class VectorField(Field[list[float]]):
                 return f"{self.field.vector_type}({self.field.dimensions})"
             return self.field.vector_type
 
+    class _db_sqlite:
+        SQL_TYPE = "BLOB"
+        skip_to_python_if_native = False
+
     def __init__(
         self,
         dimensions: int | None = None,
@@ -97,8 +121,30 @@ class VectorField(Field[list[float]]):
         """
         if value is None:
             return None
-        return list(value)
+        vector = list(value)
+        if self._bound_to_sqlite():
+            return self._encode_binary(vector, self.vector_type)
+        return vector
 
+    def _bound_to_sqlite(self) -> bool:
+        """Return ``True`` when the field's bound model uses SQLite.
+
+        Falls back to ``False`` (PostgreSQL behavior) when the field is not
+        yet bound to an initialized model, e.g. in unit tests. The bound
+        ``model`` attribute is not declared on the upstream ``Field`` stub,
+        so it is read via ``getattr`` and narrowed with ``cast``.
+        """
+        model = cast(type[Model] | None, getattr(self, "model", None))
+        if model is None:
+            return False
+        meta = cast(_DialectMeta | None, getattr(model, "_meta", None))
+        if meta is None:
+            return False
+        try:
+            db = meta.db
+        except ConfigurationError:
+            return False
+        return db.capabilities.dialect == "sqlite"
 
     @staticmethod
     def _encode_binary(values: list[float], vector_type: str = "vector") -> bytes:

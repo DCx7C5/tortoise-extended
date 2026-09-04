@@ -7,7 +7,6 @@ No Redis connection required.
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from decimal import Decimal
-import os
 import socket
 from uuid import uuid4
 
@@ -1511,18 +1510,6 @@ class TestCacheDefaultBackend:
 # ---------------------------------------------------------------------------
 
 
-def _redis_url() -> str:
-    """Live-Redis URL, embedding REDIS_PASSWORD when auth is configured.
-
-    Mirrors `docker/redis-ext/entrypoint.sh`: when ``REDIS_PASSWORD`` is set,
-    the dev server requires AUTH, so the connecting URL must carry it.
-    """
-    password = os.environ.get("REDIS_PASSWORD")
-    if password:
-        return f"redis://:{password}@localhost:6380/0"
-    return "redis://localhost:6380/0"
-
-
 def _redis_available() -> bool:
     """Quick probe — can we reach the docker redis-ext container?"""
     try:
@@ -1554,7 +1541,7 @@ class TestLiveRedis:
     @pytest.mark.asyncio
     async def test_real_redis_round_trip(self) -> None:
         """init → set/get/delete → close via real driver aclose()."""
-        await RedisCache.init(url=_redis_url())
+        await RedisCache.init(url="redis://localhost:6380/0")
         backend = RedisCacheBackend(RedisCache.get_pool())
         await backend.set("te:g24:key", "value-1", ttl=60)
         assert await backend.get("te:g24:key") == "value-1"

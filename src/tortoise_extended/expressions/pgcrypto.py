@@ -46,36 +46,9 @@ from pypika_tortoise.terms import Term, ValueWrapper
 from pypika_tortoise.terms import Function as PypikaFunction
 from tortoise.expressions import CombinedExpression, F, Function
 
-from tortoise_extended.exceptions import PgCryptoError
-
 # A value usable as the ``data`` argument to a pgcrypto function: a field name,
 # an ``F()`` reference, a combined/plain expression, or a raw pypika term.
 DataArg: TypeAlias = str | F | CombinedExpression | Function | Term
-
-#: Hash/HMAC algorithms accepted by :class:`Digest`, :class:`DigestHex` and
-#: :class:`HMACDigest`. These are the algorithms PostgreSQL's ``pgcrypto``
-#: extension supports for both ``digest()`` and ``hmac()``. Restricting the
-#: algorithm to this fixed set closes the SQL-injection slot that a
-#: caller-controlled algorithm string would otherwise open (it is rendered
-#: verbatim as a string literal into the function call).
-_PGCRYPTO_ALGORITHMS: frozenset[str] = frozenset(
-    {"md5", "sha1", "sha224", "sha256", "sha384", "sha512"}
-)
-
-
-def _validate_algorithm(algorithm: str) -> str:
-    """Return *algorithm* if it is a known pgcrypto algorithm, else raise.
-
-    Raises:
-        PgCryptoError: If *algorithm* is not in the fixed allowlist.
-    """
-    if algorithm not in _PGCRYPTO_ALGORITHMS:
-        msg = (
-            f"Unsupported algorithm {algorithm!r}; expected one of "
-            f"{', '.join(sorted(_PGCRYPTO_ALGORITHMS))}"
-        )
-        raise PgCryptoError(msg)
-    return algorithm
 
 
 class _DigestFunction(PypikaFunction):
@@ -98,12 +71,7 @@ class Digest(Function):
     Args:
         data: The value to hash (a field name, ``F()``, or expression).
         algorithm: Hash algorithm name, e.g. ``"sha256"``, ``"sha512"``,
-            ``"md5"``. Rendered as a SQL string literal. Must be one of
-            :data:`_PGCRYPTO_ALGORITHMS`; anything else raises
-            :class:`PgCryptoError`.
-
-    Raises:
-        PgCryptoError: If *algorithm* is not a supported pgcrypto algorithm.
+            ``"md5"``.  Rendered as a SQL string literal.
 
     Returns:
         ``bytea``.
@@ -112,7 +80,7 @@ class Digest(Function):
     database_func = _DigestFunction
 
     def __init__(self, data: DataArg, algorithm: str = "sha256") -> None:
-        super().__init__(data, _validate_algorithm(algorithm))
+        super().__init__(data, algorithm)
 
 
 class _DigestHexFunction(PypikaFunction):
@@ -134,11 +102,8 @@ class DigestHex(Function):
 
     Args:
         data: The value to hash (a field name, ``F()``, or expression).
-        algorithm: Hash algorithm name, e.g. ``"sha256"``. Rendered as a
-            SQL string literal. Must be one of :data:`_PGCRYPTO_ALGORITHMS`.
-
-    Raises:
-        PgCryptoError: If *algorithm* is not a supported pgcrypto algorithm.
+        algorithm: Hash algorithm name, e.g. ``"sha256"``.  Rendered as a
+            SQL string literal.
 
     Returns:
         ``str`` — a lowercase hex string.
@@ -147,7 +112,7 @@ class DigestHex(Function):
     database_func = _DigestHexFunction
 
     def __init__(self, data: DataArg, algorithm: str = "sha256") -> None:
-        super().__init__(data, _validate_algorithm(algorithm))
+        super().__init__(data, algorithm)
 
 
 class _HMACFunction(PypikaFunction):
@@ -168,15 +133,10 @@ class HMACDigest(Function):
 
     Args:
         data: The value to hash (a field name, ``F()``, or expression).
-        key: The secret key, rendered as a SQL string literal. Pass an
-            application secret — never hardcode it in the model. The key is
-            a trusted, application-controlled constant; never derive it from
-            untrusted input (it is embedded in the emitted SQL).
-        algorithm: Hash algorithm name, e.g. ``"sha256"``. Rendered as a
-            SQL string literal. Must be one of :data:`_PGCRYPTO_ALGORITHMS`.
-
-    Raises:
-        PgCryptoError: If *algorithm* is not a supported pgcrypto algorithm.
+        key: The secret key, rendered as a SQL string literal.  Pass an
+            application secret — never hardcode it in the model.
+        algorithm: Hash algorithm name, e.g. ``"sha256"``.  Rendered as a
+            SQL string literal.
 
     Returns:
         ``bytea``.
@@ -185,7 +145,7 @@ class HMACDigest(Function):
     database_func = _HMACFunction
 
     def __init__(self, data: DataArg, key: str, algorithm: str = "sha256") -> None:
-        super().__init__(data, key, _validate_algorithm(algorithm))
+        super().__init__(data, key, algorithm)
 
 
 __all__ = [

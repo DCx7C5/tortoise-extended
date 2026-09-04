@@ -9,7 +9,6 @@ onto the feature areas:
 - :class:`GraphError` — graph models and traversals
 - :class:`RecursiveCTEError` — recursive CTE builders
 - :class:`HybridSearchError` — hybrid vector + FTS search
-- :class:`PgCryptoError` — pgcrypto expression helpers (``Digest``, ``HMACDigest``)
 - :class:`TimescaleError` — TimescaleDB managers and migrations
 - :class:`MigrationOperationError` — migration operations
 - :class:`CacheError` — caching layer (plus ``CacheKeyError``,
@@ -65,10 +64,6 @@ class RecursiveCTEError(TortoiseExtendedError):
 
 class HybridSearchError(TortoiseExtendedError):
     """Invalid hybrid search configuration."""
-
-
-class PgCryptoError(TortoiseExtendedError):
-    """Invalid pgcrypto expression configuration (e.g. unsupported algorithm)."""
 
 
 class TimescaleError(TortoiseExtendedError):

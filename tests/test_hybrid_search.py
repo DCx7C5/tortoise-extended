@@ -290,29 +290,19 @@ class TestHybridSearchSQL:
 
     @pytest.mark.asyncio
     async def test_fts_language_is_quote_literaled(self, captured) -> None:
-        """An allowlisted FTS language is quote_literal()-rendered — injection-safe."""
-        language = "simple"
-        await HybridSearch(model=SearchEntity, fts_language=language).search(
+        """FTS language is quote_literal()-escaped — injection-safe."""
+        payload = "english'; DROP TABLE x; --"
+        await HybridSearch(model=SearchEntity, fts_language=payload).search(
             query_vector=[0.1, 0.2, 0.3],
             query_text="machine learning",
         )
         sql = captured["sql"]
         assert isinstance(sql, str)
-        # The language is wrapped in single quotes — never interpolated bare.
-        assert "plainto_tsquery('simple', $2)" in sql
-
-    @pytest.mark.asyncio
-    async def test_fts_language_rejects_unknown_language(self) -> None:
-        """Unknown/abusive fts_language is refused at construction (allowlist)."""
-        payload = "english'; DROP TABLE x; --"
-        with pytest.raises(HybridSearchError):
-            HybridSearch(model=SearchEntity, fts_language=payload)
-
-    @pytest.mark.asyncio
-    async def test_fts_language_rejects_missing_regconfig(self) -> None:
-        """A non-built-in regconfig name is refused at construction."""
-        with pytest.raises(HybridSearchError):
-            HybridSearch(model=SearchEntity, fts_language="my_custom_ts_config")
+        # The language is wrapped in single quotes with embedded quotes doubled:
+        # `'english''; DROP TABLE x; --'` — so the raw payload never appears
+        # verbatim and no `DROP`/boundary-breaking `;` is interpolated bare.
+        assert "'english''; DROP TABLE x; --'" in sql
+        assert "plainto_tsquery('english''; DROP TABLE x; --', $2)" in sql
 
     def test_execute_is_staticmethod(self) -> None:
         """F10 — _execute is a static method (no instance state)."""
