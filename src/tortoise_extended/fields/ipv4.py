@@ -49,10 +49,6 @@ class IPv4Field(Field[ipaddress.IPv4Address]):
     SQL_TYPE = "inet"
     indexable = True
 
-    class _db_sqlite:
-        SQL_TYPE = "VARCHAR(15)"
-        skip_to_python_if_native = False
-
     def __init__(
         self,
         *,
