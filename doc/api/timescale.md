@@ -21,7 +21,7 @@ Convert regular tables to TimescaleDB hypertables.
 
 | Method | Description |
 |--------|-------------|
-| `create_hypertable(table, time_column?, chunk_time_interval?, if_not_exists?, migrate_data?)` | Convert table to hypertable |
+| `create_hypertable(table, time_column?, chunk_time_interval?, if_not_exists?, migrate_data?, validate_time_column?)` | Convert table to hypertable |
 | `drop_hypertable(table, if_exists?)` | Drop hypertable |
 | `is_hypertable(table)` | Check if table is a hypertable |
 | `list_hypertables(extension_schema?)` | List all hypertables |
@@ -35,6 +35,16 @@ await HypertableManager.create_hypertable(
     chunk_time_interval="7 days",
 )
 ```
+
+**Time-column pre-check.** TimescaleDB requires the partitioning (time) column
+to be part of the table's ``PRIMARY KEY`` or a ``UNIQUE`` index, otherwise
+``create_hypertable()`` fails with a cryptic server error. By default
+``create_hypertable`` runs a cheap introspection query and raises a clear
+``TimescaleError`` before attempting the conversion when the time column is
+not covered. Pass ``validate_time_column=False`` to skip the pre-check (e.g.
+for unusual schemas the introspection can't model, or to avoid the extra
+introspection query). If the introspection itself fails, it is ignored and
+the hypertable is still attempted.
 
 ---
 

@@ -60,11 +60,17 @@ def validate_cagg_query(query: str, source_table: str | None = None) -> str:
 
     Raises:
         ValueError: If the query is not a bare SELECT/WITH statement without
-            ``;``, or (when ``source_table`` is given) does not reference it.
+            ``;`` outside a string literal, or (when ``source_table`` is given)
+            does not reference it.
     """
+    # Single-quoted string literals are stripped first so a ``;`` inside a
+    # literal (e.g. ``'a;b'``) is not mistaken for a multi-statement separator.
+    # The same literal-stripped text is reused for the source-table scan, so
+    # the regex is computed once and shared.
     inner = query.strip()
     first_keyword = inner.upper().split(None, 1)[0] if inner else ""
-    if ";" in inner or first_keyword not in ("SELECT", "WITH"):
+    no_literals = re.sub(r"'[^']*(?:''[^']*)*'", "", inner)
+    if ";" in no_literals or first_keyword not in ("SELECT", "WITH"):
         raise ValueError(
             "Continuous aggregate query must be a single bare "
             "SELECT (or WITH ... SELECT) statement without ';'; "
@@ -80,7 +86,6 @@ def validate_cagg_query(query: str, source_table: str | None = None) -> str:
     # optional schema prefix — so a schema-qualified source is accepted and a
     # same-named table nested inside another identifier (``my_events``) or a
     # string literal (``'events'``) is not falsely accepted.
-    no_literals = re.sub(r"'[^']*(?:''[^']*)*'", "", inner)
     if "." in source_table:
         source_pattern = re.escape(source_table)
     else:
@@ -133,9 +138,11 @@ class ContinuousAggregateManager:
             Unless ``allow_full_statement=True``, ``query`` is validated and
             interpolated into ``CREATE MATERIALIZED VIEW ... AS ({query})``.
             It must be a single bare ``SELECT`` (or ``WITH ... SELECT``)
-            statement — anything containing ``;`` or starting with another
-            keyword raises :class:`ValueError`. The pre-fix auto-detection
-            of ``"CREATE MATERIALIZED VIEW"`` prefixes was removed because
+            statement — anything containing ``;`` outside a string literal or
+            starting with another keyword raises :class:`ValueError`. A ``;``
+            inside a string literal (e.g. ``'a;b'``) is a valid bare SELECT
+            and is accepted. The pre-fix auto-detection of
+            ``"CREATE MATERIALIZED VIEW"`` prefixes was removed because
             a bare SELECT may legitimately contain that literal text,
             silently bypassing validation (G23).
 

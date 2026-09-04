@@ -114,12 +114,14 @@ class CreateHypertable(Operation):
     def describe(self) -> str:
         """Return a human-readable description of the operation.
 
-        :returns: Description string with the table and time-column config.
+        :returns: Description string with the table, time-column config,
+            and migrate_data flag.
         """
         return (
             f"CreateHypertable(table_name={self.table_name!r}, "
             f"time_column={self.time_column!r}, "
-            f"chunk_time_interval={self.chunk_time_interval!r})"
+            f"chunk_time_interval={self.chunk_time_interval!r}, "
+            f"migrate_data={self.migrate_data!r})"
         )
 
     def deconstruct(self) -> tuple[str, tuple[()], dict[str, str | bool]]:
@@ -238,6 +240,10 @@ class CreateContinuousAggregate(Operation):
     :param refresh_interval: How often to refresh (e.g., '1 hour').
     :param start_offset: Refresh-policy start offset (e.g., '1 hour').
     :param end_offset: Refresh-policy end offset (e.g., '0').
+    :param source_table: Optional source hypertable the aggregate reads from.
+        When given, the query is cross-checked to reference it — mirroring the
+        validation :meth:`ContinuousAggregateManager.create` performs so a
+        migration cannot silently aggregate the wrong table.
     """
 
     def __init__(
@@ -248,6 +254,7 @@ class CreateContinuousAggregate(Operation):
         refresh_interval: str = "1 hour",
         start_offset: str = "1 hour",
         end_offset: str = "0",
+        source_table: str | None = None,
     ) -> None:
         self.view_name = view_name
         self.query = query
@@ -255,6 +262,7 @@ class CreateContinuousAggregate(Operation):
         self.refresh_interval = refresh_interval
         self.start_offset = start_offset
         self.end_offset = end_offset
+        self.source_table = source_table
 
     @override
     def describe(self) -> str:
@@ -270,7 +278,7 @@ class CreateContinuousAggregate(Operation):
             f"start_offset={self.start_offset!r}, end_offset={self.end_offset!r})"
         )
 
-    def deconstruct(self) -> tuple[str, tuple[()], dict[str, str]]:
+    def deconstruct(self) -> tuple[str, tuple[()], dict[str, str | None]]:
         """Serialize the operation for migration files.
 
         :returns: ``(class_name, args, kwargs)`` tuple used by the migration
@@ -286,6 +294,7 @@ class CreateContinuousAggregate(Operation):
                 "refresh_interval": self.refresh_interval,
                 "start_offset": self.start_offset,
                 "end_offset": self.end_offset,
+                "source_table": self.source_table,
             },
         )
 
@@ -304,7 +313,10 @@ class CreateContinuousAggregate(Operation):
         ``query`` is validated as a single bare ``SELECT``/``WITH ... SELECT``
         (no ``;``) before interpolation — the same shape contract enforced by
         :meth:`ContinuousAggregateManager.create` — so a migration does not
-        silently execute a multi-statement or non-``SELECT`` payload.
+        silently execute a multi-statement or non-``SELECT`` payload. When
+        ``source_table`` is set, the query is also cross-checked to reference
+        it, matching the manager's behavior so a migration cannot silently
+        aggregate the wrong table.
 
         :param app_label: App the migration belongs to (unused).
         :param state: Current model state (unused).
@@ -313,12 +325,13 @@ class CreateContinuousAggregate(Operation):
 
         Raises:
             ValueError: If ``query`` is not a single bare SELECT/WITH
-                statement without ``;``.
+                statement without ``;``, or (when ``source_table`` is set)
+                does not reference it.
         """
         if dry_run or state_editor is None:
             return
 
-        inner = validate_cagg_query(self.query)
+        inner = validate_cagg_query(self.query, self.source_table)
 
         # Create the continuous aggregate view
         create_sql = (

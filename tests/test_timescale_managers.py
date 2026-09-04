@@ -16,7 +16,10 @@ import pytest
 from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import TimescaleError
 from tortoise_extended.timescale.compression import CompressionManager
-from tortoise_extended.timescale.continuous_aggregate import ContinuousAggregateManager
+from tortoise_extended.timescale.continuous_aggregate import (
+    ContinuousAggregateManager,
+    validate_cagg_query,
+)
 from tortoise_extended.timescale.hypertable import HypertableManager
 from tortoise_extended.timescale.retention import RetentionPolicy
 from tortoise_extended.timescale.stream import _bucket_to_timedelta
@@ -150,9 +153,119 @@ class TestIsHypertable:
         assert "hypertable_name = 'events'" in sql
 
 
+class TestHypertableTimeColumnValidation:
+    """Q3-HARDEN — create_hypertable() pre-validates the time column is in a
+    PK/unique index (TimescaleDB requirement) before attempting creation."""
+
+    @pytest.mark.asyncio
+    async def test_covered_mapping_row_proceeds(self, monkeypatch) -> None:
+        """A covered time column (mapping row) does not raise and creates."""
+        conn = CannedRecordingConn((0, [{"is_covered": True}]))
+        holder = FakeConnections(conn)
+        monkeypatch.setattr(
+            "tortoise_extended.timescale.hypertable.connections", holder
+        )
+        await HypertableManager.create_hypertable("events", time_column="created_at")
+        # introspection (covered=True) then the create
+        assert len(conn.sqls) == 2
+        assert "pg_index" in conn.sqls[0]
+        assert "create_hypertable(" in conn.sqls[1]
+
+    @pytest.mark.asyncio
+    async def test_covered_tuple_row_proceeds(self, monkeypatch) -> None:
+        """A covered time column (tuple row) does not raise and creates."""
+        conn = CannedRecordingConn((0, [(True,)]))
+        holder = FakeConnections(conn)
+        monkeypatch.setattr(
+            "tortoise_extended.timescale.hypertable.connections", holder
+        )
+        await HypertableManager.create_hypertable("events", time_column="created_at")
+        # introspection (covered=True) then the create
+        assert len(conn.sqls) == 2
+        assert "pg_index" in conn.sqls[0]
+        assert "create_hypertable(" in conn.sqls[1]
+
+    @pytest.mark.asyncio
+    async def test_uncovered_raises_before_create(self, monkeypatch) -> None:
+        """An uncovered time column raises TimescaleError before the create."""
+        conn = CannedRecordingConn((0, [{"is_covered": False}]))
+        holder = FakeConnections(conn)
+        monkeypatch.setattr(
+            "tortoise_extended.timescale.hypertable.connections", holder
+        )
+        with pytest.raises(TimescaleError, match="PRIMARY KEY or a UNIQUE index"):
+            await HypertableManager.create_hypertable(
+                "events", time_column="created_at"
+            )
+        # No CREATE was issued — the error surfaced before the create call.
+        assert all("pg_index" in s for s in conn.sqls)
+        assert not any("create_hypertable(" in s for s in conn.sqls)
+
+    @pytest.mark.asyncio
+    async def test_introspection_failure_swallowed(self, monkeypatch) -> None:
+        """If introspection itself errors, the create is still attempted."""
+        conn = ErrorConn(RuntimeError("introspection boom"))
+        holder = FakeConnections(conn)
+        monkeypatch.setattr(
+            "tortoise_extended.timescale.hypertable.connections", holder
+        )
+        # ErrorConn raises on the introspection; the create then also raises and
+        # is wrapped as TimescaleError — proving the real error surfaced.
+        with pytest.raises(TimescaleError, match="create hypertable"):
+            await HypertableManager.create_hypertable("events")
+
+    @pytest.mark.asyncio
+    async def test_opt_out_skips_introspection(self, monkeypatch) -> None:
+        """validate_time_column=False records only the create statement."""
+        conn = RecordingConn()
+        holder = FakeConnections(conn)
+        monkeypatch.setattr(
+            "tortoise_extended.timescale.hypertable.connections", holder
+        )
+        await HypertableManager.create_hypertable(
+            "events", validate_time_column=False
+        )
+        assert len(conn.sqls) == 1
+        assert "create_hypertable(" in conn.sqls[0]
+        assert "pg_index" not in conn.sqls[0]
+
+    @pytest.mark.asyncio
+    async def test_introspection_quotes_identifiers(self, monkeypatch) -> None:
+        """The introspection query quotes the table/column literals safely."""
+        conn = CannedRecordingConn((0, [{"is_covered": True}]))
+        holder = FakeConnections(conn)
+        monkeypatch.setattr(
+            "tortoise_extended.timescale.hypertable.connections", holder
+        )
+        await HypertableManager.create_hypertable("metrics.events", time_column="when")
+        intro = conn.sqls[0]
+        assert "pg_index" in intro
+        assert "'events'" in intro
+        assert "'metrics'" in intro or "current_schemas" in intro
+        assert "'when'" in intro
+        assert "i.indisunique" in intro
+
+
+class CannedRecordingConn(RecordingConn):
+    """RecordingConn whose ``execute_query`` returns a fixed canned result.
+
+    Combines SQL recording (for introspection inspection) with a deterministic
+    ``execute_query`` return value (for the covered/uncovered branches).
+    """
+
+    def __init__(self, result: QueryResult) -> None:
+        super().__init__()
+        self.result = result
+
+    async def execute_query(
+        self, sql: str, *_args: RowValue
+    ) -> QueryResult:
+        self.sqls.append(sql)
+        return self.result
+
+
 class TestGetCompressionStats:
     """CompressionManager.get_stats() result-shape branches."""
-
     @pytest.mark.asyncio
     async def test_mapping_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_connections(
@@ -230,6 +343,7 @@ class TestSqlHardening:
             "events; DROP TABLE x",
             time_column="when",
             chunk_time_interval="7 days",
+            validate_time_column=False,
         )
         sql = conn.sqls[0]
         # create_hypertable takes the table name as a function-argument literal
@@ -331,6 +445,39 @@ class TestSqlHardening:
                 "v", "events", "SELECT 1; DROP TABLE x"
             )
         assert conn.sqls == []
+
+    def test_cagg_validate_semicolon_inside_literal_is_allowed(self) -> None:
+        """A ``;`` inside a string literal is NOT a multi-statement separator.
+
+        Regression for a validation false-positive: ``SELECT 'a;b' ...`` was
+        rejected because the ``;`` scan ran on the raw query before string
+        literals were stripped. It is a valid bare SELECT and must pass.
+        """
+        validate_cagg_query(
+            "SELECT 'a;b' AS label, COUNT(*) FROM events GROUP BY label",
+            "events",
+        )
+
+    def test_cagg_validate_escaped_quote_inside_literal(self) -> None:
+        """Doubled single-quotes (``''``) inside a literal don't hide a ``;``.
+
+        ``'a;''b'`` (an escaped quote inside the literal) must not leave a
+        stray ``;`` in the literal-stripped text.
+        """
+        validate_cagg_query("SELECT 'a;''b' AS x FROM events", "events")
+
+    def test_cagg_validate_multi_statement_still_rejected(self) -> None:
+        """A genuine multi-statement query still raises."""
+        with pytest.raises(ValueError, match="single bare SELECT"):
+            validate_cagg_query("SELECT 1; SELECT 2")
+
+    def test_cagg_validate_mismatched_source_rejected(self) -> None:
+        """The source-table cross-check still rejects a mismatched source."""
+        with pytest.raises(ValueError, match="must reference the source table"):
+            validate_cagg_query(
+                "SELECT 'a;b' AS label, COUNT(*) FROM other_table GROUP BY label",
+                "events",
+            )
 
     @pytest.mark.asyncio
     async def test_cagg_query_allows_cte_and_select(self, monkeypatch) -> None:
@@ -443,7 +590,9 @@ class TestUsingDb:
     @pytest.mark.asyncio
     async def test_hypertable_uses_explicit_connection(self) -> None:
         conn = RecordingConn()
-        await HypertableManager.create_hypertable("events", using_db=conn)
+        await HypertableManager.create_hypertable(
+            "events", using_db=conn, validate_time_column=False
+        )
         await HypertableManager.is_hypertable("events", using_db=conn)
         await HypertableManager.list_hypertables(using_db=conn)
         await HypertableManager.add_dimension(

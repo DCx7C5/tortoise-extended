@@ -75,9 +75,18 @@ class HypertableManager:
         chunk_time_interval: str = "7 days",
         if_not_exists: bool = True,
         migrate_data: bool = False,
+        validate_time_column: bool = True,
         using_db: BaseDBAsyncClient | None = None,
     ) -> None:
         """Convert a regular table to a hypertable.
+
+        Before converting, the partitioning (time) column is validated to be
+        part of the table's primary key or a unique index — TimescaleDB's
+        hard requirement — and a clear :class:`TimescaleError` is raised when
+        it is not, instead of surfacing a cryptic server error from
+        ``create_hypertable()``. Set ``validate_time_column=False`` to skip
+        the pre-check (e.g. when the schema is unusual and introspection can't
+        model it, or to avoid the extra introspection query).
 
         Args:
             table_name: Name of the table to convert
@@ -85,10 +94,16 @@ class HypertableManager:
             chunk_time_interval: Interval for chunk creation (e.g., '7 days')
             if_not_exists: Don't error if already a hypertable
             migrate_data: Move existing data to new hypertable chunks
+            validate_time_column: Run the cheap PK/unique-index introspection
+                pre-check on ``time_column`` before creating (default True).
+                If introspection itself fails the error is swallowed and the
+                hypertable is still attempted.
             using_db: Database connection to use (default: 'default')
 
         Raises:
-            TimescaleError: If conversion fails
+            TimescaleError: If conversion fails, or if ``time_column`` is not
+                covered by the table's primary key / a unique index (when
+                ``validate_time_column`` is True).
 
         Example::
 
@@ -99,6 +114,26 @@ class HypertableManager:
             )
         """
         conn = using_db or connections.get("default")
+
+        if validate_time_column:
+            try:
+                covered = await HypertableManager._time_column_in_unique_index(
+                    table_name, time_column, using_db=conn
+                )
+            except Exception:
+                # Introspection itself failed (e.g. an older PG without
+                # pg_index it can read) — don't mask the real create; still
+                # attempt the hypertable so the original error surfaces.
+                covered = True
+            if not covered:
+                raise TimescaleError(
+                    f"Cannot create hypertable on table {table_name!r}: the "
+                    f"time/partitioning column {time_column!r} must be part "
+                    "of the table's PRIMARY KEY or a UNIQUE index. "
+                    "TimescaleDB requires the partitioning column to be "
+                    "covered by a primary key or unique constraint; without "
+                    "it create_hypertable() fails."
+                )
 
         sql = (
             "SELECT create_hypertable("
@@ -115,6 +150,65 @@ class HypertableManager:
         except Exception as exc:
             msg = f"Failed to create hypertable {table_name!r}: {exc}"
             raise TimescaleError(msg) from exc
+
+    @staticmethod
+    async def _time_column_in_unique_index(
+        table_name: str,
+        time_column: str,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> bool:
+        """Return whether ``time_column`` is covered by a PK or unique index.
+
+        TimescaleDB requires the hypertable partitioning (time) column to be
+        part of the primary key or a unique index, otherwise
+        ``create_hypertable()`` fails. This runs a cheap introspection against
+        ``pg_index``/``pg_class`` to pre-empt that error.
+
+        Args:
+            table_name: Name of the table (may be schema-qualified).
+            time_column: Name of the partitioning column.
+            using_db: Database connection to use (default: 'default').
+
+        Returns:
+            True if the column is a key column of some unique index (or a
+            primary key, which is an implicit unique index), else False.
+        """
+        conn = using_db or connections.get("default")
+
+        schema, table = _split_schema_name(table_name)
+        if schema is None:
+            schema_clause = "n.nspname = ANY(current_schemas(false))"
+        else:
+            schema_clause = f"n.nspname = {quote_literal(schema)}"
+
+        sql = f"""
+            SELECT EXISTS(
+                SELECT 1
+                FROM pg_index i
+                JOIN pg_class c ON c.oid = i.indrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_attribute a
+                  ON a.attrelid = c.oid
+                 AND a.attnum = ANY(i.indkey)
+                WHERE c.relname = {quote_literal(table)}
+                  AND a.attname = {quote_literal(time_column)}
+                  AND i.indisunique
+                  AND {schema_clause}
+            ) AS is_covered
+        """
+
+        result = await conn.execute_query(sql)
+        rows = cast(
+            Sequence[RowMapping | tuple[RowValue, ...]],
+            result[1] if isinstance(result, tuple) else result,
+        )
+
+        if rows:
+            row = rows[0]
+            if isinstance(row, dict):
+                return bool(row.get("is_covered", False))
+            return bool(row[0]) if row else False
+        return False
 
     @staticmethod
     async def drop_hypertable(

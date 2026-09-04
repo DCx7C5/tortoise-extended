@@ -196,6 +196,26 @@ class TestCreateContinuousAggregate:
         assert restored.time_column == original.time_column
         assert restored.refresh_interval == original.refresh_interval
 
+    def test_deconstruct_roundtrip_with_source_table(self) -> None:
+        """source_table must round-trip through deconstruct → reconstruct."""
+        original = CreateContinuousAggregate(
+            view_name="daily",
+            query="SELECT time_bucket('1 day', created_at) AS bucket, "
+            "COUNT(*) AS cnt FROM events GROUP BY bucket",
+            source_table="events",
+        )
+        _class_name, args, kwargs = original.deconstruct()
+        assert kwargs["source_table"] == "events"
+        restored = CreateContinuousAggregate(*args, **kwargs)
+        assert restored.source_table == "events"
+
+    def test_source_table_defaults_to_none(self) -> None:
+        """source_table should default to None for backward compatibility."""
+        op = CreateContinuousAggregate(view_name="v", query="SELECT 1")
+        assert op.source_table is None
+        _class_name, _args, kwargs = op.deconstruct()
+        assert kwargs["source_table"] is None
+
     def test_state_forward_noop(self) -> None:
         """state_forward should be a no-op (returns None)."""
         op = CreateContinuousAggregate(view_name="v", query="SELECT 1")
@@ -322,6 +342,36 @@ class TestCreateContinuousAggregateRun:
         assert editor.statements == []
 
     @pytest.mark.asyncio
+    async def test_run_rejects_mismatched_source_table(self) -> None:
+        """A source_table not referenced by the query must fail validation —
+        the migration path enforces the same cross-check as the manager."""
+        op = CreateContinuousAggregate(
+            view_name="v",
+            query="SELECT time_bucket('1 day', created_at) AS bucket, "
+            "COUNT(*) AS cnt FROM other_table GROUP BY bucket",
+            source_table="events",
+        )
+        editor = FakeSchemaEditor()
+        with pytest.raises(ValueError, match="must reference the source table"):
+            await op.run("app", FakeState(), dry_run=False, state_editor=editor)
+        assert editor.statements == []
+
+    @pytest.mark.asyncio
+    async def test_run_accepts_matching_source_table(self) -> None:
+        """A source_table that IS referenced by the query validates and
+        produces the view DDL."""
+        op = CreateContinuousAggregate(
+            view_name="v",
+            query="SELECT time_bucket('1 day', created_at) AS bucket, "
+            "COUNT(*) AS cnt FROM events GROUP BY bucket",
+            source_table="events",
+        )
+        editor = FakeSchemaEditor()
+        await op.run("app", FakeState(), dry_run=False, state_editor=editor)
+        assert len(editor.statements) == 2
+        assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "v"' in editor.statements[0]
+
+    @pytest.mark.asyncio
     async def test_database_forward(self) -> None:
         op = CreateContinuousAggregate(view_name="v", query="SELECT 1")
         editor = FakeSchemaEditor()
@@ -377,7 +427,7 @@ class TestFormatOperationPatch:
         assert lines == [
             "    CreateContinuousAggregate(view_name='v', query='SELECT 1', "
             "time_column='time_bucket', refresh_interval='1 hour', "
-            "start_offset='1 hour', end_offset='0'),"
+            "start_offset='1 hour', end_offset='0', source_table=None),"
         ]
 
     def test_no_deconstruct_raises(self) -> None:
