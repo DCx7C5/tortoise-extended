@@ -174,6 +174,17 @@ class VecEdge(Model):
         table = "test_vec_edges"
 
 
+class NoBidirVecEdge(Model):
+    """Directed graph edge WITHOUT the bidirectional column."""
+
+    id = fields.IntField(primary_key=True)
+    source_id = fields.IntField()
+    target_id = fields.IntField()
+
+    class Meta:
+        table = "test_vec_edges_nobidir"
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -192,6 +203,8 @@ async def _init_db():
     conn = Tortoise.get_connection("default")
     for table in (
         "test_vec_edges",
+        "test_vec_edges_nobidir",
+        "test_vec_edges_no_type",
         "test_vec_nodes",
         "test_pages",
         "test_documents",
@@ -733,6 +746,132 @@ class TestGraphVectorSearchIntegration:
 
         with pytest.raises(GraphTraversalError):
             self._search(distance_metric="bogus")
+
+    @pytest.mark.asyncio
+    async def test_invalid_direction_raises(self) -> None:
+        """Unsupported direction raises GraphTraversalError."""
+        from tortoise_extended.exceptions import GraphTraversalError
+
+        with pytest.raises(GraphTraversalError):
+            self._search(direction="sideways")
+
+    @pytest.mark.asyncio
+    async def test_unknown_vector_field_raises(self) -> None:
+        """A nonexistent vector field on the node model raises."""
+        from tortoise_extended.exceptions import GraphTraversalError
+
+        with pytest.raises(GraphTraversalError):
+            GraphVectorSearch(
+                node_model=VecNode,
+                edge_model=VecEdge,
+                query_vector=[1.0, 0.0, 0.0],
+                seed_id=self.seed.id,
+                vector_field="does_not_exist",
+            )
+
+    @pytest.mark.asyncio
+    async def test_unknown_edge_field_raises(self) -> None:
+        """A nonexistent source/target field on the edge model raises."""
+        from tortoise_extended.exceptions import GraphTraversalError
+
+        with pytest.raises(GraphTraversalError):
+            GraphVectorSearch(
+                node_model=VecNode,
+                edge_model=VecEdge,
+                query_vector=[1.0, 0.0, 0.0],
+                seed_id=self.seed.id,
+                source_field="does_not_exist",
+            )
+
+    @pytest.mark.asyncio
+    async def test_edge_type_requires_field_on_edge_model(self) -> None:
+        """edge_type filtering against an edge model without that column raises."""
+        from tortoise_extended.exceptions import GraphTraversalError
+
+        class NoTypeEdge(Model):
+            id = fields.IntField(primary_key=True)
+            source_id = fields.IntField()
+            target_id = fields.IntField()
+
+            class Meta:
+                table = "test_vec_edges_no_type"
+
+        await Tortoise.generate_schemas()
+        with pytest.raises(GraphTraversalError):
+            GraphVectorSearch(
+                node_model=VecNode,
+                edge_model=NoTypeEdge,
+                query_vector=[1.0, 0.0, 0.0],
+                seed_id=self.seed.id,
+                edge_type="rel",
+            )
+
+    @pytest.mark.asyncio
+    async def test_string_query_vector(self) -> None:
+        """A pgvector string literal query_vector is accepted and searches."""
+        hits = await GraphVectorSearch(
+            node_model=VecNode,
+            edge_model=VecEdge,
+            query_vector="[1.0, 0.0, 0.0]",
+            seed_id=self.seed.id,
+            max_hops=2,
+        ).search()
+        assert [h.node.name for h in hits] == ["seed", "near", "far", "deep"]
+
+    @pytest.mark.asyncio
+    async def test_cosine_metric_orders_by_cosine_similarity(self) -> None:
+        """cosine returns distances ascending with seed first."""
+        hits = await self._search(distance_metric="cosine").search()
+        names = [h.node.name for h in hits]
+        assert names[0] == "seed"
+        distances = [h.distance for h in hits]
+        assert distances == sorted(distances)
+
+
+class TestGraphVectorSearchNoBidirectional:
+    """Exercise the non-bidirectional recursion SQL paths (no
+    ``is_bidirectional`` column on the edge model)."""
+
+    @pytest.fixture(autouse=True)
+    async def _seed(self) -> None:
+        await NoBidirVecEdge.all().delete()
+        await VecNode.all().delete()
+        self.seed = await VecNode.create(name="seed", embedding=[1.0, 0.0, 0.0])
+        self.near = await VecNode.create(name="near", embedding=[0.9, 0.1, 0.0])
+        self.far = await VecNode.create(name="far", embedding=[0.0, 1.0, 0.0])
+        self.deep = await VecNode.create(name="deep", embedding=[0.0, 0.0, 1.0])
+        await NoBidirVecEdge.create(source_id=self.seed.id, target_id=self.near.id)
+        await NoBidirVecEdge.create(source_id=self.seed.id, target_id=self.far.id)
+        await NoBidirVecEdge.create(source_id=self.near.id, target_id=self.deep.id)
+
+    def _search(self, seed_id: int, direction: str) -> GraphVectorSearch:
+        return GraphVectorSearch(
+            node_model=VecNode,
+            edge_model=NoBidirVecEdge,
+            query_vector=[1.0, 0.0, 0.0],
+            seed_id=seed_id,
+            max_hops=2,
+            direction=direction,
+        )
+
+    @pytest.mark.asyncio
+    async def test_outgoing_nonbidir(self) -> None:
+        """Line 209: outgoing follows only source -> target edges."""
+        hits = await self._search(self.seed.id, "outgoing").search()
+        # seed -> near -> deep (2 hops) and seed -> far: all reachable outward.
+        assert {h.node.name for h in hits} == {"seed", "near", "far", "deep"}
+
+    @pytest.mark.asyncio
+    async def test_incoming_nonbidir(self) -> None:
+        """Line 212: incoming follows only target -> source edges."""
+        hits = await self._search(self.deep.id, "incoming").search()
+        assert {h.node.name for h in hits} == {"deep", "near", "seed"}
+
+    @pytest.mark.asyncio
+    async def test_both_nonbidir(self) -> None:
+        """Lines 215-216: both follows edges in either direction."""
+        hits = await self._search(self.near.id, "both").search()
+        assert {h.node.name for h in hits} == {"seed", "near", "far", "deep"}
 
 
 # ---------------------------------------------------------------------------
