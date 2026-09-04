@@ -94,6 +94,24 @@ class TestHybridSearchFieldValidation:
             HybridSearch(model=SearchEntity, vector_field="nope")
 
 
+class TestHybridSearchFtsLanguage:
+    """SEC-M02 — FTS language must be a valid built-in regconfig name."""
+
+    def test_allows_built_in_languages(self) -> None:
+        for lang in ("english", "simple", "spanish", "german"):
+            search = HybridSearch(model=SearchEntity, fts_language=lang)
+            assert search.fts_language == lang
+
+    def test_rejects_unknown_language(self) -> None:
+        with pytest.raises(HybridSearchError, match="Unsupported fts_language"):
+            HybridSearch(model=SearchEntity, fts_language="nope")
+
+    def test_rejects_injection_attempt(self) -> None:
+        payload = "english'; DROP TABLE foo; --"
+        with pytest.raises(HybridSearchError, match="Unsupported fts_language"):
+            HybridSearch(model=SearchEntity, fts_language=payload)
+
+
 class TestHybridSearchDistanceMetrics:
     """Test distance SQL generation for different metrics."""
 

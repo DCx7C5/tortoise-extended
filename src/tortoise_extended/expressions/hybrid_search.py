@@ -76,6 +76,21 @@ class HybridSearch:
 
     _METRICS: tuple[str, ...] = ("cosine", "l2", "inner_product")
 
+    _FTS_LANGUAGES: frozenset[str] = frozenset({
+        "arabic", "armenian", "basque", "catalan", "danish", "dutch",
+        "english", "finnish", "french", "german", "greek", "hindi",
+        "hungarian", "indonesian", "irish", "italian", "lithuanian",
+        "nepali", "norwegian", "portuguese", "romanian", "russian",
+        "serbian", "simple", "spanish", "swedish", "turkish", "yiddish",
+    })
+    """Built-in PostgreSQL ``regconfig`` names.
+
+    Users who register custom text-search configurations via
+    ``CREATE TEXT SEARCH CONFIGURATION`` must extend this set in a
+    subclass or contribute an upstream PR — the constructor rejects
+    any value not in this allowlist to prevent regressconfig injection.
+    """
+
     def __init__(
         self,
         model: type[Model],
@@ -91,6 +106,11 @@ class HybridSearch:
             raise HybridSearchError(
                 f"Unsupported distance_metric {distance_metric!r}; "
                 f"expected one of {', '.join(self._METRICS)}"
+            )
+        if fts_language not in self._FTS_LANGUAGES:
+            raise HybridSearchError(
+                f"Unsupported fts_language {fts_language!r}; "
+                f"expected one of {', '.join(sorted(self._FTS_LANGUAGES))}"
             )
         fields_map = model._meta.fields_map
         for name in (vector_field, text_field):
