@@ -198,3 +198,25 @@ class TestOrphanDeleteGuard:
         child = await QueryNode.create(name="child", depth=1, parent_id=parent.id)
         await parent.delete()  # no guard → orphaned child is allowed
         assert await QueryNode.get(pk=child.id) is not None
+
+
+class TestReparentChildCountSync:
+    """M2-FIX regression: reparent keeps ``child_count`` consistent and the
+    previous-parent read is performed through ``select_for_update`` on the same
+    connection that writes the node (SQLite ignores FOR UPDATE but the code path
+    must remain valid)."""
+
+    @pytest.mark.asyncio
+    async def test_reparent_adjusts_both_parent_counts(self) -> None:
+        """Moving a child from one parent to another adjusts both counts."""
+        p1 = await QueryNode.create(name="p1", depth=0, parent_id=None)
+        p2 = await QueryNode.create(name="p2", depth=0, parent_id=None)
+        child = await QueryNode.create(name="child", depth=1, parent_id=p1.id)
+        assert (await QueryNode.get(pk=p1.id)).child_count == 1
+
+        # Reparent child from p1 to p2.
+        child.parent_id = p2.id
+        await child.save()
+
+        assert (await QueryNode.get(pk=p1.id)).child_count == 0
+        assert (await QueryNode.get(pk=p2.id)).child_count == 1

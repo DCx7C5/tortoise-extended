@@ -262,6 +262,12 @@ class BaseGraphNodeModel(Model):
         # leave ``child_count`` drifted. When ``using_db`` is supplied the
         # caller already scopes the connection (possibly an outer transaction)
         # — never open a nested transaction on a different connection.
+        #
+        # ``_previous_parent_id`` reads the persisted parent on this same
+        # connection and (where the backend supports it) locks the node's row
+        # via ``select_for_update``, so a concurrent reparent cannot interleave
+        # between the read and the ``child_count`` decrement and drift the
+        # counter. See ``_previous_parent_id`` for the SQLite fallback.
         if using_db is None:
             async with in_transaction():
                 await _persist_and_sync()
@@ -271,11 +277,20 @@ class BaseGraphNodeModel(Model):
     async def _previous_parent_id(
         self, using_db: BaseDBAsyncClient | None = None
     ) -> UUID | None:
-        """Return this node's persisted ``parent_id`` from the database."""
+        """Return this node's persisted ``parent_id`` from the database.
+
+        The read runs on the same connection that persists the node
+        (``using_db`` when supplied, otherwise the default/transactional
+        connection) and, on backends that support row locking (PostgreSQL),
+        via ``select_for_update`` so concurrent reparents of this node
+        serialize on the node's row before any ``child_count`` adjustment.
+        On backends without ``FOR UPDATE`` support (SQLite) the queryset is
+        used unmodified, so the call is fully portable.
+        """
         row = (
-            await self.__class__.filter(pk=self.pk)
+            await self.__class__.select_for_update(using_db=using_db)
+            .filter(pk=self.pk)
             .only("parent_id")
-            .using_db(using_db)
             .first()
         )
         return row.parent_id if row is not None else None

@@ -2,10 +2,18 @@
 
 Tests model definitions, helper methods, classmethod queries, properties,
 str/repr, and abstract status. No database connection required.
+
+The ``TestSaveAtomicity`` class at the end is the one exception: it exercises
+the transactional write path of :class:`BaseGraphNodeModel.save()` against an
+in-memory SQLite DB (no PostgreSQL/Docker needed) to prove the atomicity
+guarantee — a failure in the denormalized ``child_count`` maintenance must
+roll back the node row write.
 """
 
 import pytest
+from tortoise import Tortoise
 
+import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.models import BaseGraphEdgeModel, BaseGraphNodeModel
 from tortoise_extended.models import BaseHierarchyModel
 
@@ -255,3 +263,79 @@ class TestHierarchyModelDunder:
         result = repr(node)
         assert "BaseHierarchyModel" in result
         assert "id=1" in result
+
+
+class RollbackNode(BaseGraphNodeModel):
+    """BaseGraphNodeModel subclass used by the SQLite atomicity test.
+
+    Concrete child of :class:`BaseGraphNodeModel`; ``Meta.indexes`` is
+    redeclared because Tortoise does not propagate the abstract base's indexes
+    (see the ``__init_subclass__`` guard in ``graph_node.py``).
+    """
+
+    class Meta:
+        table = "rollback_nodes"
+        indexes = (("namespace", "depth"),)
+
+
+@pytest.fixture(scope="module")
+async def _rollback_db():
+    """Initialize Tortoise with a fresh in-memory SQLite DB for the rollback test.
+
+    Non-autouse and module-scoped: only the ``TestSaveAtomicity`` tests request
+    it, so the remaining tests in this module continue to run without a
+    database connection.
+    """
+    await Tortoise.init(
+        db_url="sqlite://:memory:",
+        modules={"models": ["tests.test_graph"]},
+    )
+    await Tortoise.generate_schemas()
+    yield
+    await Tortoise.close_connections()
+
+
+class _CounterFailure(Exception):
+    """Sentinel raised in place of the child_count maintenance UPDATE."""
+
+
+class TestSaveAtomicity:
+    """Q4-TEST — a failing child_count write rolls back the node INSERT.
+
+    ``BaseGraphNodeModel.save()`` runs the node write and the denormalized
+    ``child_count`` maintenance inside a single ``in_transaction()`` block
+    when ``using_db is None`` (see ``save()``). This proves the atomicity
+    guarantee: if the parent's ``child_count`` UPDATE fails after the node row
+    is written, the whole transaction rolls back and the node INSERT is undone
+    — a partial failure can never leave ``child_count`` drifted.
+    """
+
+    @pytest.mark.asyncio
+    async def test_child_count_failure_rolls_back_node_insert(
+        self, _rollback_db, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed counter UPDATE rolls back the child node INSERT."""
+        parent = await RollbackNode.create(name="parent", namespace="ns", depth=0)
+        assert (await RollbackNode.get(pk=parent.pk)).child_count == 0
+
+        # Force the child_count maintenance path (the parent queryset's
+        # ``.update(...)``) to fail. The node's own INSERT goes through the
+        # executor (``Model.save``), not ``QuerySet.update``, so this only
+        # breaks the counter maintenance — exactly the step we want to fail.
+        def _fail_counter_update(_qs, **_kwargs):
+            raise _CounterFailure("simulated child_count maintenance failure")
+
+        monkeypatch.setattr("tortoise.queryset.QuerySet.update", _fail_counter_update)
+
+        child = RollbackNode(name="child", namespace="ns", parent_id=parent.pk, depth=1)
+
+        with pytest.raises(_CounterFailure, match="simulated child_count"):
+            # Create path with ``parent_id`` and ``using_db=None`` — this runs
+            # inside ``in_transaction()``, so the failure must roll back the
+            # node INSERT that already succeeded internally.
+            await child.save()
+
+        # The node INSERT was rolled back — the child must not be persisted.
+        assert await RollbackNode.filter(name="child").count() == 0
+        # And the parent's denormalized counter is unchanged.
+        assert (await RollbackNode.get(pk=parent.pk)).child_count == 0
