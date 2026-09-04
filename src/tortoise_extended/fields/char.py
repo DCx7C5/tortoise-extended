@@ -36,10 +36,7 @@ from tortoise.validators import MaxLengthValidator
 from tortoise_extended._types import FieldDefaultValue, FieldInitKwargs
 
 
-T_STR = str
-
-
-class CharField(Field[T_STR]):
+class CharField(Field[str]):
     """Character field backed by PostgreSQL ``TEXT`` instead of ``VARCHAR(N)``.
 
     Drop-in replacement for ``tortoise.fields.CharField``. Accepts the same
@@ -114,11 +111,7 @@ class CharField(Field[T_STR]):
     def constraints(self) -> dict[str, int]:
         return {"max_length": self.max_length}
 
-    @property
-    @override
-    def SQL_TYPE(self) -> str:  # noqa: N802
-        """``TEXT`` on every backend — no ``VARCHAR(N)`` anywhere."""
-        return "TEXT"
+    SQL_TYPE = "TEXT"  # class attribute, matching VectorField and upstream convention
 
     class _db_oracle:
         def __init__(self, field: CharField) -> None:
