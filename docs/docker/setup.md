@@ -9,8 +9,8 @@ optional cache backend (`redis-ext`). Both are managed with
 
 | Service | Image / Build | Host port |
 |---------|---------------|-----------|
-| `postgres-ext` | `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.5, TimescaleDB) | `127.0.0.1:5433` |
-| `redis-ext` | `redis:7-alpine` | `127.0.0.1:6380` |
+| `postgres-ext` | `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.6, TimescaleDB) | `127.0.0.1:5433` |
+| `redis-ext` | `docker/redis-ext/Dockerfile` (Redis 7-alpine, digest-pinned) | `127.0.0.1:6380` |
 
 ## Quick Start
 
@@ -37,6 +37,9 @@ psql -h 127.0.0.1 -p 5433 -U <POSTGRES_USER> -d <POSTGRES_DB>
 
 # Redis
 redis-cli -h 127.0.0.1 -p 6380 ping
+
+# Redis with password (when REDIS_PASSWORD is set)
+redis-cli -h 127.0.0.1 -p 6380 -a <REDIS_PASSWORD> ping
 ```
 
 ## From Python
