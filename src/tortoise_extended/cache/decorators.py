@@ -191,6 +191,12 @@ def cached(
                 # hanging on an unresolved future.
                 if not future.done():
                     future.set_exception(exc)
+                # Retrieve the exception now so that, when only the claimant
+                # observed the failure (no concurrent awaiter), asyncio never
+                # emits a spurious "Future exception was never retrieved"
+                # warning. If a concurrent waiter is awaiting the future, its
+                # ``await`` still raises this same exception regardless.
+                _ = future.exception()
                 raise
             finally:
                 _single_flight.release(cache_key, future)
@@ -291,6 +297,11 @@ def cached_method(
             except BaseException as exc:
                 if not future.done():
                     future.set_exception(exc)
+                # Retrieve the exception so a lone claimant (no concurrent
+                # awaiter) does not leak a "Future exception was never
+                # retrieved" asyncio warning. Concurrent awaiters still
+                # receive the exception via ``await future``.
+                _ = future.exception()
                 raise
             finally:
                 _single_flight.release(cache_key, future)

@@ -114,9 +114,12 @@ class CharField(Field[str]):
     SQL_TYPE = "TEXT"  # class attribute, matching VectorField and upstream convention
 
     class _db_oracle:
+        """Oracle dialect reports ``NVARCHAR2(max_length)`` for this field."""
+
         def __init__(self, field: CharField) -> None:
             self.field = field
 
         @property
         def SQL_TYPE(self) -> str:  # noqa: N802
             return f"NVARCHAR2({self.field.max_length})"
+
