@@ -140,6 +140,13 @@ class ContinuousAggregateManager:
             allow_full_statement: Pass *query* through verbatim as a
                 complete ``CREATE MATERIALIZED VIEW`` statement. This
                 bypasses validation, so only use it with trusted input.
+
+                .. danger::
+
+                    When ``True``, the ``query`` string is interpolated directly
+                    into the DDL statement without any sanitization.  Only pass
+                    values you fully control — never pass user-supplied strings
+                    without first validating them through ``validate_cagg_query``.
             using_db: Database connection to use (default: 'default')
 
         Raises:
@@ -175,6 +182,8 @@ class ContinuousAggregateManager:
         if allow_full_statement:
             # Trusted verbatim passthrough (caller-supplied complete
             # CREATE MATERIALIZED VIEW statement).
+            if not query.strip():
+                raise ValueError("query must not be empty")
             query = query.strip()
         else:
             inner = validate_cagg_query(query, _source_table)

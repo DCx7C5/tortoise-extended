@@ -705,6 +705,17 @@ class TestSqlHardening:
         assert "CREATE MATERIALIZED VIEW \"v\"" not in conn.sqls[0]
 
     @pytest.mark.asyncio
+    async def test_cagg_allow_full_statement_rejects_empty_query(self, monkeypatch) -> None:
+        """SEC-M04: empty query must be rejected even when allow_full_statement=True."""
+        with pytest.raises(ValueError, match="must not be empty"):
+            await ContinuousAggregateManager.create(
+                "v",
+                "events",
+                "   ",
+                allow_full_statement=True,
+            )
+
+    @pytest.mark.asyncio
     async def test_drop_hypertable_schema_qualified(self, monkeypatch) -> None:
         """Schema-qualified names quote both parts separately."""
         conn = self._recording_conn(monkeypatch)
