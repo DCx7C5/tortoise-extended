@@ -8,7 +8,9 @@ Provides:
 """
 
 import asyncio
+import builtins
 import hashlib
+import io
 import json
 import pickle
 import threading
@@ -146,15 +148,59 @@ class JSONSerializer(Serializer):
         return cast(CacheValue, json.loads(data.decode()))
 
 
+#: Builtin names a :class:`PickleSerializer`-crafted payload may reference.
+#: ``CacheValue`` is limited to JSON-serializable primitives, lists and dicts
+#: (see :data:`tortoise_extended._types.CacheValue`), so only the primitive
+#: constructors need to be reachable. Everything else — arbitrary classes,
+#: ``os.system``, ``eval``, ``collections`` reconstructions, etc. — is rejected,
+#: which blocks the ``__reduce__``-based remote code execution that vanilla
+#: ``pickle.loads`` allows.
+_SAFE_PICKLE_BUILTINS: frozenset[str] = frozenset(
+    {"bool", "int", "float", "str", "bytes", "list", "dict", "tuple", "set"}
+)
+
+
+class _RestrictedUnpickler(pickle.Unpickler):
+    """Unpickler that only allows primitive ``CacheValue`` types.
+
+    ``find_class`` is the only hook pickle uses to resolve global references
+    (``frommodule.attribute``) when reconstructing objects. By restricting it
+    to a fixed allowlist of builtin constructors we prevent a malicious cache
+    payload from instantiating arbitrary classes or invoking arbitrary
+    callables, closing the standard pickle RCE vector.
+    """
+
+    def find_class(self, module: str, name: str) -> object:
+        """Resolve a global reference; deny anything outside the safe builtins."""
+        if module == "builtins" and name in _SAFE_PICKLE_BUILTINS:
+            value = getattr(builtins, name, None)
+            if value is not None:
+                return value
+        msg = f"pickle global {module}.{name} is forbidden (cache poisoning guard)"
+        raise pickle.UnpicklingError(msg)
+
+
 class PickleSerializer(Serializer):
     """Pickle serializer (fast, supports more types).
 
     .. warning::
 
-        ``pickle.loads()`` can execute arbitrary code from crafted payloads.
-        Only use with trusted data. Never use with shared Redis instances
-        or untrusted cache sources.
+        Pickle can execute arbitrary code on load. Although this serializer
+        now uses a **restricted unpickler** that only permits the primitive
+        ``CacheValue`` types (rejecting arbitrary class instantiation), it is
+        still only safe for trusted cache sources. Prefer :class:`JSONSerializer`
+        (the default) unless you need binary-safe or non-string-native values.
     """
+
+    def __init__(self, max_pickle_size: int = 16 * 1024 * 1024) -> None:
+        """Create a pickle serializer.
+
+        Args:
+            max_pickle_size: Maximum accepted payload size in bytes (default
+                16 MiB). Guards against decompression/substream memory
+                amplification on untrusted payloads.
+        """
+        self.max_pickle_size = max_pickle_size
 
     @override
     def dumps(self, value: CacheValue) -> bytes:
@@ -162,7 +208,10 @@ class PickleSerializer(Serializer):
 
     @override
     def loads(self, data: bytes) -> CacheValue:
-        return cast(CacheValue, pickle.loads(data))
+        if len(data) > self.max_pickle_size:
+            msg = f"pickle payload too large: {len(data)} > {self.max_pickle_size}"
+            raise pickle.UnpicklingError(msg)
+        return cast(CacheValue, _RestrictedUnpickler(io.BytesIO(data)).load())
 
 
 class NullSerializer(Serializer):

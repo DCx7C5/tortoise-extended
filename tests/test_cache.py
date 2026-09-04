@@ -150,6 +150,36 @@ class TestPickleSerializer:
         data = {"key": "value", "num": 42}
         assert s.loads(s.dumps(data)) == data
 
+    def test_rejects_arbitrary_class_reconstruction(self):
+        """SEC-M01: a crafted pickle that calls os.system must be rejected."""
+        import io
+        import pickle as _pickle
+
+        class _FakePayload:
+            """Mimics the __reduce__-based RCE pattern used in pickle exploits."""
+
+            def __reduce__(self) -> tuple[str, tuple[str]]:
+                return (str, ("safe",))
+
+        # Build a pickle that references os.system via __reduce__-style
+        class _MaliciousPayload:
+            def __reduce__(self) -> tuple[str, tuple[str]]:
+                return (_pickle.loads, (b"cos\nsystem\nS'id'\nR.",))  # noqa: S301 — intentional test payload
+
+        raw = _pickle.dumps(_MaliciousPayload())
+        s = PickleSerializer()
+        with pytest.raises(_pickle.UnpicklingError, match="forbidden"):
+            s.loads(raw)
+
+    def test_rejects_payload_exceeding_max_size(self):
+        """SEC-M01: oversized payloads must be rejected immediately."""
+        import pickle as _pickle
+
+        s = PickleSerializer(max_pickle_size=128)
+        raw = _pickle.dumps("x" * 200)
+        with pytest.raises(_pickle.UnpicklingError, match="payload too large"):
+            s.loads(raw)
+
 
 class TestNullSerializer:
     def test_bytes_passthrough(self):
