@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, cast
 
 from tortoise import connections
 
-from tortoise_extended._quote import quote_ident
+from tortoise_extended._quote import quote_ident, quote_literal
 from tortoise_extended._types import RowMapping
 from tortoise_extended.exceptions import HybridSearchError
 
@@ -47,6 +47,10 @@ class HybridSearch:
     :param distance_metric: ``"cosine"``, ``"l2"``, or ``"inner_product"``.
     :param vector_weight: Weight for vector similarity (default: 0.7).
     :param text_weight: Weight for text ranking (default: 0.3).
+    :param fts_language: PostgreSQL text-search configuration name for FTS
+        ranking (default: ``"english"``).  Must be a valid PostgreSQL
+        ``regconfig`` value (e.g. ``"simple"``, ``"english"``,
+        ``"spanish"``).
     :raises HybridSearchError: If ``distance_metric`` is unsupported, or
         ``vector_field``/``text_field`` is not declared on the model.
 
@@ -81,6 +85,7 @@ class HybridSearch:
         distance_metric: str = "cosine",
         vector_weight: float = 0.7,
         text_weight: float = 0.3,
+        fts_language: str = "english",
     ) -> None:
         if distance_metric not in self._METRICS:
             raise HybridSearchError(
@@ -102,11 +107,13 @@ class HybridSearch:
         self.distance_metric = distance_metric
         self.vector_weight = vector_weight
         self.text_weight = text_weight
+        self.fts_language = fts_language
         # Quoted once at construction so every SQL block interpolates only
         # quote_ident()-wrapped identifiers (never raw caller input).
         self._table = quote_ident(model._meta.db_table)
         self._vector_field = quote_ident(vector_field)
         self._tsvector_field = quote_ident(resolved_tsvector)
+        self._fts_lang = quote_literal(fts_language)
 
     def _distance_sql(self, field: str, param_index: int) -> str:
         """Generate a distance SQL expression for the selected metric.
@@ -202,10 +209,10 @@ class HybridSearch:
                 SELECT
                     t.*,
                     {distance_expr} AS distance,
-                    ts_rank_cd(t.{tsv}, plainto_tsquery('english', $2)) AS text_score,
+                    ts_rank_cd(t.{tsv}, plainto_tsquery({self._fts_lang}, $2)) AS text_score,
                     (
                         $4 * {similarity} +
-                        $5 * ts_rank_cd(t.{tsv}, plainto_tsquery('english', $2))
+                        $5 * ts_rank_cd(t.{tsv}, plainto_tsquery({self._fts_lang}, $2))
                     ) AS combined_score
                 FROM {table} t
                 WHERE t.{vf} IS NOT NULL

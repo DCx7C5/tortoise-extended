@@ -265,6 +265,45 @@ class TestHybridSearchSQL:
             isinstance(p, (str, int, float)) or p is None for p in params
         )
 
+    @pytest.mark.asyncio
+    async def test_fts_language_default_is_english(self, captured) -> None:
+        """FTS language defaults to 'english' in the plainto_tsquery config slot."""
+        await HybridSearch(model=SearchEntity).search(
+            query_vector=[0.1, 0.2, 0.3],
+            query_text="machine learning",
+        )
+        sql = captured["sql"]
+        assert isinstance(sql, str)
+        assert "plainto_tsquery('english', $2)" in sql
+
+    @pytest.mark.asyncio
+    async def test_fts_language_simple_is_rendered(self, captured) -> None:
+        """A non-default language reaches the plainto_tsquery config slot."""
+        await HybridSearch(model=SearchEntity, fts_language="simple").search(
+            query_vector=[0.1, 0.2, 0.3],
+            query_text="machine learning",
+        )
+        sql = captured["sql"]
+        assert isinstance(sql, str)
+        assert "plainto_tsquery('simple', $2)" in sql
+        assert "'english'" not in sql
+
+    @pytest.mark.asyncio
+    async def test_fts_language_is_quote_literaled(self, captured) -> None:
+        """FTS language is quote_literal()-escaped — injection-safe."""
+        payload = "english'; DROP TABLE x; --"
+        await HybridSearch(model=SearchEntity, fts_language=payload).search(
+            query_vector=[0.1, 0.2, 0.3],
+            query_text="machine learning",
+        )
+        sql = captured["sql"]
+        assert isinstance(sql, str)
+        # The language is wrapped in single quotes with embedded quotes doubled:
+        # `'english''; DROP TABLE x; --'` — so the raw payload never appears
+        # verbatim and no `DROP`/boundary-breaking `;` is interpolated bare.
+        assert "'english''; DROP TABLE x; --'" in sql
+        assert "plainto_tsquery('english''; DROP TABLE x; --', $2)" in sql
+
     def test_execute_is_staticmethod(self) -> None:
         """F10 — _execute is a static method (no instance state)."""
         assert isinstance(inspect.getattr_static(HybridSearch, "_execute"), staticmethod)
