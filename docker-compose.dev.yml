@@ -33,7 +33,7 @@ services:
     ports:
       - "127.0.0.1:6380:6379"
     volumes:
-      - redis-data:/var/lib/redis/
+      - redis-data:/data
       - ./docker/redis-ext/redis.conf:/usr/local/etc/redis/redis.conf:ro
       - /var/run/redis:/var/run/redis
     command: redis-server /usr/local/etc/redis/redis.conf
