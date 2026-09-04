@@ -8,6 +8,32 @@ CTE-based graph traversal for edge table patterns.
 from tortoise_extended.expressions.graph_traversal import GraphTraversal
 ```
 
+## Types
+
+### TraversalNode
+
+```python
+class TraversalNode(msgspec.Struct):
+    id: int | str | UUID      # Primary key of the node
+    name: str                  # Display name of the node
+    depth: int                 # Depth/hierarchy value from the node table
+    path_depth: int            # Hop distance from the starting node
+```
+
+Returned by `ancestors` and `descendants`.
+
+### NeighborNode
+
+```python
+class NeighborNode(msgspec.Struct):
+    id: int | str | UUID      # Primary key of the node
+    name: str                  # Display name of the node
+    depth: int                 # Depth/hierarchy value from the node table
+    hops: int                  # Hop distance from the starting node
+```
+
+Returned by `neighbors`.
+
 ## Constructor
 
 ```python
@@ -25,10 +51,10 @@ GraphTraversal(
 
 ```python
 await traversal.ancestors(
-    node_id: Any,
+    node_id: int | str | UUID,
     max_depth: int = 10,
     edge_type: str | None = None,
-) -> list[dict]
+) -> list[TraversalNode]
 ```
 
 Find all ancestors via recursive CTE. Supports bidirectional edges.
@@ -37,10 +63,10 @@ Find all ancestors via recursive CTE. Supports bidirectional edges.
 
 ```python
 await traversal.descendants(
-    node_id: Any,
+    node_id: int | str | UUID,
     max_depth: int = 10,
     edge_type: str | None = None,
-) -> list[dict]
+) -> list[TraversalNode]
 ```
 
 Find all descendants via recursive CTE.
@@ -49,11 +75,11 @@ Find all descendants via recursive CTE.
 
 ```python
 await traversal.neighbors(
-    node_id: Any,
+    node_id: int | str | UUID,
     direction: str = "both",
     edge_type: str | None = None,
     max_depth: int = 1,
-) -> list[dict]
+) -> list[NeighborNode]
 ```
 
 Get neighbors within max_depth hops. Direction: `"outgoing"`, `"incoming"`, or `"both"`.
@@ -79,6 +105,8 @@ traversal = GraphTraversal(Entity, Relationship)
 
 # All ancestors of entity 42
 ancestors = await traversal.ancestors(node_id=42, max_depth=5)
+for node in ancestors:
+    print(f"{node.name} at depth {node.path_depth}")
 
 # Outgoing neighbors
 neighbors = await traversal.neighbors(
@@ -87,6 +115,8 @@ neighbors = await traversal.neighbors(
     edge_type="knows",
     max_depth=2,
 )
+for n in neighbors:
+    print(f"{n.name} ({n.hops} hops away)")
 
 # Check for cycles
 has_cycle = await traversal.has_cycle(max_depth=10)

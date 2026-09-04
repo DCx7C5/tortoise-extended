@@ -4,7 +4,7 @@ Provides recursive CTE traversal for graphs stored with separate node
 and edge tables. Supports ancestor/descendant queries, neighbor discovery,
 and cycle detection.
 
-Usage::
+Usage (illustrative; needs async context + configured DB)::
 
     from tortoise_extended.expressions.graph_traversal import GraphTraversal
 
@@ -20,18 +20,53 @@ Usage::
     neighbors = await traversal.neighbors(node_id, direction="both")
 """
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
+import msgspec
 from tortoise import connections
 
 from tortoise_extended._quote import quote_ident
-from tortoise_extended._types import RowMapping
+from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import GraphTraversalError
 from tortoise_extended.expressions._edge_filter import et_clause as _et_clause
 
 if TYPE_CHECKING:
     from tortoise.models import Model
+
+
+class TraversalNode(msgspec.Struct):
+    """A node returned by :meth:`GraphTraversal.ancestors` or
+    :meth:`GraphTraversal.descendants`.
+
+    Attributes:
+        id: Primary key of the node.
+        name: Display name of the node.
+        depth: Depth/hierarchy value stored on the node table.
+        path_depth: Hop distance from the starting node to this node.
+    """
+
+    id: int | str | UUID
+    name: str
+    depth: int
+    path_depth: int
+
+
+class NeighborNode(msgspec.Struct):
+    """A node returned by :meth:`GraphTraversal.neighbors`.
+
+    Attributes:
+        id: Primary key of the node.
+        name: Display name of the node.
+        depth: Depth/hierarchy value stored on the node table.
+        hops: Hop distance from the starting node to this neighbor.
+    """
+
+    id: int | str | UUID
+    name: str
+    depth: int
+    hops: int
 
 
 class GraphTraversal:
@@ -58,7 +93,7 @@ class GraphTraversal:
     - ``e.edge_type`` — string column on the edge table; required only when
       ``edge_type`` filtering is used
 
-    Usage::
+    Usage (illustrative; needs async context + configured DB)::
 
         from myapp.models import Entity, Relationship
 
@@ -109,7 +144,7 @@ class GraphTraversal:
         node_id: int | str | UUID,
         max_depth: int = 10,
         edge_type: str | None = None,
-    ) -> list[RowMapping]:
+    ) -> list[TraversalNode]:
         """Find all ancestors of a node using recursive CTE.
 
         Traverses edges in reverse (target → source) to find all nodes
@@ -118,7 +153,8 @@ class GraphTraversal:
         :param node_id: Starting node ID.
         :param max_depth: Maximum traversal depth.
         :param edge_type: Filter by edge type (None = all types).
-        :returns: List of node dicts ordered by depth ascending (root first).
+        :returns: List of :class:`TraversalNode` ordered by depth ascending
+            (root first).
         """
         et_clause, et_params = _et_clause(edge_type, 3)
 
@@ -156,14 +192,31 @@ class GraphTraversal:
         conn = connections.get("default")
         params: list[int | str | UUID] = [node_id, max_depth, *et_params]
         _, results = await conn.execute_query(sql, params)
-        return [cast(RowMapping, dict(r)) for r in results]
+        rows = cast(Sequence[RowMapping | tuple[RowValue, ...]], results)
+        out: list[TraversalNode] = []
+        for row in rows:
+            if isinstance(row, dict):
+                out.append(TraversalNode(
+                    id=cast(int | str | UUID, row["id"]),
+                    name=cast(str, row["name"]),
+                    depth=cast(int, row["depth"]),
+                    path_depth=cast(int, row["path_depth"]),
+                ))
+            else:
+                out.append(TraversalNode(
+                    cast(int | str | UUID, row[0]),
+                    cast(str, row[1]),
+                    cast(int, row[2]),
+                    cast(int, row[3]),
+                ))
+        return out
 
     async def descendants(
         self,
         node_id: int | str | UUID,
         max_depth: int = 10,
         edge_type: str | None = None,
-    ) -> list[RowMapping]:
+    ) -> list[TraversalNode]:
         """Find all descendants of a node using recursive CTE.
 
         Traverses edges forward (source → target) to find all nodes
@@ -172,7 +225,8 @@ class GraphTraversal:
         :param node_id: Starting node ID.
         :param max_depth: Maximum traversal depth.
         :param edge_type: Filter by edge type (None = all types).
-        :returns: List of node dicts ordered by depth ascending (children first).
+        :returns: List of :class:`TraversalNode` ordered by depth ascending
+            (children first).
         """
         et_clause, et_params = _et_clause(edge_type, 3)
 
@@ -210,7 +264,24 @@ class GraphTraversal:
         conn = connections.get("default")
         params: list[int | str | UUID] = [node_id, max_depth, *et_params]
         _, results = await conn.execute_query(sql, params)
-        return [cast(RowMapping, dict(r)) for r in results]
+        rows = cast(Sequence[RowMapping | tuple[RowValue, ...]], results)
+        out: list[TraversalNode] = []
+        for row in rows:
+            if isinstance(row, dict):
+                out.append(TraversalNode(
+                    id=cast(int | str | UUID, row["id"]),
+                    name=cast(str, row["name"]),
+                    depth=cast(int, row["depth"]),
+                    path_depth=cast(int, row["path_depth"]),
+                ))
+            else:
+                out.append(TraversalNode(
+                    cast(int | str | UUID, row[0]),
+                    cast(str, row[1]),
+                    cast(int, row[2]),
+                    cast(int, row[3]),
+                ))
+        return out
 
     async def neighbors(
         self,
@@ -218,14 +289,14 @@ class GraphTraversal:
         direction: str = "both",
         edge_type: str | None = None,
         max_depth: int = 1,
-    ) -> list[RowMapping]:
+    ) -> list[NeighborNode]:
         """Get neighbors within max_depth hops.
 
         :param node_id: Starting node ID.
         :param direction: ``"outgoing"``, ``"incoming"``, or ``"both"``.
         :param edge_type: Filter by edge type (None = all types).
         :param max_depth: Maximum traversal depth (1 = direct neighbors only).
-        :returns: List of neighbor node dicts (node columns plus ``hops``),
+        :returns: List of :class:`NeighborNode` (node columns plus ``hops``),
             ordered by hops ascending (closest neighbors first).
         :raises GraphTraversalError: If *direction* is not one of
             ``"outgoing"``, ``"incoming"``, or ``"both"``.
@@ -292,7 +363,24 @@ class GraphTraversal:
         conn = connections.get("default")
         params: list[int | str | UUID] = [node_id, max_depth, *et_params]
         _, results = await conn.execute_query(sql, params)
-        return [cast(RowMapping, dict(r)) for r in results]
+        rows = cast(Sequence[RowMapping | tuple[RowValue, ...]], results)
+        out: list[NeighborNode] = []
+        for row in rows:
+            if isinstance(row, dict):
+                out.append(NeighborNode(
+                    id=cast(int | str | UUID, row["id"]),
+                    name=cast(str, row["name"]),
+                    depth=cast(int, row["depth"]),
+                    hops=cast(int, row["hops"]),
+                ))
+            else:
+                out.append(NeighborNode(
+                    cast(int | str | UUID, row[0]),
+                    cast(str, row[1]),
+                    cast(int, row[2]),
+                    cast(int, row[3]),
+                ))
+        return out
 
     async def has_cycle(
         self,

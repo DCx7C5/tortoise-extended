@@ -26,6 +26,9 @@ package (and calling :func:`patch` if used) must happen before
         db_url="...",
         modules={"models": ["..."]},
     )
+
+The dev-only typing overlay lives in ``stubs/tortoise-stubs/``; see the drift
+note at the top of ``stubs/tortoise-stubs/__init__.pyi``.
 """
 
 from collections.abc import Awaitable, Callable
@@ -73,7 +76,11 @@ from tortoise_extended.expressions.graph_filters import (
     get_vector_filters,
     vector_encoder,
 )
-from tortoise_extended.expressions.graph_traversal import GraphTraversal
+from tortoise_extended.expressions.graph_traversal import (
+    GraphTraversal,
+    NeighborNode,
+    TraversalNode,
+)
 from tortoise_extended.expressions.graph_vector_search import (
     GraphVectorHit,
     GraphVectorSearch,
@@ -378,6 +385,7 @@ __all__ = [
     "LTreeField",
     "LTreeFieldError",
     "MigrationOperationError",
+    "NeighborNode",
     "PathField",
     "RecursiveCTE",
     "RecursiveCTEError",
@@ -390,6 +398,7 @@ __all__ = [
     "TimestampEndMixin",
     "TimestampMixin",
     "TortoiseExtendedError",
+    "TraversalNode",
     "URLField",
     "UUID4Field",
     "UUID7Field",

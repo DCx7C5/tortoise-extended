@@ -158,14 +158,14 @@ class TestTraversal:
         a, b, c, d, _ = await _make_tree()
         trav = GraphTraversal(ItNode, ItEdge)
         ancestors = await trav.ancestors(d.id, max_depth=5)
-        assert sorted(r["name"] for r in ancestors) == ["a", "b", "c"]
+        assert sorted(r.name for r in ancestors) == ["a", "b", "c"]
 
     @pytest.mark.asyncio
     async def test_descendants(self) -> None:
         a, b, c, d, x = await _make_tree()
         trav = GraphTraversal(ItNode, ItEdge)
         descendants = await trav.descendants(a.id, max_depth=5)
-        assert sorted(r["name"] for r in descendants) == ["b", "c", "d", "x"]
+        assert sorted(r.name for r in descendants) == ["b", "c", "d", "x"]
 
     @pytest.mark.asyncio
     async def test_descendants_deduplicated_by_node(self) -> None:
@@ -173,7 +173,7 @@ class TestTraversal:
         a, b, c, d, _ = await _make_tree()
         trav = GraphTraversal(ItNode, ItEdge)
         descendants = await trav.descendants(a.id, max_depth=5)
-        names = [r["name"] for r in descendants]
+        names = [r.name for r in descendants]
         assert len(names) == len(set(names))
         # b is reachable at depth 1 (direct) and depth 2 (via c); report once
         assert names.count("b") == 1
@@ -183,7 +183,7 @@ class TestTraversal:
         a, b, c, d, _ = await _make_tree()
         trav = GraphTraversal(ItNode, ItEdge)
         descendants = await trav.descendants(a.id, max_depth=5, edge_type="parent")
-        assert sorted(r["name"] for r in descendants) == ["b", "c", "d"]
+        assert sorted(r.name for r in descendants) == ["b", "c", "d"]
 
     @pytest.mark.asyncio
     async def test_edge_type_injection_payload_is_parameterized(self) -> None:
@@ -198,9 +198,9 @@ class TestTraversal:
         a, b, c, d, x = await _make_tree()
         trav = GraphTraversal(ItNode, ItEdge)
         outgoing = await trav.neighbors(a.id, direction="outgoing", max_depth=1)
-        assert sorted(r["name"] for r in outgoing) == ["b", "x"]
+        assert sorted(r.name for r in outgoing) == ["b", "x"]
         incoming = await trav.neighbors(d.id, direction="incoming", max_depth=1)
-        assert sorted(r["name"] for r in incoming) == ["b", "c"]
+        assert sorted(r.name for r in incoming) == ["b", "c"]
 
     @pytest.mark.asyncio
     async def test_neighbors_both_directions(self) -> None:
@@ -209,7 +209,7 @@ class TestTraversal:
         # b is reachable both ways: a->b (outgoing from a) and b->c (outgoing
         # from b, so incoming to b). "both" must follow edges in either direction.
         both = await trav.neighbors(b.id, direction="both", max_depth=1)
-        assert sorted(r["name"] for r in both) == ["a", "c", "d"]
+        assert sorted(r.name for r in both) == ["a", "c", "d"]
 
     @pytest.mark.asyncio
     async def test_custom_source_target_fields(self) -> None:
@@ -224,7 +224,7 @@ class TestTraversal:
             target_field="to_node",
         )
         descendants = await trav.descendants(a.id, max_depth=5)
-        assert sorted(r["name"] for r in descendants) == ["b", "c"]
+        assert sorted(r.name for r in descendants) == ["b", "c"]
 
     @pytest.mark.asyncio
     async def test_unknown_edge_field_raises(self) -> None:
@@ -258,7 +258,7 @@ class TestTraversal:
             await ItEdge.create(source_id=src, target_id=tgt)
         trav = GraphTraversal(ItNode, ItEdge)
         descendants = await trav.descendants(a.id, max_depth=6)
-        names = [r["name"] for r in descendants]
+        names = [r.name for r in descendants]
         assert sorted(names) == ["p", "q", "r"]
         assert len(names) == len(set(names))
 

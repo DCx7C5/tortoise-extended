@@ -197,10 +197,10 @@ neighbors = await traversal.neighbors(
 )
 
 for row in neighbors:
-    if row["hops"] == 0:
-        print(f"Center: {row['name']}")
+    if row.hops == 0:
+        print(f"Center: {row.name}")
     else:
-        print(f"  Hop {row['hops']}: {row['name']}")
+        print(f"  Hop {row.hops}: {row.name}")
 ```
 
 ### Pattern 2: Entity Resolution

@@ -7,6 +7,10 @@ from tortoise_extended.expressions.graph_filters import (
     JaccardDistance,
     L2Distance,
 )
+from tortoise_extended.expressions.graph_traversal import (
+    NeighborNode,
+    TraversalNode,
+)
 from tortoise_extended.expressions.ltree_filters import (
     LTreeAncestorMatch,
     LTreeAncestorOf,
@@ -35,5 +39,7 @@ __all__ = [
     "LTreeDescendantMatch",
     "LTreeDescendantOf",
     "LTreeMatch",
+    "NeighborNode",
     "RecursiveCTE",
+    "TraversalNode",
 ]
