@@ -348,7 +348,7 @@ imports = await CodeLink.outgoing(source_id=file.id, edge_type="imports").all()
 
 **Why:** trees you query by subtree → ltree (`@>`/`<@` are index-assisted);
 cyclic or cross-type links → adjacency edge table. See
-`doc/guides/project-file-tree.md`.
+`../guides/project-file-tree.md`.
 
 ### Scenario 3 — Event stream analytics (COPY ingestion + rollups)
 
@@ -540,7 +540,7 @@ auto-filters `deleted_at IS NULL` on every default-manager query while
 6. **BaseGraphEdgeModel helpers are sync QuerySet-returning**: call `.all()` (async) to execute
 7. **Cache is optional**: Redis must be initialized separately via `RedisCache.init()`
 8. **CachedQuerySet**: construct it directly (`CachedQuerySet(Model)`) or wire it as a custom manager — plain `Model.filter()` returns a standard QuerySet without `.cache()`
-9. **BaseEventStreamModel**: PostgreSQL + the time partition column must be covered by a PK / unique index (and any space-dimension column too when `number_partitions` is set — see `doc/api/event-streams.md`); `bulk_insert` uses COPY and cannot generate identity IDs
+9. **BaseEventStreamModel**: PostgreSQL + the time partition column must be covered by a PK / unique index (and any space-dimension column too when `number_partitions` is set — see `../api/event-streams.md`); `bulk_insert` uses COPY and cannot generate identity IDs
 10. **TimescaleDB**: Table must be a hypertable before compression/retention
 11. **Meta.indexes are not inherited** from abstract bases — redeclare them on every concrete subclass (`BaseHierarchyModel`, `BaseModel`, `BaseSoftDeleteModel`, `TimestampMixin`)
 12. **Bases with their own pk collide**: don't stack `BaseModel` with `BaseGraphNodeModel`/`BaseGraphEdgeModel`/`BaseHierarchyModel`/`BaseEventStreamModel`

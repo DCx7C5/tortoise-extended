@@ -177,7 +177,7 @@
 
 ## B. Files + ltree graphs — design
 
-Two shapes, used together (see `doc/guides/project-file-tree.md` for the
+Two shapes, used together (see `docs/guides/project-file-tree.md` for the
 wiring guide):
 
 ```python

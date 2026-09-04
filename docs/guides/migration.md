@@ -254,7 +254,7 @@ result = await connections.get("default").execute_query(
 
 > **Note:** tortoise-extended deliberately does **not** integrate Apache AGE —
 > the graph layer is built on plain PostgreSQL tables + recursive CTEs
-> (see `doc/architecture/design-decisions.md`). There is nothing to uninstall;
+> (see `../architecture/design-decisions.md`). There is nothing to uninstall;
 > you simply keep using PostgreSQL and migrate your Cypher queries to the
 > QuerySet / `GraphTraversal` API.
 

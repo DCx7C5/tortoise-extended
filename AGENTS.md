@@ -348,15 +348,15 @@ to the project (`[tool.uv] package = true` is already set).
 
 ## Documentation
 
-User-facing docs live in `doc/` and must stay in sync with code:
+User-facing docs live in `docs/` and must stay in sync with code:
 
-- `doc/getting-started/` — installation, quickstart, configuration
-- `doc/architecture/` — overview, schema, vector search, graph traversal, design decisions
-- `doc/api/` — API reference
-- `doc/guides/` — migration, performance, troubleshooting
-- `doc/docker/` — docker setup and configuration
+- `docs/getting-started/` — installation, quickstart, configuration
+- `docs/architecture/` — overview, schema, vector search, graph traversal, design decisions
+- `docs/api/` — API reference
+- `docs/guides/` — migration, performance, troubleshooting
+- `docs/docker/` — docker setup and configuration
 
-When changing public API, update the relevant `doc/api/*.md` and the module docstring in the same
+When changing public API, update the relevant `docs/api/*.md` and the module docstring in the same
 change.
 
 ### Sub-agent audit report contract (read-only auditors)

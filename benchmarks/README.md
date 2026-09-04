@@ -27,7 +27,7 @@ variable (default: `postgres://postgres:postgres@localhost:5433/tortoise_test`).
 
 ## Provenance of documented numbers
 
-The RPS/latency tables in `README.md` and `doc/architecture/*` (e.g.
+The RPS/latency tables in `README.md` and `../docs/architecture/*` (e.g.
 "22,581 RPS, 4ms p95", "290x faster than AGE") are **illustrative**,
 machine-dependent figures. The `22,581 RPS` figure predates this harness and
 the AGE/Neo4j comparison rows cannot be reproduced without those systems

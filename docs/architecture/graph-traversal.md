@@ -214,7 +214,7 @@ for row in matches:
 ```
 
 For true pg_trgm similarity scoring, compute it inline with a raw expression
-(see `doc/guides/performance.md`).
+(see `../guides/performance.md`).
 
 ### Pattern 3: Community Exploration
 

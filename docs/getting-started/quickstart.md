@@ -20,7 +20,7 @@ import tortoise_extended  # Must be first import — applies monkey-patches
 tortoise_extended.patch()  # Explicit: apply all monkey-patches (idempotent)
 from tortoise import Tortoise
 
-# Define your models (see doc/architecture/schema.md for the GraphRAG schema)
+# Define your models (see docs/architecture/schema.md for the GraphRAG schema)
 from myapp.models import Entity, Relationship, TextUnit
 
 
@@ -100,7 +100,7 @@ async def graph_traversal():
 > `BaseGraphEdgeModel.outgoing(...)` / `BaseGraphEdgeModel.incoming(...)` classmethods above, or use
 > `GraphTraversal` for multi-hop traversal. If you instead declare real
 > `ForeignKeyField` relations on your own models (as in
-> `doc/architecture/schema.md`), Tortoise's `related_name` back-references work
+> `../architecture/schema.md`), Tortoise's `related_name` back-references work
 > as usual.
 
 ## 6. Graph Queries (Python API)

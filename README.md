@@ -451,13 +451,13 @@ on your hardware.
 
 ## Documentation
 
-Detailed documentation is available in the [`doc/`](doc/) directory:
+Detailed documentation is available in the [`docs/`](docs/) directory:
 
-- **[Getting Started](doc/getting-started/)** — Installation, quickstart, configuration
-- **[Architecture](doc/architecture/)** — Overview, schema, vector search, graph traversal, design decisions
-- **[API Reference](doc/api/)** — Complete API docs for all modules
-- **[Guides](doc/guides/)** — Migration, performance tuning, troubleshooting
-- **[Docker](doc/docker/)** — Setup and configuration
+- **[Getting Started](docs/getting-started/)** — Installation, quickstart, configuration
+- **[Architecture](docs/architecture/)** — Overview, schema, vector search, graph traversal, design decisions
+- **[API Reference](docs/api/)** — Complete API docs for all modules
+- **[Guides](docs/guides/)** — Migration, performance tuning, troubleshooting
+- **[Docker](docs/docker/)** — Setup and configuration
 
 ## License
 

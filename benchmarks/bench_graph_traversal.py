@@ -25,7 +25,7 @@ Options:
 The database URL can be overridden with the ``BENCH_DB_URL`` environment
 variable (default: ``postgres://postgres:postgres@localhost:5433/tortoise_test``).
 
-The README/doc tables quoting "22,581 RPS / 4ms p95" are *illustrative* and
+The README/docs tables quoting "22,581 RPS / 4ms p95" are *illustrative* and
 machine-dependent; run this script on your own hardware for current numbers.
 """
 
