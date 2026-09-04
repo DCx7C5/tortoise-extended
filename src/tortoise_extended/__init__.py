@@ -238,6 +238,27 @@ def _apply_patches() -> None:
     """Apply all monkey-patches to tortoise-orm.
 
     Called at import time. Safe to call multiple times (idempotent).
+
+    Every patch follows the same contract: it checks a guard condition
+    (``hasattr``, a ``_tortoise_extended_patched`` flag, or an
+    ``__all__`` membership test) before applying the mutation.  If the
+    target is already present the patch is a no-op, so re-importing the
+    package or calling ``patch()`` more than once has no effect.
+
+    Patch sites and their guards:
+
+    1. **VectorField registration** (``tortoise.fields.VectorField``) —
+       ``hasattr(_fields_mod, "VectorField")``.
+    2. **Index types** (``tortoise.indexes.{HNSWIndex,IVFFlatIndex,GiSTIndex}``) —
+       ``hasattr(_indexes_mod, "<Name>")`` per type.
+    3. **Filter extension** (``tortoise.filters.get_filters_for_field``) —
+       ``_tortoise_extended_patched`` flag on the module.
+    4. **asyncpg codec** (``asyncpg.Pool`` init hooks) —
+       ``_pgvector_codec_init`` flag on the pool class.
+    5. **Migration generation** (``MigrationGenerator.generate``) —
+       ``_tortoise_extended_patched`` flag on the generator class.
+    6. **MigrationWriter** (``MigrationWriter._format_operation``) —
+       ``_tortoise_extended_patched`` flag on the writer class.
     """
     import tortoise.backends.asyncpg.client as _asyncpg_client_mod
     import tortoise.fields as _fields_mod
