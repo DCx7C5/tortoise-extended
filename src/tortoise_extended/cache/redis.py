@@ -118,7 +118,7 @@ class RedisCache:
             else:
                 await old_pool.close()
         instance._pool = new_pool
-        logger.info("Redis cache connected: %s", url.split("@")[-1])
+        logger.info("Redis cache connected")
 
     @classmethod
     async def close(cls) -> None:
