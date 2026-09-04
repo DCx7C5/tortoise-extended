@@ -28,7 +28,127 @@ target-version = "py314"
 [tool.ruff.lint]
 ignore = ["RUF002"]
 
+[tool.basedpyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.14"
+venvPath = "."
+venv = ".venv"
+stubPath = "src/tortoise_extended/stubs"
+
+include = ["src", "tests"]
+exclude = [
+    "**/__pycache__",
+    "**/.venv",
+    "**/venv",
+    "**/.ai",
+    "**/agents",
+    "**/commands",
+    "**/node_modules",
+    "**/build",
+    "**/dist",
+    "**/.git",
+    "**/*.md",
+]
+
+# --- errors ---
+reportAttributeAccessIssue = "error"
+reportUndefinedVariable = "error"
+reportMissingImports = "error"
+reportArgumentType = "error"
+reportAssignmentType = "error"
+reportReturnType = "error"
+reportCallIssue = "error"
+reportInvalidTypeForm = "error"
+reportUnusedCoroutine = "error"
+reportOptionalMemberAccess = "error"
+reportOptionalCall = "error"
+reportOptionalSubscript = "error"
+reportOptionalIterable = "error"
+reportOptionalContextManager = "error"
+reportOptionalOperand = "error"
+reportIncompatibleMethodOverride = "error"
+reportInconsistentConstructor = "error"
+reportInvalidStringEscapeSequence = "error"
+reportMatchNotExhaustive = "error"
+reportAssertAlwaysTrue = "error"
+reportUnreachable = "error"
+reportMissingParameterType = "error"
+reportPropertyTypeMismatch = "error"
+reportUnnecessaryComparison = "error"
+reportUnnecessaryContains = "error"
+reportUnnecessaryIsInstance = "error"
+reportUnnecessaryCast = "error"
+reportInvalidCast = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+reportExplicitAny = "error"
+reportDeprecated = "error"
+reportInvalidAbstractMethod = "error"
+reportMissingSuperCall = "error"
+
+# --- warnings ---
+reportUnusedImport = "warning"
+reportUnusedVariable = "warning"
+reportUnusedClass = "warning"
+reportUnusedFunction = "warning"
+reportUnusedParameter = "warning"
+reportUnusedExpression = "warning"
+reportUnusedCallResult = "warning"
+reportUnknownArgumentType = "warning"
+reportUnknownLambdaType = "warning"
+reportUnknownMemberType = "warning"
+reportUnknownParameterType = "warning"
+reportUnknownVariableType = "warning"
+reportMissingModuleSource = "warning"
+reportInvalidTypeVarUse = "warning"
+reportSelfClsParameterName = "warning"
+reportUnsupportedDunderAll = "warning"
+reportWildcardImportFromLibrary = "warning"
+reportConstantRedefinition = "warning"
+reportDuplicateImport = "warning"
+reportMissingTypeArgument = "warning"
+reportPrivateUsage = "warning"
+reportImplicitOverride = "warning"
+reportUnsafeMultipleInheritance = "warning"
+
+# --- none ---
+reportImportCycles = "none"
+reportIncompatibleVariableOverride = "none"
+reportUninitializedInstanceVariable = "none"
+reportAny = "none"
+reportIncompleteStub = "none"
+reportInvalidStubStatement = "none"
+reportMissingTypeStubs = "none"
+reportTypeCommentUsage = "none"
+reportUntypedBaseClass = "none"
+reportUntypedClassDecorator = "none"
+reportUntypedFunctionDecorator = "none"
+reportUntypedNamedTuple = "none"
+reportCallInDefaultInitializer = "none"
+reportImplicitStringConcatenation = "none"
+
+enableTypeIgnoreComments = false
+strictListInference = false
+strictDictionaryInference = false
+strictSetInference = false
+
+# Per-root environments. `src/tortoise_extended` inherits the strict map above;
+# `tests` is intentionally NOT strict-type-gated (AGENTS.md §2) — pytest fixtures,
+# test doubles and deliberate protected/monkey-patch access are harness looseness,
+# not contract breaks, so the harness-noise rules are relaxed there.
+executionEnvironments = [
+    { root = "src/tortoise_extended" },
+    { root = "tests", extraPaths = ["."], reportArgumentType = "none", reportMissingParameterType = "none", reportAttributeAccessIssue = "none", reportOperatorIssue = "none", reportPrivateImportUsage = "none", reportIndexIssue = "none", reportTypedDictNotRequiredAccess = "none", reportCallIssue = "none", reportFunctionMemberAccess = "none", reportUnnecessaryTypeIgnoreComment = "none", reportAbstractUsage = "none", reportOptionalSubscript = "none", reportUnnecessaryIsInstance = "none", reportIncompatibleMethodOverride = "none", reportUnreachable = "none", reportUnusedCallResult = "none", reportPrivateUsage = "none", reportUnusedVariable = "none", reportUnknownParameterType = "none", reportUnknownMemberType = "none", reportUnknownVariableType = "none", reportUnusedParameter = "none", reportUnknownArgumentType = "none", reportImplicitOverride = "none", reportUnusedFunction = "none", reportUnusedImport = "none", reportMissingTypeArgument = "none", reportUnknownLambdaType = "none" },
+]
+
 [tool.hatch.build.targets.wheel]
+# `src/tortoise_extended` is the library itself. The `tortoise-orm` typing overlay
+# lives under `src/tortoise_extended/stubs/tortoise-stubs/` and is DEV-ONLY: it is
+# NOT shipped in the wheel. The strict type gate resolves `tortoise.*` by pointing
+# pyrightconfig.json `stubPath` at `src/tortoise_extended/stubs` (a `tortoise-stubs`
+# package that merges onto `tortoise.*`), layered over the upstream `tortoise-orm-stubs`
+# dependency. Consumers get correct `tortoise.*` typing from the upstream stubs +
+# runtime; the local overlay only corrects specific typing gaps for this library's
+# dev gate and stays out of the published artifact.
 packages = ["src/tortoise_extended"]
 
 [tool.pytest.ini_options]
