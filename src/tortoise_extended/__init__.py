@@ -238,6 +238,26 @@ def _apply_patches() -> None:
     """Apply all monkey-patches to tortoise-orm.
 
     Called at import time. Safe to call multiple times (idempotent).
+
+    Idempotency contract: every patch guards itself before mutating
+    tortoise-orm, so re-running ``_apply_patches()`` (via the public
+    ``patch()``) never double-registers or corrupts state:
+
+    - VectorField / HNSWIndex / IVFFlatIndex / GiSTIndex registration is
+      guarded by ``hasattr(module, name)`` — a second call skips the
+      registration (and never re-appends to ``__all__``).
+    - The ``get_filters_for_field`` patch is guarded by the
+      ``_tortoise_extended_patched`` sentinel on ``tortoise.filters``; the
+      matching local reference in ``tortoise.models`` (which imports the
+      function by ``from ... import``) is updated inside the same guard.
+    - The asyncpg ``create_pool`` codec patch is guarded by the
+      ``_tortoise_extended_codec_patched`` sentinel on
+      ``AsyncpgDBClient`` and returns early when already applied.
+
+    New patches MUST follow the same pattern: an ``hasattr(...)`` or
+    ``_tortoise_extended_patched``-style flag check before mutating, and
+    when patching a function also patching ``tortoise.models`` local
+    references if that module re-imports it.
     """
     import tortoise.backends.asyncpg.client as _asyncpg_client_mod
     import tortoise.fields as _fields_mod

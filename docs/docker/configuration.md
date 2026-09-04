@@ -6,7 +6,7 @@ This page documents the Docker Compose dev stack in `docker-compose.dev.yml`.
 
 | Service       | Image / Build                                   | Host port    | Purpose            |
 |---------------|-------------------------------------------------|--------------|--------------------|
-| `postgres-ext`| `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.5, TimescaleDB) | `127.0.0.1:5433` | Graph/vector DB |
+| `postgres-ext`| `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.6, TimescaleDB) | `127.0.0.1:5433` | Graph/vector DB |
 | `redis-ext`   | `redis:7-alpine`                                | `127.0.0.1:6380` | Cache backend      |
 
 ## Environment File
@@ -18,9 +18,24 @@ root before starting the stack:
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=tortoise_extended
+REDIS_PASSWORD=your_dev_redis_password   # optional — see Redis auth below
 ```
 
 `REDIS_*` variables are used if you override the Redis service settings.
+
+### Redis authentication (optional)
+
+The `redis-ext` container binds only to `127.0.0.1:6380`. To additionally
+require authentication, set `REDIS_PASSWORD` in `.env` — the image's
+`entrypoint.sh` then starts `redis-server` with `--requirepass`. Connection
+strings for the cache layer must include it:
+
+```python
+db_url = "redis://:your_dev_redis_password@127.0.0.1:6380/0"
+```
+
+When unset, the server starts without a password. No secret is ever
+committed to the repository.
 
 ## Starting / Stopping
 
@@ -50,8 +65,8 @@ db_url = "postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
 # psql
 psql -h 127.0.0.1 -p 5433 -U postgres tortoise_extended
 
-# Redis
-redis-cli -h 127.0.0.1 -p 6380
+# Redis (add `-a <password>` if REDIS_PASSWORD is set)
+redis-cli -h 127.0.0.1 -p 6380 ping
 ```
 
 ## Pinning Policy

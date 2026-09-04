@@ -27,6 +27,7 @@ from tortoise_extended.expressions.pgcrypto import (
     _DigestHexFunction,
     _HMACFunction,
 )
+from tortoise_extended.exceptions import PgCryptoError
 
 
 # =========================================================================
@@ -108,6 +109,31 @@ class TestPgcryptoSQL:
         sql = func.get_sql(DEFAULT_SQL_CONTEXT)
         assert "DIGEST(" in sql.upper()
         assert "'sha256'" in sql
+
+
+class TestPgcryptoAlgorithmAllowlist:
+    """The algorithm argument is restricted to a fixed, safe allowlist."""
+
+    @pytest.mark.parametrize(
+        "algo",
+        ["md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
+    )
+    def test_supported_algorithms_accepted(self, algo: str) -> None:
+        """Every pgcrypto-supported algorithm is accepted by all three helpers."""
+        Digest("col", algo)
+        DigestHex("col", algo)
+        HMACDigest("col", "key", algo)
+
+    @pytest.mark.parametrize("helper", [Digest, DigestHex])
+    def test_helpers_reject_unknown_algorithm(self, helper) -> None:
+        """An unknown/abusive algorithm raises PgCryptoError (SQLi guard)."""
+        with pytest.raises(PgCryptoError):
+            helper("col", "sha256'; DROP TABLE x; --")
+
+    def test_hmac_rejects_unknown_algorithm(self) -> None:
+        """HMACDigest also validates the algorithm argument."""
+        with pytest.raises(PgCryptoError):
+            HMACDigest("col", "key", "nonexistent")
 
 
 # =========================================================================

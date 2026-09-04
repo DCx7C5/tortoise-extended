@@ -33,6 +33,50 @@ if TYPE_CHECKING:
 from tortoise_extended.expressions.graph_filters import vector_encoder
 
 
+#: PostgreSQL built-in ``regconfig`` (text search configuration) names that
+#: :class:`HybridSearch` accepts for ``fts_language``. Only these are allowed —
+#: the value is embedded into ``plainto_tsquery(<lang>, $2)`` and, while it is
+#: SQL-escaped via ``quote_literal``, restricting it to a fixed allowlist gives
+#: defense-in-depth against a caller passing an arbitrary/abusive token and
+#: surfaces config typos early with a clear error instead of a server-side
+#: ``regconfig`` lookup failure. ``english`` and ``simple`` ship with core
+#: PostgreSQL; other entries require the corresponding ``tsearch`` dictionary
+#: (usually provided by the distro ``postgresql-contrib``). Extend this set if
+#: the deployment installs a custom configuration.
+_FTS_LANGUAGES: frozenset[str] = frozenset(
+    {
+        "simple",
+        "english",
+        "french",
+        "german",
+        "spanish",
+        "italian",
+        "dutch",
+        "portuguese",
+        "russian",
+        "danish",
+        "finnish",
+        "norwegian",
+        "swedish",
+        "hungarian",
+        "polish",
+        "romanian",
+        "czech",
+        "greek",
+        "turkish",
+        "arabic",
+        "catalan",
+        "hebrew",
+        "hindi",
+        "japanese",
+        "korean",
+        "tamil",
+        "thai",
+        "indonesian",
+    }
+)
+
+
 class HybridSearch:
     """Combined vector similarity + full-text search with weighted scoring.
 
@@ -91,6 +135,12 @@ class HybridSearch:
             raise HybridSearchError(
                 f"Unsupported distance_metric {distance_metric!r}; "
                 f"expected one of {', '.join(self._METRICS)}"
+            )
+        if fts_language not in _FTS_LANGUAGES:
+            raise HybridSearchError(
+                f"Unsupported fts_language {fts_language!r}; "
+                f"expected one of PostgreSQL's built-in regconfig names: "
+                f"{', '.join(sorted(_FTS_LANGUAGES))}"
             )
         fields_map = model._meta.fields_map
         for name in (vector_field, text_field):

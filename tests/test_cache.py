@@ -3,6 +3,7 @@
 Tests cache backend, decorators, queryset caching, and model caching.
 """
 
+import pickle
 from uuid import uuid4
 
 import pytest
@@ -149,6 +150,23 @@ class TestPickleSerializer:
         s = PickleSerializer()
         data = {"key": "value", "num": 42}
         assert s.loads(s.dumps(data)) == data
+
+    def test_rejects_arbitrary_class_reconstruction(self):
+        """Cache poisoning guard: __reduce__ RCE payloads must be refused."""
+
+        class Evil:
+            def __reduce__(self):
+                return eval, ("__import__('os').system('true')",)
+
+        s = PickleSerializer()
+        with pytest.raises(pickle.UnpicklingError):
+            s.loads(pickle.dumps(Evil()))
+
+    def test_rejects_size_overflow(self):
+        """Oversized payloads beyond max_pickle_size are refused."""
+        s = PickleSerializer(max_pickle_size=64)
+        with pytest.raises(pickle.UnpicklingError):
+            s.loads(s.dumps({"x": "y" * 100}))
 
 
 class TestNullSerializer:

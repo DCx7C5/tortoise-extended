@@ -161,6 +161,15 @@ class ContinuousAggregateManager:
             a bare SELECT may legitimately contain that literal text,
             silently bypassing validation (G23).
 
+        .. danger::
+
+            ``allow_full_statement=True`` bypasses **all** query validation
+            and executes *query* verbatim on the database connection. Only
+            ever set it for fully trusted, application-controlled SQL
+            constants — never for data derived from user input, request
+            bodies, or configuration you do not own. The query must be a
+            non-empty statement, otherwise :class:`ValueError` is raised.
+
         Example (illustrative; needs async context + configured DB)::
 
             await ContinuousAggregateManager.create(
@@ -174,8 +183,16 @@ class ContinuousAggregateManager:
 
         if allow_full_statement:
             # Trusted verbatim passthrough (caller-supplied complete
-            # CREATE MATERIALIZED VIEW statement).
+            # CREATE MATERIALIZED VIEW statement). This intentionally
+            # bypasses validate_cagg_query() — it is a SECURITY BOUNDARY that
+            # assumes the caller passes fully trusted, application-controlled
+            # SQL. Never pass user-provided or partially trusted input here.
             query = query.strip()
+            if not query:
+                raise ValueError(
+                    "Continuous aggregate query must be a non-empty statement "
+                    "when allow_full_statement=True"
+                )
         else:
             inner = validate_cagg_query(query, _source_table)
             data_clause = "DATA" if with_data else "NO DATA"

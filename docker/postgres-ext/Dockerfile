@@ -1,9 +1,9 @@
-FROM postgres:18@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 AS builder
+FROM postgres:18@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280 AS builder
 
-ARG PGVECTOR_VERSION=0.8.5
-ARG PGVECTOR_COMMIT=159b79a
-ARG TIMESCALEDB_VERSION=2.28.3
-ARG TIMESCALEDB_COMMIT=4a77ff5
+ARG PGVECTOR_VERSION=0.8.6
+ARG PGVECTOR_COMMIT=8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c
+ARG TIMESCALEDB_VERSION=2.29.2
+ARG TIMESCALEDB_COMMIT=165b77b9670b8f13103f9d3da733559d27ca4293
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
@@ -37,7 +37,7 @@ RUN git clone https://github.com/timescale/timescaledb.git . \
 RUN ./bootstrap -DAPPLY_LIBRARY_TWEAKS=ON -DREGRESS_CHECKS=OFF -DCMAKE_BUILD_TYPE=Release \
     && cd build && make -j$(nproc) && make install
 
-FROM postgres:18@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20
+FROM postgres:18@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
 
 
 # Copy compiled extension artifacts from builder
