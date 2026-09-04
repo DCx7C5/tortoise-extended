@@ -3,7 +3,7 @@
 Provides continuous aggregates for materialized views that auto-refresh.
 Requires: TimescaleDB extension
 
-Usage::
+Usage (illustrative; needs async context + configured DB)::
 
     from tortoise_extended.timescale import ContinuousAggregateManager
 
@@ -31,12 +31,27 @@ from collections.abc import Sequence
 import re
 from typing import cast
 
+import msgspec
 from tortoise import connections
 from tortoise.backends.base.client import BaseDBAsyncClient
 
 from tortoise_extended._quote import quote_ident, quote_literal
 from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import TimescaleError
+
+
+class ContinuousAggregateInfo(msgspec.Struct):
+    """One continuous aggregate returned by
+    :meth:`ContinuousAggregateManager.list`.
+
+    Attributes:
+        view_name: Name of the continuous aggregate materialized view.
+        view_definition: The ``SELECT`` statement the aggregate is
+            materialized from (as stored by TimescaleDB).
+    """
+
+    view_name: str
+    view_definition: str
 
 
 def validate_cagg_query(query: str, source_table: str | None = None) -> str:
@@ -146,7 +161,7 @@ class ContinuousAggregateManager:
             a bare SELECT may legitimately contain that literal text,
             silently bypassing validation (G23).
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await ContinuousAggregateManager.create(
                 "daily_events",
@@ -190,7 +205,7 @@ class ContinuousAggregateManager:
             if_exists: Don't error if doesn't exist
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await ContinuousAggregateManager.drop("daily_events")
         """
@@ -223,7 +238,7 @@ class ContinuousAggregateManager:
             end_time: Optional end of refresh window
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             # Refresh entire aggregate
             await ContinuousAggregateManager.refresh("daily_events")
@@ -280,7 +295,7 @@ class ContinuousAggregateManager:
         the policy with "policy refresh window too small". For a daily
         aggregate, offsets of ``"1 week"`` / ``"1 day"`` are safe defaults.
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await ContinuousAggregateManager.set_refresh_policy(
                 "daily_events",
@@ -317,7 +332,7 @@ class ContinuousAggregateManager:
             view_name: Name of the continuous aggregate
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await ContinuousAggregateManager.remove_refresh_policy("daily_events")
         """
@@ -342,7 +357,7 @@ class ContinuousAggregateManager:
             view_name: Name of the continuous aggregate
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await ContinuousAggregateManager.add_realtime_aggregate("daily_events")
         """
@@ -362,20 +377,21 @@ class ContinuousAggregateManager:
     @staticmethod
     async def list(
         using_db: BaseDBAsyncClient | None = None,
-    ) -> list[RowMapping]:
+    ) -> list[ContinuousAggregateInfo]:
         """List all continuous aggregates.
 
         Args:
             using_db: Database connection to use (default: 'default')
 
         Returns:
-            List of dicts with aggregate information
+            List of :class:`ContinuousAggregateInfo` structs describing each
+            continuous aggregate.
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             aggregates = await ContinuousAggregateManager.list()
             for agg in aggregates:
-                print(f"{agg['view_name']}: {agg['query']}")
+                print(f"{agg.view_name}: {agg.view_definition}")
         """
         conn = using_db or connections.get("default")
 
@@ -397,4 +413,20 @@ class ContinuousAggregateManager:
             result[1] if isinstance(result, tuple) else result,
         )
 
-        return [dict(cast(RowMapping, row)) for row in rows]
+        infos: list[ContinuousAggregateInfo] = []
+        for row in rows:
+            if isinstance(row, dict):
+                infos.append(
+                    ContinuousAggregateInfo(
+                        view_name=cast(str, row["view_name"]),
+                        view_definition=cast(str, row["view_definition"]),
+                    )
+                )
+            else:
+                infos.append(
+                    ContinuousAggregateInfo(
+                        cast(str, row[0]),
+                        cast(str, row[1]),
+                    )
+                )
+        return infos

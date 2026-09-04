@@ -3,7 +3,7 @@
 Converts regular PostgreSQL tables to hypertables for time-series data.
 Requires: TimescaleDB extension
 
-Usage::
+Usage (illustrative; needs async context + configured DB)::
 
     from tortoise_extended.timescale import HypertableManager
 
@@ -21,12 +21,31 @@ Usage::
 from collections.abc import Sequence
 from typing import cast
 
+import msgspec
 from tortoise import connections
 from tortoise.backends.base.client import BaseDBAsyncClient
 
 from tortoise_extended._quote import quote_ident, quote_literal
 from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import TimescaleError
+
+
+class HypertableInfo(msgspec.Struct):
+    """One hypertable returned by :meth:`HypertableManager.list_hypertables`.
+
+    Attributes:
+        table_name: Schema-qualified hypertable name (``schema.table``).
+        num_chunks: Number of chunks currently stored for this hypertable.
+        compression_enabled: Whether columnstore/compression is enabled on
+            the hypertable.
+        table_size: Human-readable total size of the hypertable as reported
+            by ``hypertable_size()`` (e.g. ``"8192 kB"``).
+    """
+
+    table_name: str
+    num_chunks: int
+    compression_enabled: bool
+    table_size: str
 
 
 def _split_schema_name(name: str) -> tuple[str | None, str]:
@@ -105,7 +124,7 @@ class HypertableManager:
                 covered by the table's primary key / a unique index (when
                 ``validate_time_column`` is True).
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await HypertableManager.create_hypertable(
                 "events",
@@ -224,7 +243,7 @@ class HypertableManager:
             if_exists: Don't error if doesn't exist
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await HypertableManager.drop_hypertable("events")
         """
@@ -258,7 +277,7 @@ class HypertableManager:
         Returns:
             True if the table is a hypertable
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             is_hypertable = await HypertableManager.is_hypertable("events")
             if not is_hypertable:
@@ -309,7 +328,7 @@ class HypertableManager:
     async def list_hypertables(
         extension_schema: str = "public",
         using_db: BaseDBAsyncClient | None = None,
-    ) -> list[RowMapping]:
+    ) -> list[HypertableInfo]:
         """List all hypertables in the database.
 
         Args:
@@ -319,13 +338,14 @@ class HypertableManager:
             using_db: Database connection to use (default: 'default')
 
         Returns:
-            List of dicts with hypertable information
+            List of :class:`HypertableInfo` structs describing each
+            hypertable.
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             hypertables = await HypertableManager.list_hypertables()
             for ht in hypertables:
-                print(f"{ht['table_name']}: {ht['num_chunks']} chunks")
+                print(f"{ht.table_name}: {ht.num_chunks} chunks")
         """
         conn = using_db or connections.get("default")
 
@@ -351,7 +371,27 @@ class HypertableManager:
             result[1] if isinstance(result, tuple) else result,
         )
 
-        return [dict(cast(RowMapping, row)) for row in rows]
+        infos: list[HypertableInfo] = []
+        for row in rows:
+            if isinstance(row, dict):
+                infos.append(
+                    HypertableInfo(
+                        table_name=cast(str, row["table_name"]),
+                        num_chunks=cast(int, row["num_chunks"]),
+                        compression_enabled=cast(bool, row["compression_enabled"]),
+                        table_size=cast(str, row["table_size"]),
+                    )
+                )
+            else:
+                infos.append(
+                    HypertableInfo(
+                        cast(str, row[0]),
+                        cast(int, row[1]),
+                        cast(bool, row[2]),
+                        cast(str, row[3]),
+                    )
+                )
+        return infos
 
     @staticmethod
     async def add_dimension(
@@ -379,7 +419,7 @@ class HypertableManager:
                 ``number_partitions`` is provided.
             TimescaleError: If the dimension cannot be added.
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             # Add space dimension for multi-tenant data
             await HypertableManager.add_dimension(
@@ -440,7 +480,7 @@ class HypertableManager:
         Returns:
             List of chunk names
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             chunks = await HypertableManager.show_chunks(
                 "events",

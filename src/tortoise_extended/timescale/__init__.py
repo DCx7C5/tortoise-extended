@@ -46,17 +46,24 @@ Usage::
     )
 """
 
-from tortoise_extended.timescale.compression import CompressionManager
-from tortoise_extended.timescale.continuous_aggregate import ContinuousAggregateManager
-from tortoise_extended.timescale.hypertable import HypertableManager
-from tortoise_extended.timescale.retention import RetentionPolicy
+from tortoise_extended.timescale.compression import CompressionManager, CompressionStats
+from tortoise_extended.timescale.continuous_aggregate import (
+    ContinuousAggregateInfo,
+    ContinuousAggregateManager,
+)
+from tortoise_extended.timescale.hypertable import HypertableInfo, HypertableManager
+from tortoise_extended.timescale.retention import RetentionPolicy, RetentionPolicyInfo
 from tortoise_extended.timescale.stream import Aggregate, TimeBucketRow
 
 __all__ = [
     "Aggregate",
     "CompressionManager",
+    "CompressionStats",
+    "ContinuousAggregateInfo",
     "ContinuousAggregateManager",
+    "HypertableInfo",
     "HypertableManager",
     "RetentionPolicy",
+    "RetentionPolicyInfo",
     "TimeBucketRow",
 ]

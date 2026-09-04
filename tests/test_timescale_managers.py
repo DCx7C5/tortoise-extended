@@ -153,6 +153,117 @@ class TestIsHypertable:
         assert "hypertable_name = 'events'" in sql
 
 
+class TestListHypertables:
+    """HypertableManager.list_hypertables() result-shape branches."""
+
+    @pytest.mark.asyncio
+    async def test_mapping_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_connections(
+            monkeypatch,
+            (
+                0,
+                [
+                    {
+                        "table_name": "public.events",
+                        "num_chunks": 3,
+                        "compression_enabled": False,
+                        "table_size": "8192 kB",
+                    }
+                ],
+            ),
+        )
+        hypertables = await HypertableManager.list_hypertables()
+        assert hypertables[0].table_name == "public.events"
+        assert hypertables[0].num_chunks == 3
+        assert hypertables[0].compression_enabled is False
+        assert hypertables[0].table_size == "8192 kB"
+
+    @pytest.mark.asyncio
+    async def test_tuple_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_connections(
+            monkeypatch,
+            (0, [("public.events", 3, False, "8192 kB")]),
+        )
+        hypertables = await HypertableManager.list_hypertables()
+        assert hypertables[0].table_name == "public.events"
+        assert hypertables[0].num_chunks == 3
+        assert hypertables[0].compression_enabled is False
+        assert hypertables[0].table_size == "8192 kB"
+
+
+class TestListPolicies:
+    """RetentionPolicy.list_policies() result-shape branches."""
+
+    @pytest.mark.asyncio
+    async def test_mapping_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_connections(
+            monkeypatch,
+            (
+                0,
+                [
+                    {
+                        "table_name": "events",
+                        "drop_after": {"drop_after": "90 days"},
+                        "schedule_interval": "1 day",
+                        "initial_start": "2026-01-01 00:00:00+00",
+                        "scheduled": True,
+                    }
+                ],
+            ),
+        )
+        policies = await RetentionPolicy.list_policies()
+        assert policies[0].table_name == "events"
+        assert policies[0].drop_after == {"drop_after": "90 days"}
+        assert policies[0].schedule_interval == "1 day"
+        assert policies[0].initial_start == "2026-01-01 00:00:00+00"
+        assert policies[0].scheduled is True
+
+    @pytest.mark.asyncio
+    async def test_tuple_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_connections(
+            monkeypatch,
+            (0, [("events", {"drop_after": "90 days"}, "1 day", None, False)]),
+        )
+        policies = await RetentionPolicy.list_policies()
+        assert policies[0].table_name == "events"
+        assert policies[0].drop_after == {"drop_after": "90 days"}
+        assert policies[0].schedule_interval == "1 day"
+        assert policies[0].initial_start is None
+        assert policies[0].scheduled is False
+
+
+class TestListContinuousAggregates:
+    """ContinuousAggregateManager.list() result-shape branches."""
+
+    @pytest.mark.asyncio
+    async def test_mapping_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_connections(
+            monkeypatch,
+            (
+                0,
+                [
+                    {
+                        "view_name": "daily_events",
+                        "view_definition": "SELECT time_bucket(...) AS bucket ...",
+                    }
+                ],
+            ),
+        )
+        aggs = await ContinuousAggregateManager.list()
+        assert aggs[0].view_name == "daily_events"
+        assert aggs[0].view_definition == "SELECT time_bucket(...) AS bucket ..."
+
+    @pytest.mark.asyncio
+    async def test_tuple_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_connections(
+            monkeypatch,
+            (0, [("daily_events", "SELECT 1 AS bucket")]),
+        )
+        aggs = await ContinuousAggregateManager.list()
+        assert aggs[0].view_name == "daily_events"
+        assert aggs[0].view_definition == "SELECT 1 AS bucket"
+
+
 class TestHypertableTimeColumnValidation:
     """Q3-HARDEN — create_hypertable() pre-validates the time column is in a
     PK/unique index (TimescaleDB requirement) before attempting creation."""
@@ -270,10 +381,25 @@ class TestGetCompressionStats:
     async def test_mapping_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_connections(
             monkeypatch,
-            (0, [{"uncompressed_size": 10, "compressed_size": 5}]),
+            (
+                0,
+                [
+                    {
+                        "uncompressed_size": 10,
+                        "compressed_size": 5,
+                        "compression_ratio": 2.0,
+                        "uncompressed_chunks": 4,
+                        "compressed_chunks": 2,
+                    }
+                ],
+            ),
         )
         stats = await CompressionManager.get_stats("events")
-        assert stats["uncompressed_size"] == 10
+        assert stats.uncompressed_size == 10
+        assert stats.compressed_size == 5
+        assert stats.compression_ratio == 2.0
+        assert stats.uncompressed_chunks == 4
+        assert stats.compressed_chunks == 2
 
     @pytest.mark.asyncio
     async def test_tuple_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -282,25 +408,26 @@ class TestGetCompressionStats:
             (0, [(10, 5, 2.0, 4, 2)]),
         )
         stats = await CompressionManager.get_stats("events")
-        assert stats == {
-            "uncompressed_size": 10,
-            "compressed_size": 5,
-            "compression_ratio": 2.0,
-            "uncompressed_chunks": 4,
-            "compressed_chunks": 2,
-        }
+        assert stats.uncompressed_size == 10
+        assert stats.compressed_size == 5
+        assert stats.compression_ratio == 2.0
+        assert stats.uncompressed_chunks == 4
+        assert stats.compressed_chunks == 2
 
     @pytest.mark.asyncio
     async def test_empty_rows(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_connections(monkeypatch, ([], 0))
-        assert await CompressionManager.get_stats("events") == {}
+        stats = await CompressionManager.get_stats("events")
+        assert stats.compression_ratio == 1.0
+        assert stats.uncompressed_chunks == 0
+        assert stats.compressed_chunks == 0
 
     @pytest.mark.asyncio
     async def test_tuple_row_none_ratio(self, monkeypatch) -> None:
-        """A NULL compression ratio stays None (no float() on None)."""
+        """A NULL compression ratio falls back to 1.0 (float() on None)."""
         _patch_connections(monkeypatch, (0, [(10, 5, None, 4, 2)]))
         stats = await CompressionManager.get_stats("events")
-        assert stats["compression_ratio"] is None
+        assert stats.compression_ratio == 1.0
 
     @pytest.mark.asyncio
     async def test_mapping_row_decimal_ratio_cast(self, monkeypatch) -> None:
@@ -309,11 +436,22 @@ class TestGetCompressionStats:
 
         _patch_connections(
             monkeypatch,
-            (0, [{"compression_ratio": Decimal("2.00"), "uncompressed_size": 10}]),
+            (
+                0,
+                [
+                    {
+                        "uncompressed_size": 10,
+                        "compressed_size": 5,
+                        "compression_ratio": Decimal("2.00"),
+                        "uncompressed_chunks": 4,
+                        "compressed_chunks": 2,
+                    }
+                ],
+            ),
         )
         stats = await CompressionManager.get_stats("events")
-        assert stats["compression_ratio"] == 2.0
-        assert isinstance(stats["compression_ratio"], float)
+        assert stats.compression_ratio == 2.0
+        assert isinstance(stats.compression_ratio, float)
 
 
 class TestSqlHardening:

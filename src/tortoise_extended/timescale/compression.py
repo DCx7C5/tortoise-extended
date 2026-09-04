@@ -6,7 +6,7 @@ Requires: TimescaleDB extension (>= 2.18 — uses the columnstore API:
 ``convert_to_rowstore``; the legacy ``add_compression_policy`` /
 ``compress_chunk`` / ``decompress_chunk`` are deprecated since 2.18).
 
-Usage::
+Usage (illustrative; needs async context + configured DB)::
 
     from tortoise_extended.timescale import CompressionManager
 
@@ -26,18 +26,42 @@ Usage::
 
     # Get compression stats
     stats = await CompressionManager.get_stats("events")
-    print(f"Compression ratio: {stats['compression_ratio']}")
+    print(f"Compression ratio: {stats.compression_ratio}")
 """
 
 from collections.abc import Sequence
 from typing import cast
 
+import msgspec
 from tortoise import connections
 from tortoise.backends.base.client import BaseDBAsyncClient
 
 from tortoise_extended._quote import quote_ident, quote_literal
 from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import TimescaleError
+
+
+class CompressionStats(msgspec.Struct):
+    """Compression statistics returned by
+    :meth:`CompressionManager.get_stats`.
+
+    Attributes:
+        uncompressed_size: Human-readable uncompressed byte size
+            (``pg_size_pretty``), e.g. ``"8192 kB"``.
+        compressed_size: Human-readable compressed byte size
+            (``pg_size_pretty``), e.g. ``"4096 kB"``.
+        compression_ratio: ``uncompressed / compressed`` rounded to two
+            decimal places; falls back to ``1.0`` when either byte count is
+            zero.
+        uncompressed_chunks: Number of chunks not currently compressed.
+        compressed_chunks: Number of chunks currently compressed.
+    """
+
+    uncompressed_size: str
+    compressed_size: str
+    compression_ratio: float
+    uncompressed_chunks: int
+    compressed_chunks: int
 
 
 class CompressionManager:
@@ -63,7 +87,7 @@ class CompressionManager:
             table_name: Name of the hypertable
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await CompressionManager.enable_compression("events")
 
@@ -98,7 +122,7 @@ class CompressionManager:
             table_name: Name of the hypertable
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await CompressionManager.disable_compression("events")
         """
@@ -130,7 +154,7 @@ class CompressionManager:
             if_not_exists: Don't error if policy exists
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await CompressionManager.add_compression_policy(
                 "events",
@@ -167,7 +191,7 @@ class CompressionManager:
             table_name: Name of the hypertable
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await CompressionManager.remove_compression_policy("events")
 
@@ -195,7 +219,7 @@ class CompressionManager:
             chunk_name: Full chunk name (e.g., '_timescaledb_internal._hyper_1_1_chunk')
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await CompressionManager.compress_chunk(
                 "_timescaledb_internal._hyper_1_1_chunk",
@@ -225,7 +249,7 @@ class CompressionManager:
             chunk_name: Full chunk name
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await CompressionManager.decompress_chunk(
                 "_timescaledb_internal._hyper_1_1_chunk",
@@ -248,7 +272,7 @@ class CompressionManager:
     async def get_stats(
         table_name: str,
         using_db: BaseDBAsyncClient | None = None,
-    ) -> RowMapping:
+    ) -> CompressionStats:
         """Get compression statistics for a hypertable.
 
         Args:
@@ -256,14 +280,15 @@ class CompressionManager:
             using_db: Database connection to use (default: 'default')
 
         Returns:
-            Dict with compression stats
+            A :class:`CompressionStats` struct describing the hypertable's
+            current compression state.
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             stats = await CompressionManager.get_stats("events")
-            print(f"Compression ratio: {stats['compression_ratio']}")
-            print(f"Uncompressed chunks: {stats['uncompressed_chunks']}")
-            print(f"Compressed chunks: {stats['compressed_chunks']}")
+            print(f"Compression ratio: {stats.compression_ratio}")
+            print(f"Uncompressed chunks: {stats.uncompressed_chunks}")
+            print(f"Compressed chunks: {stats.compressed_chunks}")
 
         Uses ``hypertable_columnstore_stats`` (2.18+; the legacy
         ``hypertable_compression_stats`` is deprecated since 2.18).
@@ -304,24 +329,40 @@ class CompressionManager:
             result[1] if isinstance(result, tuple) else result,
         )
 
-        if rows:
-            row = rows[0]
-            if isinstance(row, dict):
-                ratio = row.get("compression_ratio")
-                if ratio is not None:
-                    # The ROUND() expression returns a numeric; cast at the
-                    # boundary so the exposed type is stable across drivers.
-                    return {**row, "compression_ratio": float(ratio)}
-                return row
-            return {
-                "uncompressed_size": row[0],
-                "compressed_size": row[1],
-                "compression_ratio": (
-                    float(cast("str | int | float", row[2]))
-                    if row[2] is not None
-                    else None
-                ),
-                "uncompressed_chunks": row[3],
-                "compressed_chunks": row[4],
-            }
-        return {}
+        # The query always returns at most one row. When the hypertable does
+        # not exist (or has no chunks), the row is empty — return an "empty"
+        # CompressionStats with zeroed values so the caller always receives a
+        # valid struct rather than an empty dict.
+        if not rows:
+            return CompressionStats(
+                uncompressed_size="0 bytes",
+                compressed_size="0 bytes",
+                compression_ratio=1.0,
+                uncompressed_chunks=0,
+                compressed_chunks=0,
+            )
+
+        row = rows[0]
+        if isinstance(row, dict):
+            ratio = row.get("compression_ratio")
+            # The ROUND() expression returns a numeric; cast at the boundary so
+            # the exposed type is stable across drivers.
+            ratio_float = float(cast("str | int | float", ratio)) if ratio is not None else 1.0
+            return CompressionStats(
+                uncompressed_size=cast(str, row["uncompressed_size"]),
+                compressed_size=cast(str, row["compressed_size"]),
+                compression_ratio=ratio_float,
+                uncompressed_chunks=cast(int, row["uncompressed_chunks"]),
+                compressed_chunks=cast(int, row["compressed_chunks"]),
+            )
+        return CompressionStats(
+            uncompressed_size=cast(str, row[0]),
+            compressed_size=cast(str, row[1]),
+            compression_ratio=(
+                float(cast("str | int | float", row[2]))
+                if row[2] is not None
+                else 1.0
+            ),
+            uncompressed_chunks=cast(int, row[3]),
+            compressed_chunks=cast(int, row[4]),
+        )

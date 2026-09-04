@@ -36,6 +36,16 @@ await HypertableManager.create_hypertable(
 )
 ```
 
+``list_hypertables`` returns a list of ``HypertableInfo`` structs with
+``table_name``, ``num_chunks``, ``compression_enabled`` and ``table_size``
+attributes (accessed with attribute syntax, not dict subscripting):
+
+```python
+hypertables = await HypertableManager.list_hypertables()
+for ht in hypertables:
+    print(f"{ht.table_name}: {ht.num_chunks} chunks")
+```
+
 **Time-column pre-check.** TimescaleDB requires the partitioning (time) column
 to be part of the table's ``PRIMARY KEY`` or a ``UNIQUE`` index, otherwise
 ``create_hypertable()`` fails with a cryptic server error. By default
@@ -66,6 +76,8 @@ Enable and manage compression on hypertables.
 await CompressionManager.enable_compression("events")
 await CompressionManager.add_compression_policy("events", compress_after="7 days")
 stats = await CompressionManager.get_stats("events")
+print(f"Compression ratio: {stats.compression_ratio}")
+print(f"Uncompressed chunks: {stats.uncompressed_chunks}")
 ```
 
 ---
@@ -84,6 +96,17 @@ Automatic data retention (drop old chunks).
 ```python
 await RetentionPolicy.set_retention("events", drop_after="90 days")
 chunks = await RetentionPolicy.get_chunks_to_drop("events", older_than="90 days")
+```
+
+``list_policies`` returns a list of ``RetentionPolicyInfo`` structs with
+``table_name``, ``drop_after`` (a dict such as ``{"drop_after": "90 days"}``),
+``schedule_interval``, ``initial_start`` and ``scheduled`` attributes
+(accessed with attribute syntax, not dict subscripting):
+
+```python
+policies = await RetentionPolicy.list_policies()
+for policy in policies:
+    print(f"{policy.table_name}: keep {policy.drop_after}")
 ```
 
 ---
@@ -115,6 +138,16 @@ await ContinuousAggregateManager.set_refresh_policy(
     start_offset="1 hour",
     schedule_interval="1 hour",
 )
+```
+
+``list`` returns a list of ``ContinuousAggregateInfo`` structs with
+``view_name`` and ``view_definition`` attributes (accessed with attribute
+syntax, not dict subscripting):
+
+```python
+aggregates = await ContinuousAggregateManager.list()
+for agg in aggregates:
+    print(f"{agg.view_name}: {agg.view_definition}")
 ```
 
 ## Requirements

@@ -209,13 +209,13 @@ class TestHypertableManager:
     async def test_list_hypertables(self) -> None:
         await _make_hypertable()
         hypertables = await HypertableManager.list_hypertables()
-        names = {ht["table_name"] for ht in hypertables}
+        names = {ht.table_name for ht in hypertables}
         assert "public.test_events" in names
         event = next(
-            ht for ht in hypertables if ht["table_name"] == "public.test_events"
+            ht for ht in hypertables if ht.table_name == "public.test_events"
         )
-        assert event["num_chunks"] == 35
-        assert event["compression_enabled"] is False
+        assert event.num_chunks == 35
+        assert event.compression_enabled is False
 
     @pytest.mark.asyncio
     async def test_show_chunks_filters(self) -> None:
@@ -324,8 +324,8 @@ class TestCompressionManager:
         await _make_hypertable()
         await CompressionManager.enable_compression("test_events")
         stats = await CompressionManager.get_stats("test_events")
-        assert stats["uncompressed_chunks"] >= 35
-        assert stats["compressed_chunks"] == 0
+        assert stats.uncompressed_chunks >= 35
+        assert stats.compressed_chunks == 0
 
     @pytest.mark.asyncio
     async def test_compress_and_decompress_chunk(self) -> None:
@@ -334,10 +334,10 @@ class TestCompressionManager:
         chunk = (await HypertableManager.show_chunks("test_events"))[0]
         await CompressionManager.compress_chunk(chunk)
         stats = await CompressionManager.get_stats("test_events")
-        assert stats["compressed_chunks"] == 1
+        assert stats.compressed_chunks == 1
         await CompressionManager.decompress_chunk(chunk)
         stats = await CompressionManager.get_stats("test_events")
-        assert stats["compressed_chunks"] == 0
+        assert stats.compressed_chunks == 0
 
     @pytest.mark.asyncio
     async def test_compression_policy_roundtrip(self) -> None:
@@ -369,10 +369,10 @@ class TestRetentionPolicy:
         await _make_hypertable()
         await RetentionPolicy.set_retention("test_events", drop_after="90 days")
         policies = await RetentionPolicy.list_policies()
-        tables = {p["table_name"] for p in policies}
+        tables = {p.table_name for p in policies}
         assert "test_events" in tables
-        event = next(p for p in policies if p["table_name"] == "test_events")
-        assert "90 days" in str(event["drop_after"])
+        event = next(p for p in policies if p.table_name == "test_events")
+        assert "90 days" in str(event.drop_after)
 
     @pytest.mark.asyncio
     async def test_get_chunks_to_drop(self) -> None:
@@ -390,7 +390,7 @@ class TestRetentionPolicy:
         await RetentionPolicy.set_retention("test_events", drop_after="90 days")
         await RetentionPolicy.remove_retention("test_events")
         policies = await RetentionPolicy.list_policies()
-        assert all(p["table_name"] != "test_events" for p in policies)
+        assert all(p.table_name != "test_events" for p in policies)
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +414,7 @@ class TestContinuousAggregateManager:
         )
         await ContinuousAggregateManager.refresh("test_daily_events")
         aggregates = await ContinuousAggregateManager.list()
-        names = {agg["view_name"] for agg in aggregates}
+        names = {agg.view_name for agg in aggregates}
         assert "test_daily_events" in names
 
     @pytest.mark.asyncio
@@ -460,7 +460,7 @@ class TestContinuousAggregateManager:
         )
         await ContinuousAggregateManager.drop("test_daily_events")
         aggregates = await ContinuousAggregateManager.list()
-        assert all(a["view_name"] != "test_daily_events" for a in aggregates)
+        assert all(a.view_name != "test_daily_events" for a in aggregates)
 
     @pytest.mark.asyncio
     async def test_create_with_full_statement(self) -> None:
@@ -468,11 +468,11 @@ class TestContinuousAggregateManager:
             "test_daily_events2", "test_events", AGG_FULL, allow_full_statement=True
         )
         aggregates = await ContinuousAggregateManager.list()
-        names = {agg["view_name"] for agg in aggregates}
+        names = {agg.view_name for agg in aggregates}
         assert "test_daily_events2" in names
         await ContinuousAggregateManager.drop("test_daily_events2", if_exists=False)
         aggregates = await ContinuousAggregateManager.list()
-        assert all(a["view_name"] != "test_daily_events2" for a in aggregates)
+        assert all(a.view_name != "test_daily_events2" for a in aggregates)
 
 
 # ---------------------------------------------------------------------------

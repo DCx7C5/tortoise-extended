@@ -3,7 +3,7 @@
 Provides automatic data retention for TimescaleDB hypertables.
 Requires: TimescaleDB extension
 
-Usage::
+Usage (illustrative; needs async context + configured DB)::
 
     from tortoise_extended.timescale import RetentionPolicy
 
@@ -23,12 +23,36 @@ Usage::
 from collections.abc import Sequence
 from typing import cast
 
+import msgspec
 from tortoise import connections
 from tortoise.backends.base.client import BaseDBAsyncClient
 
 from tortoise_extended._quote import quote_literal
 from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import TimescaleError
+
+
+class RetentionPolicyInfo(msgspec.Struct):
+    """One retention policy returned by :meth:`RetentionPolicy.list_policies`.
+
+    Attributes:
+        table_name: Name of the hypertable the retention policy applies to.
+        drop_after: The retention job's ``config`` jsonb column decoded to a
+            dict — typically ``{"drop_after": "90 days"}`` giving how long the
+            policy retains data.
+        schedule_interval: How often the retention job runs (e.g.
+            ``"1 day"``), or ``None`` when not set.
+        initial_start: When the retention job can first run, or ``None`` when
+            not set.
+        scheduled: Whether the retention job is currently enabled/scheduled.
+    """
+
+    table_name: str
+    drop_after: dict[str, RowValue]
+    schedule_interval: str | None
+    initial_start: str | None
+    scheduled: bool
+
 
 class RetentionPolicy:
     """Manager for TimescaleDB retention policies.
@@ -53,7 +77,7 @@ class RetentionPolicy:
             if_not_exists: Don't error if policy exists
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await RetentionPolicy.set_retention(
                 "events",
@@ -87,7 +111,7 @@ class RetentionPolicy:
             table_name: Name of the hypertable
             using_db: Database connection to use (default: 'default')
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             await RetentionPolicy.remove_retention("events")
         """
@@ -104,20 +128,21 @@ class RetentionPolicy:
     @staticmethod
     async def list_policies(
         using_db: BaseDBAsyncClient | None = None,
-    ) -> list[RowMapping]:
+    ) -> list[RetentionPolicyInfo]:
         """List all retention policies.
 
         Args:
             using_db: Database connection to use (default: 'default')
 
         Returns:
-            List of dicts with policy information
+            List of :class:`RetentionPolicyInfo` structs describing each
+            retention policy.
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             policies = await RetentionPolicy.list_policies()
             for policy in policies:
-                print(f"{policy['table_name']}: keep {policy['drop_after']}")
+                print(f"{policy.table_name}: keep {policy.drop_after}")
         """
         conn = using_db or connections.get("default")
 
@@ -143,19 +168,47 @@ class RetentionPolicy:
             result[1] if isinstance(result, tuple) else result,
         )
 
-        policies: list[RowMapping] = []
+        policies: list[RetentionPolicyInfo] = []
         for row in rows:
-            mapping = dict(cast(RowMapping, row))
-            config = cast(
-                "RowValue | dict[str, RowValue]", mapping.get("drop_after")
-            )
-            if isinstance(config, dict):
-                # ``config`` is a jsonb column: drivers decode it to a dict
-                # even though the row mapping types it as a scalar RowValue.
-                # Bridge through ``object`` to keep the narrow dict at the
-                # scalar value position (G20).
-                mapping["drop_after"] = cast(RowValue, cast(object, config))
-            policies.append(mapping)
+            if isinstance(row, dict):
+                drop_after = cast(
+                    "RowValue | dict[str, RowValue]", row.get("drop_after")
+                )
+                if not isinstance(drop_after, dict):
+                    # ``config`` is a jsonb column: drivers decode it to a
+                    # dict even though the row mapping types it as a scalar
+                    # RowValue. Bridge through ``object`` to keep the narrow
+                    # dict at the scalar value position (G20).
+                    drop_after = cast(
+                        "dict[str, RowValue]", cast(object, drop_after)
+                    )
+                policies.append(
+                    RetentionPolicyInfo(
+                        table_name=cast(str, row["table_name"]),
+                        drop_after=drop_after,
+                        schedule_interval=cast(str | None, row["schedule_interval"]),
+                        initial_start=cast(str | None, row["initial_start"]),
+                        scheduled=cast(bool, row["scheduled"]),
+                    )
+                )
+            else:
+                drop_after = cast(
+                    "RowValue | dict[str, RowValue]", row[1]
+                )
+                if not isinstance(drop_after, dict):
+                    # Same jsonb handling as the dict-row branch (G20).
+                    drop_after = cast(
+                        "dict[str, RowValue]", cast(object, drop_after)
+                    )
+                policies.append(
+                    RetentionPolicyInfo(
+                        cast(str, row[0]),
+                        drop_after,
+                        cast(str | None, row[2]),
+                        cast(str | None, row[3]),
+                        cast(bool, row[4]),
+                    )
+                )
         return policies
 
     @staticmethod
@@ -174,7 +227,7 @@ class RetentionPolicy:
         Returns:
             List of chunk names that would be dropped
 
-        Example::
+        Example (illustrative; needs async context + configured DB)::
 
             chunks = await RetentionPolicy.get_chunks_to_drop(
                 "events",
