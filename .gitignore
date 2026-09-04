@@ -32,6 +32,9 @@ htmlcov/
 .python-version
 .aiignore
 
+# opencode local tooling (node_modules, MCP plugin, ralph-loop state)
+.opencode/
+
 # Secrets / local env
 .env
 .env.*
