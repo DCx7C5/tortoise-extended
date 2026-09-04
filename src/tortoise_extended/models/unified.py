@@ -64,7 +64,6 @@ class UnifiedIdModel(BaseModel):
 
     uid = UUID7Field(
         unique=True,
-        db_index=True,
         description="Time-ordered UUID7 for cross-table / external references",
     )
 
