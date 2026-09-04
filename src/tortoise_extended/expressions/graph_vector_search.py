@@ -59,10 +59,11 @@ __all__ = ["GraphVectorHit", "GraphVectorSearch"]
 class GraphVectorHit(msgspec.Struct, Generic[ModelT]):
     """A typed vector+graph hit: a hydrated node model plus search metadata.
 
-    :param node: The hydrated Tortoise model instance (typed via ``ModelT``).
-    :param distance: Distance for ``l2``/``cosine`` metrics, or the positive
-        inner product for the ``inner_product`` metric.
-    :param hops: Number of graph hops from the seed node (0 = the seed).
+    Attributes:
+        node: The hydrated Tortoise model instance (typed via ``ModelT``).
+        distance: Distance for ``l2``/``cosine`` metrics, or the positive
+            inner product for the ``inner_product`` metric.
+        hops: Number of graph hops from the seed node (0 = the seed).
     """
 
     node: ModelT

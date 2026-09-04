@@ -23,7 +23,7 @@ Boundary rule (plan.md §F):
     — forcing it on every model adds a unique-index write per insert on hot
     tables and introduces two-ID confusion on internal-only tables.
 
-Usage::
+Usage (illustrative; needs async context + configured DB)::
 
     from tortoise import fields
     from tortoise_extended.models.unified import UnifiedIdModel

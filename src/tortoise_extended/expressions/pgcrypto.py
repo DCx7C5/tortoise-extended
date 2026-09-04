@@ -14,7 +14,7 @@ the correct SQL.
     the functions explicitly — the library never invokes them behind your
     back.
 
-Usage::
+Usage (illustrative; needs async context + configured DB)::
 
     from tortoise_extended.expressions.pgcrypto import (
         Digest,

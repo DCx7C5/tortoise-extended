@@ -12,7 +12,7 @@ The multi-stream hypertable model itself lives in
 ``tortoise_extended.models.event_stream`` (``BaseEventStreamModel``) and
 uses the helpers exported here.
 
-Usage::
+Usage (illustrative; needs async context + configured DB)::
 
     from tortoise_extended.timescale import (
         HypertableManager,
