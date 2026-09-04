@@ -144,7 +144,7 @@ executionEnvironments = [
 # `src/tortoise_extended` is the library itself. The `tortoise-orm` typing overlay
 # lives under `src/tortoise_extended/stubs/tortoise-stubs/` and is DEV-ONLY: it is
 # NOT shipped in the wheel. The strict type gate resolves `tortoise.*` by pointing
-# pyrightconfig.json `stubPath` at `src/tortoise_extended/stubs` (a `tortoise-stubs`
+# `[tool.basedpyright] stubPath` at `src/tortoise_extended/stubs` (a `tortoise-stubs`
 # package that merges onto `tortoise.*`), layered over the upstream `tortoise-orm-stubs`
 # dependency. Consumers get correct `tortoise.*` typing from the upstream stubs +
 # runtime; the local overlay only corrects specific typing gaps for this library's

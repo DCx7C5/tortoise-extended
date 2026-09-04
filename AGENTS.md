@@ -216,7 +216,7 @@ doc/                         # user documentation (getting-started, architecture
 ## Type Checking (basedpyright)
 
 - **Zero errors is the gate.** `uv run basedpyright` must pass with **0 errors**
-  (`pyrightconfig.json`: strict mode, `pythonVersion 3.14`, `stubPath src/tortoise_extended/stubs`).
+  (`[tool.basedpyright]`: strict mode, `pythonVersion 3.14`, `stubPath src/tortoise_extended/stubs`).
   Remaining warnings are tracked as todos and cleaned in batches — never introduce new warnings.
 - **`Any` policy:** `Any` is **banned** in runtime code, along with `object` and
   aliases of them. The former `LibraryAny` alias is removed (`e58662e`). Runtime annotations use
@@ -229,7 +229,7 @@ doc/                         # user documentation (getting-started, architecture
   runtime typing back in. Stubs must be self-sufficient and mirror the runtime API surface exactly
   (e.g. `Model._meta`, `Model.pk`, classmethods returning `QuerySet[Self]` / `QuerySetSingle[Self]`).
   `# pyright: reportExplicitAny=false` is permitted at the top of stub files.
-- **Migrations are CLI-checked.** `pyrightconfig.json` previously excluded `**/migrations`, which
+- **Migrations are CLI-checked.** `[tool.basedpyright]` in `pyproject.toml` previously excluded `**/migrations`, which
   silently hid `src/tortoise_extended/migrations/` errors from the CLI (PyCharm IDE lint saw them).
   The exclude entry was removed; keep it out — never re-add a migrations exclusion.
 
@@ -248,7 +248,7 @@ order:
 4. **`pycharm_lint_files`** on all changed files (min severity: error)
 5. **`pycharm_get_file_problems`** on all changed files — resolve any remaining IDE-reported issues
 
-**Gate scope — why `basedpyright` says 0/0/0 while tests look noisy.** `pyrightconfig.json`
+**Gate scope — why `basedpyright` says 0/0/0 while tests look noisy.** `[tool.basedpyright]`
 `include` covers **`src/` only**; `tests/` is intentionally NOT strict-type-gated. The strict
 type gate proves the shipped library is type-clean; **pytest is the behavioral truth** (it runs
 every test, including live-Postgres integration). The IDE lint surface on tests decomposes into:

@@ -2,10 +2,10 @@
 
 The overlay lives at ``src/tortoise_extended/stubs/tortoise-stubs/``
 (``.pyi`` files, one per overlaid module). basedpyright resolves it via the
-``stubPath`` setting in ``pyrightconfig.json``, which points at
-``src/tortoise_extended/stubs`` — the PEP 561 ``-stubs`` suffix on the inner
-directory name makes pyright treat it as the stub overlay for the ``tortoise``
-package.
+``stubPath`` setting in ``pyproject.toml`` (``[tool.basedpyright]``), which
+points at ``src/tortoise_extended/stubs`` — the PEP 561 ``-stubs`` suffix on
+the inner directory name makes pyright treat it as the stub overlay for the
+``tortoise`` package.
 ``.pyi`` files are never executed, so pytest line coverage cannot touch them —
 the meaningful coverage measure is **declaration coverage**: every tortoise
 symbol that ``tortoise_extended`` imports or monkey-patches must be declared by
@@ -14,15 +14,15 @@ fail fast if a declaration goes missing or the wiring is removed.
 """
 
 import ast
-import json
 import re
+import tomllib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = PROJECT_ROOT / "src" / "tortoise_extended"
 STUBS_DIR = PROJECT_ROOT / "src" / "tortoise_extended" / "stubs"
 TORTOISE_STUBS_DIR = STUBS_DIR / "tortoise-stubs"
-PYRIGHT_CONFIG = PROJECT_ROOT / "pyrightconfig.json"
+PYPROJECT_TOML = PROJECT_ROOT / "pyproject.toml"
 
 # tortoise module path -> overlay stub file (relative to TORTOISE_STUBS_DIR).
 # Only these modules are replaced by the overlay; every other tortoise module
@@ -373,18 +373,24 @@ class TestStubOverlayPresent:
 
 
 class TestStubWiring:
-    """pyrightconfig.json still points at the stub overlay."""
+    """pyproject.toml [tool.basedpyright] still points at the stub overlay."""
+
+    @staticmethod
+    def _basedpyright_config() -> dict[str, object]:
+        with open(PYPROJECT_TOML, "rb") as f:
+            toml = tomllib.load(f)
+        return toml.get("tool", {}).get("basedpyright", {})
 
     def test_stub_path_configured(self) -> None:
         """``stubPath`` points at ``src/tortoise_extended/stubs`` so basedpyright
         finds the ``tortoise-stubs/`` overlay inside it."""
-        config = json.loads(PYRIGHT_CONFIG.read_text(encoding="utf-8"))
+        config = self._basedpyright_config()
         stub_path = Path(config["stubPath"])
         assert stub_path == STUBS_DIR.relative_to(PROJECT_ROOT), config["stubPath"]
         assert (PROJECT_ROOT / stub_path).is_dir()
 
     def test_migrations_not_excluded(self) -> None:
         """The migrations exclude entry must never be re-added."""
-        config = json.loads(PYRIGHT_CONFIG.read_text(encoding="utf-8"))
+        config = self._basedpyright_config()
         excludes = config.get("exclude", [])
         assert not any(re.search(r"migrations", e) for e in excludes), excludes
