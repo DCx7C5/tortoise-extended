@@ -28,15 +28,17 @@ Usage::
     constraint (the column is ``TEXT``, not ``VARCHAR(N)``).
 """
 
-from typing import Literal, Unpack, override, overload
+from typing import Literal, TypeVar, Unpack, override, overload
 
 from tortoise.fields import Field
 from tortoise.validators import MaxLengthValidator
 
 from tortoise_extended._types import FieldDefaultValue, FieldInitKwargs
 
+T_STR = TypeVar("T_STR", str, str | None, default=str)
 
-class CharField(Field[str]):
+
+class CharField(Field[T_STR]):
     """Character field backed by PostgreSQL ``TEXT`` instead of ``VARCHAR(N)``.
 
     Drop-in replacement for ``tortoise.fields.CharField``. Accepts the same
@@ -66,7 +68,7 @@ class CharField(Field[str]):
 
     @overload
     def __init__(
-        self: CharField,
+        self: CharField[str],
         max_length: int,
         *,
         null: Literal[False] = False,
@@ -77,7 +79,7 @@ class CharField(Field[str]):
 
     @overload
     def __init__(
-        self: CharField,
+        self: CharField[str | None],
         max_length: int,
         *,
         null: Literal[True],
@@ -112,14 +114,3 @@ class CharField(Field[str]):
         return {"max_length": self.max_length}
 
     SQL_TYPE = "TEXT"  # class attribute, matching VectorField and upstream convention
-
-    class _db_oracle:
-        """Oracle dialect reports ``NVARCHAR2(max_length)`` for this field."""
-
-        def __init__(self, field: CharField) -> None:
-            self.field = field
-
-        @property
-        def SQL_TYPE(self) -> str:  # noqa: N802
-            return f"NVARCHAR2({self.field.max_length})"
-

@@ -1,7 +1,7 @@
 """Unit tests for CharField (TEXT-backed character field).
 
 Covers SQL type, max_length enforcement, validators, constraints dict,
-null handling, and Oracle-specific SQL type. No database connection required.
+and null handling. No database connection required.
 """
 
 import pytest
@@ -25,21 +25,6 @@ class TestCharFieldSQLType:
     def test_field_type(self) -> None:
         """field_type should be str."""
         assert CharField.field_type is str
-
-
-class TestCharFieldOracleSqlType:
-    """Verify Oracle-specific SQL type uses NVARCHAR2 with max_length."""
-
-    def test_oracle_sql_type(self) -> None:
-        """Oracle SQL_TYPE should be NVARCHAR2(max_length)."""
-        field = CharField(max_length=200)
-        assert field._db_oracle(field).SQL_TYPE == "NVARCHAR2(200)"
-
-    def test_oracle_sql_type_respects_custom_length(self) -> None:
-        """Oracle SQL_TYPE should reflect the actual max_length."""
-        field = CharField(max_length=50)
-        assert field._db_oracle(field).SQL_TYPE == "NVARCHAR2(50)"
-
 
 # ---------------------------------------------------------------------------
 # max_length
