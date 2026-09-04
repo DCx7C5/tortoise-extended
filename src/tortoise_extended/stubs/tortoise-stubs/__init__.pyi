@@ -14,6 +14,12 @@ in the runtime — attribute access without parentheses. They are declared as
 ``Any`` is used only where the runtime is untyped/dynamic.
 """
 
+# DRIFT MITIGATION — READ BEFORE BUMPING UPSTREAM.
+# This overlay is DEV-ONLY (not shipped in the wheel) and mirrors the runtime
+# API of the pinned `tortoise-orm>=1.1.7,<1.2` + `tortoise-orm-stubs`. On ANY
+# upstream dependency bump, verify this stub surface still matches the new
+# runtime API and update it here if it drifts.
+
 from collections.abc import Callable, Iterable
 from types import ModuleType
 from typing import Any, ClassVar

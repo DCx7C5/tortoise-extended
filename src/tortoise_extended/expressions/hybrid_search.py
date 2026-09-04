@@ -3,7 +3,7 @@
 Provides weighted scoring that blends pgvector distance operators
 with PostgreSQL full-text search ranking.
 
-Usage::
+Usage (illustrative; needs async context + configured DB)::
 
     from tortoise_extended.expressions.hybrid_search import HybridSearch
 
@@ -54,7 +54,7 @@ class HybridSearch:
     :raises HybridSearchError: If ``distance_metric`` is unsupported, or
         ``vector_field``/``text_field`` is not declared on the model.
 
-    Usage::
+    Usage (illustrative; needs async context + configured DB)::
 
         search = HybridSearch(
             model=Entity,

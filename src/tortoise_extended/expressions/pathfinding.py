@@ -3,7 +3,7 @@
 Provides shortest path, all paths, and cycle detection for graphs
 stored in separate node and edge tables.
 
-Usage::
+Usage (illustrative; needs async context + configured DB)::
 
     from tortoise_extended.expressions.pathfinding import shortest_path, all_paths
 
@@ -167,7 +167,7 @@ async def shortest_path(
     :raises GraphTraversalError: If ``source_field``/``target_field`` is not
         declared on the edge model.
 
-    Usage::
+    Usage (illustrative; needs async context + configured DB)::
 
         path = await shortest_path(
             Entity, Relationship,
@@ -230,7 +230,7 @@ async def all_paths(
     :raises GraphTraversalError: If ``source_field``/``target_field`` is not
         declared on the edge model.
 
-    Usage::
+    Usage (illustrative; needs async context + configured DB)::
 
         paths = await all_paths(
             Entity, Relationship,
@@ -291,7 +291,7 @@ async def find_cycles(
     :raises GraphTraversalError: If ``source_field``/``target_field`` is not
         declared on the edge model.
 
-    Usage::
+    Usage (illustrative; needs async context + configured DB)::
 
         cycles = await find_cycles(Entity, Relationship, max_depth=5)
         for cycle in cycles:

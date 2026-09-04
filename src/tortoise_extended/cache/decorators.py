@@ -23,6 +23,9 @@ T = TypeVar("T")
 """Type of the bound ``self`` on a :func:`cached_method` wrapper."""
 
 # Process-local deduplication of concurrent cache misses per cache key.
+# Uses threading.Lock (not asyncio.Lock) because the shared futures dict can
+# be touched from sync paths and must be safe across OS threads under
+# free-threaded (nogil) Python 3.14.
 _single_flight = SingleFlight()
 
 

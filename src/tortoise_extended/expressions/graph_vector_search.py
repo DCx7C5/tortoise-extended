@@ -18,7 +18,7 @@ Requires: PostgreSQL + the ``vector`` extension, and an edge model that
 declares ``source_id`` / ``target_id`` (customizable) plus — when
 bidirectional edges are used — an ``is_bidirectional`` boolean column.
 
-Usage::
+Usage (illustrative; needs async context + configured DB)::
 
     from tortoise_extended import GraphVectorSearch
 
