@@ -100,6 +100,27 @@ class TestCharFieldValidators:
         assert isinstance(validator, MaxLengthValidator)
         assert validator.max_length == 200
 
+    def test_user_validators_merged_after_max_length(self) -> None:
+        """Caller validators are appended after the built-in MaxLengthValidator."""
+
+        def noop(value: object) -> None: ...
+
+        field = CharField(max_length=100, validators=[noop])
+        assert isinstance(field.validators[0], MaxLengthValidator)
+        assert field.validators[1] is noop
+
+    def test_user_validators_do_not_crash(self) -> None:
+        """validators= must not raise 'multiple values for keyword argument'.
+
+        Regression: CharField forced its own validators kwarg and crashed when
+        callers supplied validators through kwargs.
+        """
+
+        def noop(value: object) -> None: ...
+
+        field = CharField(max_length=64, null=True, validators=[noop])
+        assert len(field.validators) == 2
+
 
 # ---------------------------------------------------------------------------
 # null handling

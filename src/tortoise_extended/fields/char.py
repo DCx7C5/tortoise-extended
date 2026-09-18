@@ -28,10 +28,11 @@ Usage::
     constraint (the column is ``TEXT``, not ``VARCHAR(N)``).
 """
 
+from collections.abc import Callable
 from typing import Literal, TypeVar, Unpack, override, overload
 
 from tortoise.fields import Field
-from tortoise.validators import MaxLengthValidator
+from tortoise.validators import MaxLengthValidator, Validator
 
 from tortoise_extended._types import FieldDefaultValue, FieldInitKwargs
 
@@ -74,6 +75,7 @@ class CharField(Field[T_STR]):
         null: Literal[False] = False,
         default: FieldDefaultValue = None,
         description: str | None = None,
+        validators: list[Validator | Callable[..., None]] | None = None,
         **kwargs: Unpack[FieldInitKwargs],
     ) -> None: ...
 
@@ -85,6 +87,7 @@ class CharField(Field[T_STR]):
         null: Literal[True],
         default: FieldDefaultValue = None,
         description: str | None = None,
+        validators: list[Validator | Callable[..., None]] | None = None,
         **kwargs: Unpack[FieldInitKwargs],
     ) -> None: ...
 
@@ -95,16 +98,18 @@ class CharField(Field[T_STR]):
         null: bool = False,
         default: FieldDefaultValue = None,
         description: str | None = None,
+        validators: list[Validator | Callable[..., None]] | None = None,
         **kwargs: Unpack[FieldInitKwargs],
     ) -> None:
         if int(max_length) < 1:
             raise ValueError("'max_length' must be >= 1")
         self.max_length = int(max_length)
+        # Caller validators are merged AFTER the built-in MaxLengthValidator.
         super().__init__(
             null=null,
             default=default,
             description=description,
-            validators=[MaxLengthValidator(self.max_length)],
+            validators=[MaxLengthValidator(self.max_length), *list(validators or [])],
             **kwargs,
         )
 
