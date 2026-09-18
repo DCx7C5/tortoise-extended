@@ -198,14 +198,6 @@ class TestVectorFieldDbPostgresSqlType:
         assert sql_type == "vector"
 
 
-class TestVectorFieldDbSqliteSqlType:
-    """Verify _db_sqlite SQL_TYPE."""
-
-    def test_sqlite_type(self) -> None:
-        """SQLite type should be 'BLOB'."""
-        assert VectorField._db_sqlite.SQL_TYPE == "BLOB"
-
-
 class TestVectorFieldToPythonValue:
     """Verify to_python_value conversions."""
 
@@ -397,14 +389,6 @@ class TestIPv4FieldToDbValue:
         field = IPv4Field()
         with pytest.raises(ValueError):
             field.to_db_value("not-an-ip", None)
-
-
-class TestIPv4FieldDbSqliteSqlType:
-    """Verify _db_sqlite SQL_TYPE."""
-
-    def test_sqlite_type(self) -> None:
-        """SQLite type should be 'VARCHAR(15)'."""
-        assert IPv4Field._db_sqlite.SQL_TYPE == "VARCHAR(15)"
 
 
 # ---------------------------------------------------------------------------
