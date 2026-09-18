@@ -33,7 +33,6 @@ from datetime import date, datetime, time
 from typing import ParamSpec, Protocol, TypeAlias, TypedDict, TypeVar
 
 from tortoise.models import Model
-from tortoise.validators import Validator
 
 P = ParamSpec("P")
 """Bare ``ParamSpec`` for decorator signatures that forward arbitrary callables."""
@@ -83,7 +82,6 @@ class FieldInitKwargs(TypedDict, total=False):
     unique: bool
     db_index: bool
     model: type[Model] | None
-    validators: list[Validator | Callable[..., None]] | None
 
 
 class Deconstructable(Protocol):
