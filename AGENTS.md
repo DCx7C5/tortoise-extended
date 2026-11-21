@@ -16,9 +16,11 @@ What the package provides:
 - **`RecursiveCTE` / `GraphTraversal` / pathfinding** — recursive CTE builders and graph helpers
 - **`HybridSearch`** — weighted vector + full-text search
 - **Model base classes** — `BaseModel`, `BaseUserModel`, `BaseSoftDeleteModel` +
-  `SoftDeleteQuerySet`, `BaseGraphNodeModel` / `BaseGraphEdgeModel` /
-  `BaseHierarchyModel`, `BaseCacheableModel`, `BaseEventStreamModel`, `TimestampMixin`
-  (all opt-in abstract bases under `tortoise_extended.models`)
+  `SoftDeleteQuerySet`, `NodeMixin` / `BaseNode` (pk-free adjacency-list mixin + UUID7
+  identity), `BaseGraphEdgeModel` / `BaseHierarchyModel`, `BaseCacheableModel`,
+  `SampleMixin` / `BaseSample` (pk-free TimescaleDB stream mixin + BigInt identity),
+  `TimestampMixin`; `BaseGraphNodeModel` and `BaseEventStreamModel` remain as deprecated
+  aliases of `BaseNode` / `BaseSample` (all opt-in abstract bases under `tortoise_extended.models`)
 - **`LTreeField` + ltree filters** — PostgreSQL `ltree` hierarchical column type
 - **TimescaleDB integration** — `HypertableManager`, `CompressionManager`, `RetentionPolicy`,
   `ContinuousAggregateManager`, and migration operations (`CreateHypertable`,
@@ -151,11 +153,13 @@ src/tortoise_extended/
 │   ├── user.py                # BaseUserModel (Django-style email/password auth)
 │   ├── mixins.py              # TimestampMixin / TimestampEndMixin (created_at/updated_at)
 │   ├── soft_delete.py         # BaseSoftDeleteModel + SoftDeleteQuerySet
-│   ├── graph_node.py          # BaseGraphNodeModel (adjacency-list, UUID pk)
+│   ├── node.py                # NodeMixin + BaseNode (adjacency-list, pk-free mixin, UUID7 identity)
+│   ├── graph_node.py          # BaseGraphNodeModel (deprecated alias of BaseNode, UUID4 pk)
 │   ├── graph_edge.py          # BaseGraphEdgeModel (typed/weighted edges, UUID pks)
 │   ├── hierarchy_model.py     # BaseHierarchyModel (ltree-path hierarchy)
 │   ├── cacheable_model.py     # BaseCacheableModel (model-level Redis caching)
-│   └── event_stream.py        # BaseEventStreamModel (TimescaleDB multi-stream hypertable)
+│   ├── sample.py              # SampleMixin + BaseSample (TimescaleDB multi-stream, pk-free mixin, BigInt identity)
+│   └── event_stream.py        # BaseEventStreamModel (deprecated alias of BaseSample)
 ├── fields/
 │   ├── vector.py          # VectorField (pgvector vector type, 3 input formats)
 │   ├── ltree.py           # LTreeField (PostgreSQL ltree type)
