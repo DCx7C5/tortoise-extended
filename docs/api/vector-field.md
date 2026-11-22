@@ -33,7 +33,7 @@ VectorField(
 ### SQL Type
 
 - **PostgreSQL:** `vector` (or `halfvec` when `vector_type="halfvec"`)
-- **SQLite:** `BLOB` (fallback)
+- **Other backends:** not supported — `VectorField` (pgvector) is PostgreSQL-only.
 
 ### Python Type
 

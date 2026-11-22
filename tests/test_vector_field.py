@@ -4,20 +4,8 @@ import struct
 
 import pytest
 
-from tortoise import fields, models
-
 from tortoise_extended.exceptions import VectorFieldError
 from tortoise_extended.fields.vector import VectorField
-
-
-class VectorChunk(models.Model):
-    """SQLite round-trip model with a BLOB-backed vector column."""
-
-    id = fields.IntField(primary_key=True)
-    embedding = VectorField(dimensions=3)
-
-    class Meta:
-        table = "vector_chunks"
 
 
 class TestVectorField:
@@ -142,38 +130,3 @@ class TestVectorField:
     def test_repr(self) -> None:
         field = VectorField(dimensions=1536)
         assert repr(field) == "VectorField(dimensions=1536, vector_type='vector')"
-
-
-class TestVectorFieldSQLiteRoundTrip:
-    """SQLite BLOB save/load round-trip through a real Tortoise model."""
-
-    async def test_sqlite_save_load_round_trip(self, tmp_path) -> None:
-        from tortoise import Tortoise
-
-        db_file = tmp_path / "vectors.db"
-        await Tortoise.init(
-            db_url=f"sqlite://{db_file}",
-            modules={"models": ["tests.test_vector_field"]},
-        )
-        await Tortoise.generate_schemas()
-        try:
-            chunk = await VectorChunk.create(embedding=[0.1, 0.2, 0.3])
-            fetched = await VectorChunk.get(id=chunk.id)
-            # BLOB stores float32 — compare with tolerance for rounding.
-            assert fetched.embedding == pytest.approx([0.1, 0.2, 0.3], abs=1e-6)
-
-            # Bound to a SQLite model, to_db_value emits bindable BLOB bytes.
-            bound_field = VectorChunk._meta.fields_map["embedding"]
-            bound_value = bound_field.to_db_value([0.9, 0.8, 0.7], None)
-            assert isinstance(bound_value, bytes)
-            assert VectorField._decode_binary(bound_value) == pytest.approx(
-                [0.9, 0.8, 0.7], abs=1e-6
-            )
-
-            # Update path also round-trips through the binary encoder.
-            chunk.embedding = [0.4, 0.5, 0.6]
-            await chunk.save(update_fields=["embedding"])
-            updated = await VectorChunk.get(id=chunk.id)
-            assert updated.embedding == pytest.approx([0.4, 0.5, 0.6], abs=1e-6)
-        finally:
-            await Tortoise.close_connections()
