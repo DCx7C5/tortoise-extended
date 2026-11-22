@@ -99,9 +99,9 @@ rows = await Document.annotate(
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 ```
 
-- The Docker image at `docker/postgres-ext/` does **not** include `pgcrypto`
-  by default — add it to `docker/postgres-ext/scripts/00-extensions.sql` or
-  run the `CREATE EXTENSION` statement manually.
+- The Docker image at `docker/postgres-ext/` enables `pgcrypto` at first start
+  (`docker/postgres-ext/scripts/00-extensions.sql`); on any other server run the
+  `CREATE EXTENSION IF NOT EXISTS pgcrypto;` statement above.
 
 ## Security Notes
 
