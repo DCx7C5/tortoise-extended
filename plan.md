@@ -622,11 +622,16 @@ hybrid). `TRACKING-DRIFT-SESSION-JOIN` is not an ergonomics row — it records t
 `todo`↔`session` join drift found while verifying the review (see H.5).
 
 **Serialisation — the real rule.** One writer at a time per shared file:
-`models/node.py` (NODE-ERGO → NODE-MOVE-TO → NODE-EDGE-HYBRID); `models/sample.py`
-(SAMPLE-RECORD-LATEST → SAMPLE-GAPFILL); `models/__init__.py` + top-level `__init__.py` +
-`docs/api/models.md` (UNIFIED-NODE → NODE-SOFTDELETE → LIFECYCLE-*). The earlier claim that
-"P2–P5 are file-disjoint" was **false**: P3's two rows share four files, P5's two rows share
-`models/sample.py`, and three rows edit the top-level `__init__.py`.
+`models/node.py` (**2995 → 2996 → NODE-MOVE-TO 2977 → NODE-EDGE-HYBRID 2965**);
+`models/sample.py` (SAMPLE-RECORD-LATEST → SAMPLE-GAPFILL); `models/__init__.py` + top-level
+`__init__.py` + `docs/api/models.md` (UNIFIED-NODE → NODE-SOFTDELETE → LIFECYCLE-*). The earlier
+claim that "P2–P5 are file-disjoint" was **false**: P3's two rows share four files, P5's two rows
+share `models/sample.py`, and three rows edit the top-level `__init__.py`.
+
+`models/node.py` is now the worst contention point — four rows in sequence, and the two
+`add_child` follow-ups discovered during NODE-ERGO (2995 widens the kwargs to the JSON-capable
+alias, 2996 adds `using_db`) must land before `move_to` and `edge_model` so their signatures are
+stable first. `_types.py` is repo-wide, so 2995 is gated on the **full** suite, not a subset.
 
 **Size exception (recorded deliberately).** `NODE-ERGO` and the lifecycle row were each
 split because they exceeded the single-session size guide — `move_to` alone carries the
