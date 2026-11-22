@@ -763,3 +763,25 @@ Ordered by value/cost. None of these is in the shared list.
 
 **Scope ruling 2026-11-23 (user):** items 1–3 filed; item 4 closed as already-solved; items
 5–11 deferred until the §H ergonomics build-out ships.
+
+### I.5 Reconciliation with the v0.2.0 task prompt (2026-11-23)
+
+The user then delivered a standalone "Release v0.2.0 — Fusion Utilities + Correctness Fixes"
+prompt. It covers the same three items, so nothing new was filed; three points where it
+contradicts the repo were settled by measurement and an explicit ruling:
+
+| Prompt says | Repo says | Ruling |
+|---|---|---|
+| "Full type hints (`from __future__ import annotations`)" | `css-py314-devel` bans it; §I.3 keeps PEP 695; `src/` has **zero** occurrences (only 3 test files) | **Repo doctrine** — no future import; PEP 695 + native annotations. Deferred evaluation is already the 3.14 default, so the import is a no-op anyway |
+| `diversity_rerank` = "MMR-style or greedy … optional similarity callable" | Row 2992 had filed a deterministic group-cap and excluded MMR | **Full MMR with a *required* `similarity` callable** — user ruling. Signature carries `lambda_`, deterministic tie-breaks, `O(n²k)` documented; no embedding dependency |
+| `weighted_score_fusion(..., normalization=Literal["minmax","zscore","none"], weights=None)` | 2992 had `weighted_scores(rankings, weights, normalise=bool)` | **Prompt signature adopted** — strict superset; row 2992 rewritten |
+| "Deprecate old aliases (`BaseGraphNodeModel` → `BaseNode`)" + names `BaseGraphEdgeModel` | `BaseGraphEdgeModel` is a **live** class, not an alias (`models/graph_edge.py:130`); the deprecated pair is `BaseGraphNodeModel` + `BaseEventStreamModel` | Corrected — never warn on `BaseGraphEdgeModel` |
+| "Investigate `Meta.indexes` inheritance thoroughly … strengthen docs + test" | Already enforced at class-creation in **three** bases (`node.py:144`, `graph_edge.py:130`, `hierarchy_model.py:185`), tested (`test_node_mixin.py:135,145,152` incl. the `Meta.indexes = ()` opt-out), documented (README:138-139) | **Closed, zero work** — wider than §I.4 item 4 recorded (which cited only `node.py`) |
+| `packaging` for the version guard | In `uv.lock` **transitively only**, not declared | **Manual parse** — an undeclared dep would violate "zero new runtime dependencies". `tortoise.__version__` measured real (`1.1.9`) |
+| "Release v0.2.0" | `pyproject.toml` is `0.1.0` | **No bump this batch** — user ruling; versioning/tagging stays separate |
+
+`BaseGraphNodeModel`/`BaseEventStreamModel` have ~15 subclasses across 8 test files; because
+`filterwarnings = ["error"]`, a `DeprecationWarning` from `__init_subclass__` fires at
+**collection** time, so 2994's real cost is a test migration, not a two-line `warnings.warn`.
+User confirmed proceeding anyway (the documented "emits no runtime warning" decision is
+deliberately reversed).
