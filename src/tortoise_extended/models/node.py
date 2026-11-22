@@ -74,6 +74,13 @@ class NodeMixin(Model):
     still has children.
     """
 
+    if TYPE_CHECKING:
+        # The mixin is pk-free: identity lives on the concrete base
+        # (``BaseNode`` declares ``UUID7Field``; a hybrid table may use a
+        # BigInt primary key).  Declare the value type for the traversal and
+        # delete helpers that read ``self.id`` — no runtime field is added.
+        id: UUID | int
+
     _block_orphan_delete: ClassVar[bool] = False
     """When True, ``delete()`` refuses to remove a node that has children."""
 
@@ -200,7 +207,7 @@ class NodeMixin(Model):
         )
 
         async def _persist_and_sync() -> None:
-            old_parent_id: UUID | None = None
+            old_parent_id: UUID | int | None = None
             if not is_create:
                 old_parent_id = await self._previous_parent_id(using_db)
 
@@ -252,7 +259,7 @@ class NodeMixin(Model):
 
     async def _previous_parent_id(
         self, using_db: BaseDBAsyncClient | None = None
-    ) -> UUID | None:
+    ) -> UUID | int | None:
         """Return this node's persisted ``parent_id`` from the database.
 
         The read runs on the same connection that persists the node
@@ -481,18 +488,26 @@ class BaseNode(NodeMixin, TimestampMixin):
         child = await Category.create(name="Laptops", parent_id=root.pk)
     """
 
-    id = UUID7Field(
-        primary_key=True,
-        description="Unique identifier for the node",
-    )
+    if TYPE_CHECKING:
+        # Narrow the pk-free mixin's generic identity value types for this
+        # UUID-identity base. The concrete field objects are assigned in the
+        # ``else`` branch so Tortoise still registers them on the class body;
+        # annotating them in the same scope would hide the field descriptors.
+        id: UUID
+        parent_id: UUID | None
+    else:
+        id = UUID7Field(
+            primary_key=True,
+            description="Unique identifier for the node",
+        )
+        parent_id = fields.UUIDField(
+            null=True,
+            description="Parent node ID for adjacency list traversal",
+            db_index=True,
+        )
     name = CharField(
         max_length=100,
         description="Human-readable node name",
-    )
-    parent_id = fields.UUIDField(
-        null=True,
-        description="Parent node ID for adjacency list traversal",
-        db_index=True,
     )
     ordering_field: ClassVar[str] = "name"
 

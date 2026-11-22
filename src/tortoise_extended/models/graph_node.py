@@ -19,6 +19,9 @@ Usage::
             indexes = (("namespace", "depth"),)
 """
 
+from typing import TYPE_CHECKING
+from uuid import UUID
+
 from tortoise_extended.fields.uuid import UUID4Field
 from tortoise_extended.models.node import BaseNode
 
@@ -70,10 +73,15 @@ class BaseGraphNodeModel(BaseNode):
         child = await Category.create(name="Laptops", parent_id=root.pk)
     """
 
-    id = UUID4Field(
-        primary_key=True,
-        description="Unique identifier for the node",
-    )
+    if TYPE_CHECKING:
+        # Match BaseNode's value-typed ``id`` declaration; the legacy UUID4
+        # field object is still assigned at runtime in the ``else`` branch.
+        id: UUID
+    else:
+        id = UUID4Field(
+            primary_key=True,
+            description="Unique identifier for the node",
+        )
 
     class Meta:
         abstract = True
