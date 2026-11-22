@@ -1507,14 +1507,14 @@ class TestCacheDefaultBackend:
 
 
 # ---------------------------------------------------------------------------
-# G24 — live Redis smoke test (docker-gated: redis-ext on 127.0.0.1:6380)
+# G24 — live Redis smoke test (docker-gated: redis-ext on 127.0.0.1:6381)
 # ---------------------------------------------------------------------------
 
 
 def _redis_available() -> bool:
     """Quick probe — can we reach the docker redis-ext container?"""
     try:
-        sock = socket.create_connection(("localhost", 6380), timeout=2)
+        sock = socket.create_connection(("localhost", 6381), timeout=2)
         sock.close()
         return True
     except OSError:
@@ -1523,7 +1523,7 @@ def _redis_available() -> bool:
 
 _live_redis = pytest.mark.skipif(
     not _redis_available(),
-    reason="Redis not available on localhost:6380 (docker compose up -d)",
+    reason="Redis not available on localhost:6381 (docker compose up -d)",
 )
 
 
@@ -1531,8 +1531,8 @@ def _redis_url() -> str:
     """Build a Redis URL, honouring REDIS_PASSWORD when set."""
     password = os.environ.get("REDIS_PASSWORD", "")
     if password:
-        return f"redis://:{password}@localhost:6380/0"
-    return "redis://localhost:6380/0"
+        return f"redis://:{password}@localhost:6381/0"
+    return "redis://localhost:6381/0"
 
 
 class TestLiveRedis:

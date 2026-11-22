@@ -13,7 +13,7 @@ model-level lifecycle with a live Redis connection:
 - ``refresh_from_db()`` -> cache write
 - ``delete()`` -> cache invalidation
 
-Live Redis runs against the docker ``redis-ext`` container on ``127.0.0.1:6380``;
+Live Redis runs against the docker ``redis-ext`` container on ``127.0.0.1:6381``;
 tests skip when it is unreachable. The model rows themselves live in SQLite
 in-memory (model-level cache population does not require PostgreSQL).
 """
@@ -41,7 +41,7 @@ from tortoise_extended.models.cacheable_model import BaseCacheableModel
 def _redis_available() -> bool:
     """Quick probe — can we reach the docker redis-ext container?"""
     try:
-        sock = socket.create_connection(("localhost", 6380), timeout=2)
+        sock = socket.create_connection(("localhost", 6381), timeout=2)
         sock.close()
         return True
     except OSError:
@@ -50,7 +50,7 @@ def _redis_available() -> bool:
 
 _live_redis = pytest.mark.skipif(
     not _redis_available(),
-    reason="Redis not available on localhost:6380 (docker compose up -d)",
+    reason="Redis not available on localhost:6381 (docker compose up -d)",
 )
 
 
@@ -89,7 +89,7 @@ async def _live_redis_backend() -> AsyncGenerator[None, None]:
     """Init a live Redis singleton for the test, clean it, then close it."""
     RedisCache._instance = None
     RedisCache._pool = None
-    await RedisCache.init(url="redis://localhost:6380/0")
+    await RedisCache.init(url="redis://localhost:6381/0")
     await RedisCache.get_pool().flushdb()
     await LiveCacheRecord.all().delete()
     yield

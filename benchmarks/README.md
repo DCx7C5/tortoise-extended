@@ -23,7 +23,7 @@ uv run python benchmarks/bench_graph_traversal.py --rows 100000
 | `--output PATH` | — | Write results as JSON for later comparison |
 
 The database URL can be overridden with the `BENCH_DB_URL` environment
-variable (default: `postgres://postgres:postgres@localhost:5433/tortoise_test`).
+variable (default: `postgres://postgres:postgres@localhost:5434/tortoise_test`).
 
 ## Provenance of documented numbers
 

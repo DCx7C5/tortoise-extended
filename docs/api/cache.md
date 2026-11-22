@@ -37,7 +37,7 @@ await RedisCache.init(url="redis://localhost:6379/0")
 
 # Initialize Tortoise
 await Tortoise.init(
-    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended",
+    db_url="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended",
     modules={"models": ["myapp.models"]},
 )
 

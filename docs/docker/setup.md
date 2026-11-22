@@ -9,8 +9,8 @@ optional cache backend (`redis-ext`). Both are managed with
 
 | Service | Image / Build | Host port |
 |---------|---------------|-----------|
-| `postgres-ext` | `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.6, TimescaleDB) | `127.0.0.1:5433` |
-| `redis-ext` | `docker/redis-ext/Dockerfile` (Redis 7-alpine, digest-pinned) | `127.0.0.1:6380` |
+| `postgres-ext` | `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.6, TimescaleDB) | `127.0.0.1:5434` |
+| `redis-ext` | `docker/redis-ext/Dockerfile` (Redis 7-alpine, digest-pinned) | `127.0.0.1:6381` |
 
 ## Quick Start
 
@@ -32,14 +32,14 @@ docker compose -f docker-compose.dev.yml down
 ## Connecting
 
 ```bash
-# From host (postgres listens only on 127.0.0.1:5433)
-psql -h 127.0.0.1 -p 5433 -U <POSTGRES_USER> -d <POSTGRES_DB>
+# From host (postgres listens only on 127.0.0.1:5434)
+psql -h 127.0.0.1 -p 5434 -U <POSTGRES_USER> -d <POSTGRES_DB>
 
 # Redis
-redis-cli -h 127.0.0.1 -p 6380 ping
+redis-cli -h 127.0.0.1 -p 6381 ping
 
 # Redis with password (when REDIS_PASSWORD is set)
-redis-cli -h 127.0.0.1 -p 6380 -a <REDIS_PASSWORD> ping
+redis-cli -h 127.0.0.1 -p 6381 -a <REDIS_PASSWORD> ping
 ```
 
 ## From Python
@@ -49,7 +49,7 @@ import tortoise_extended
 from tortoise import Tortoise
 
 await Tortoise.init(
-    db_url="postgres://<user>:<password>@127.0.0.1:5433/<db>",
+    db_url="postgres://<user>:<password>@127.0.0.1:5434/<db>",
     modules={"models": ["myapp.models"]},
 )
 ```
@@ -81,7 +81,7 @@ docker compose -f docker-compose.dev.yml logs -f postgres-ext
 
 ```bash
 docker compose -f docker-compose.dev.yml logs postgres-ext
-lsof -i :5433
+lsof -i :5434
 df -h
 ```
 

@@ -396,7 +396,7 @@ A development database stack is provided (PostgreSQL 18 + pgvector + TimescaleDB
 
 ```bash
 cp .env.example .env          # set POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
-docker compose -f docker-compose.dev.yml up -d       # postgres-ext (127.0.0.1:5433) + redis-ext (127.0.0.1:6380)
+docker compose -f docker-compose.dev.yml up -d       # postgres-ext (127.0.0.1:5434) + redis-ext (127.0.0.1:6381)
 docker compose -f docker-compose.dev.yml logs -f postgres-ext
 docker compose -f docker-compose.dev.yml down
 ```

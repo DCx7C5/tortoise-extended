@@ -11,7 +11,7 @@ tortoise_extended.patch()  # Explicitly apply monkey-patches (idempotent)
 from tortoise import Tortoise
 
 await Tortoise.init(
-    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended",
+    db_url="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended",
     modules={"models": ["myapp.models"]},
 )
 ```
@@ -20,7 +20,7 @@ await Tortoise.init(
 
 ```python
 await Tortoise.init(
-    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended",
+    db_url="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended",
     modules={"models": ["myapp.models"]},
     # Optional: generate schemas (creates tables if they don't exist)
     # generate_schemas=True,
@@ -39,7 +39,7 @@ postgres://username:password@host:port/database_name
 
 ```python
 # Local development (Docker)
-db_url = "postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
+db_url = "postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended"
 
 # Remote PostgreSQL
 db_url = "postgres://myuser:mypass@db.example.com:5432/mydb"
@@ -59,7 +59,7 @@ export POSTGRES_USER="postgres"
 export POSTGRES_PASSWORD="postgres"
 export POSTGRES_DB="tortoise_extended"
 # Optional: full Tortoise DB URL (overrides the three vars above)
-export DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
+export DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended"
 
 # Redis cache
 export REDIS_URL="redis://localhost:6379/0"
@@ -79,7 +79,7 @@ await Tortoise.generate_schemas()
 
 ```python
 await Tortoise.init(
-    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended?min_size=5&max_size=20",
+    db_url="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended?min_size=5&max_size=20",
     modules={"models": ["myapp.models"]},
 )
 ```

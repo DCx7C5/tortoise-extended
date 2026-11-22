@@ -6,8 +6,8 @@ This page documents the Docker Compose dev stack in `docker-compose.dev.yml`.
 
 | Service       | Image / Build                                   | Host port    | Purpose            |
 |---------------|-------------------------------------------------|--------------|--------------------|
-| `postgres-ext`| `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.6, TimescaleDB) | `127.0.0.1:5433` | Graph/vector DB |
-| `redis-ext`   | `docker/redis-ext/Dockerfile` (Redis 7-alpine, digest-pinned)         | `127.0.0.1:6380` | Cache backend  |
+| `postgres-ext`| `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.6, TimescaleDB) | `127.0.0.1:5434` | Graph/vector DB |
+| `redis-ext`   | `docker/redis-ext/Dockerfile` (Redis 7-alpine, digest-pinned)         | `127.0.0.1:6381` | Cache backend  |
 
 ## Environment File
 
@@ -32,7 +32,7 @@ docker compose -f docker-compose.dev.yml logs -f postgres-ext
 docker compose -f docker-compose.dev.yml down        # stop
 ```
 
-The database listens on the host **only** at `127.0.0.1:5433` — it is never
+The database listens on the host **only** at `127.0.0.1:5434` — it is never
 exposed publicly.
 
 ## Initialization Scripts
@@ -47,13 +47,13 @@ alphabetical order:
 
 ```python
 # Tortoise ORM
-db_url = "postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
+db_url = "postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended"
 
 # psql
-psql -h 127.0.0.1 -p 5433 -U postgres tortoise_extended
+psql -h 127.0.0.1 -p 5434 -U postgres tortoise_extended
 
 # Redis
-redis-cli -h 127.0.0.1 -p 6380
+redis-cli -h 127.0.0.1 -p 6381
 ```
 
 ## Pinning Policy

@@ -53,6 +53,6 @@ cp .env.example .env   # configure POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_
 docker compose -f docker-compose.dev.yml up -d
 ```
 
-This starts `postgres-ext` on `127.0.0.1:5433` (with `vector`, `ltree`,
+This starts `postgres-ext` on `127.0.0.1:5434` (with `vector`, `ltree`,
 `timescaledb`, `pg_trgm`, `uuid-ossp` extensions) and `redis-ext` on
-`127.0.0.1:6380`. See [Docker setup](../docker/setup.md).
+`127.0.0.1:6381`. See [Docker setup](../docker/setup.md).

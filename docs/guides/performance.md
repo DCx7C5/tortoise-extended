@@ -146,7 +146,7 @@ nodes = await Entity.all().prefetch_related(
 
 ```python
 await Tortoise.init(
-    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
+    db_url="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended"
     "?min_size=5"
     "&max_size=20"
     "&timeout=60"
@@ -351,7 +351,7 @@ class Chunk(models.Model):
 ```python
 # Increase pool size
 await Tortoise.init(
-    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended?min_size=10&max_size=50",
+    db_url="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended?min_size=10&max_size=50",
     modules={"models": ["myapp.models"]},
 )
 ```

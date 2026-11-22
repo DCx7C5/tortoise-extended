@@ -329,7 +329,9 @@ sqlite3 /home/daen/.local/share/opencode/opencode.db -separator " || " \
 - Tests are organized into `Test*` classes per concern.
 - Target: **zero warnings** — `filterwarnings = ["error"]` is set, so any warning fails the run.
   Do not add tests that emit deprecation/async warnings.
-- Non-PostgreSQL-specific tests run against SQLite (e.g. `VectorField` falls back to `BLOB`).
+- Non-PostgreSQL-specific tests may run against SQLite, but only for generic ORM logic.
+  PostgreSQL-only types (`VectorField`/pgvector, `LTreeField`, the pgvector index types,
+  pgcrypto/`ts_rank` expressions) are **not** exercised on SQLite — they have no fallback.
 - `test_pg_integration.py` requires the Docker database (see below).
 
 ## Docker
@@ -342,8 +344,8 @@ docker compose -f docker-compose.dev.yml down        # stop
 
 | Service       | Image / Build                                   | Host port | Purpose            |
 |---------------|-------------------------------------------------|-----------|--------------------|
-| `postgres-ext`| `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.5, TimescaleDB) | `127.0.0.1:5433` | Graph/vector DB |
-| `redis-ext`   | `redis:7-alpine`                                | `127.0.0.1:6380` | Cache backend      |
+| `postgres-ext`| `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.5, TimescaleDB) | `127.0.0.1:5434` | Graph/vector DB |
+| `redis-ext`   | `redis:7-alpine`                                | `127.0.0.1:6381` | Cache backend      |
 
 - Init scripts run from `docker/postgres-ext/scripts/` on first start:
   `00-extensions.sql` (creates `vector`, `ltree`, `timescaledb`, `pg_trgm`, `uuid-ossp`).
@@ -351,7 +353,7 @@ docker compose -f docker-compose.dev.yml down        # stop
   are **commit-pinned** via ARG. Bump version + pin together, deliberately, when upgrading.
 - `docker-compose.dev.yml` uses `env_file: .env` — the `.env` file must exist locally with
   `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` (and `REDIS_*` if used).
-- Postgres listens on the host only at `127.0.0.1:5433` (never exposed publicly).
+- Postgres listens on the host only at `127.0.0.1:5434` (never exposed publicly).
 
 ## Dependencies
 

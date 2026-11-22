@@ -1,4 +1,4 @@
-FROM postgres:18@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 AS builder
+FROM postgres:18.7@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a AS builder
 
 ARG PGVECTOR_VERSION=0.8.6
 ARG PGVECTOR_COMMIT=8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c
@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config \
         rustc \
         cargo \
-        postgresql-server-dev-18 \
+        postgresql-server-dev-18=18.7-1.pgdg13+5 \
     && rm -rf /var/lib/apt/lists/*
 
 # -- pgvector ----------------------------------------------------------------
@@ -37,7 +37,7 @@ RUN git clone https://github.com/timescale/timescaledb.git . \
 RUN ./bootstrap -DAPPLY_LIBRARY_TWEAKS=ON -DREGRESS_CHECKS=OFF -DCMAKE_BUILD_TYPE=Release \
     && cd build && make -j$(nproc) && make install
 
-FROM postgres:18@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20
+FROM postgres:18.7@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a
 
 
 # Copy compiled extension artifacts from builder

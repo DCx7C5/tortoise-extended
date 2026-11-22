@@ -26,7 +26,7 @@ from myapp.models import Entity, Relationship, TextUnit
 
 async def main():
     await Tortoise.init(
-        db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended",
+        db_url="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended",
         modules={"models": ["myapp.models"]},
     )
     await Tortoise.generate_schemas()

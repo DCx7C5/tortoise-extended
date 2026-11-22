@@ -1,7 +1,7 @@
 """Integration tests for NodeMixin against live PostgreSQL.
 
 Requires the docker stack (see ``docker-compose.dev.yml``): PostgreSQL on
-``127.0.0.1:5433``, database ``tortoise_test``.
+``127.0.0.1:5434``, database ``tortoise_test``.
 
 Run with: uv run pytest tests/test_node_mixin_integration.py -v
 """
@@ -22,14 +22,14 @@ from tortoise_extended.models import BaseModel, NodeMixin
 
 DB_URL = os.environ.get(
     "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5433/tortoise_test",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
 )
 
 
 def _pg_available() -> bool:
     """Quick check — can we connect to the test PG?"""
     try:
-        sock = socket.create_connection(("localhost", 5433), timeout=2)
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
         sock.close()
         return True
     except OSError:
@@ -38,7 +38,7 @@ def _pg_available() -> bool:
 
 pytestmark = pytest.mark.skipif(
     not _pg_available(),
-    reason="PostgreSQL not available on localhost:5433",
+    reason="PostgreSQL not available on localhost:5434",
 )
 
 

@@ -1,7 +1,7 @@
 """Integration tests against live PostgreSQL + pgvector.
 
 Requires: docker run -d --name pg-integration -e POSTGRES_DB=tortoise_test \
-    -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -p 5433:5432 \
+    -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -p 5434:5432 \
     pgvector/pgvector:pg16
 
 Run with: uv run pytest tests/test_pg_integration.py -v
@@ -34,14 +34,14 @@ from tortoise_extended.expressions.graph_filters import vector_encoder
 
 DB_URL = os.environ.get(
     "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5433/tortoise_test",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
 )
 
 
 def _pg_available() -> bool:
     """Quick check — can we connect to the test PG?"""
     try:
-        sock = socket.create_connection(("localhost", 5433), timeout=2)
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
         sock.close()
         return True
     except OSError:
@@ -50,7 +50,7 @@ def _pg_available() -> bool:
 
 pytestmark = pytest.mark.skipif(
     not _pg_available(),
-    reason="PostgreSQL not available on localhost:5433",
+    reason="PostgreSQL not available on localhost:5434",
 )
 
 

@@ -9,7 +9,7 @@ tortoise-extended's ``graph_traversal`` / ``pathfinding`` modules compile to:
 - N-hop: bounded BFS through the edge table
 
 The harness talks to the live docker PostgreSQL (``postgres-ext`` on
-127.0.0.1:5433) directly with raw SQL so the numbers reflect the database
+127.0.0.1:5434) directly with raw SQL so the numbers reflect the database
 engine, not the ORM wrapper.
 
 Usage::
@@ -23,7 +23,7 @@ Options:
     --output PATH     Write results as JSON for later comparison
 
 The database URL can be overridden with the ``BENCH_DB_URL`` environment
-variable (default: ``postgres://postgres:postgres@localhost:5433/tortoise_test``).
+variable (default: ``postgres://postgres:postgres@localhost:5434/tortoise_test``).
 
 The README/docs tables quoting "22,581 RPS / 4ms p95" are *illustrative* and
 machine-dependent; run this script on your own hardware for current numbers.
@@ -42,7 +42,7 @@ import asyncpg
 
 DB_URL = os.environ.get(
     "BENCH_DB_URL",
-    "postgres://postgres:postgres@localhost:5433/tortoise_test",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
 )
 
 

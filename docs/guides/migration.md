@@ -76,7 +76,7 @@ chunks = (
 db_url = "postgres://user:pass@localhost:5432/mydb"
 
 # After (dev database from docker-compose.dev.yml)
-db_url = "postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
+db_url = "postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended"
 ```
 
 ## From tortoise-embeddings
@@ -433,9 +433,9 @@ CREATE EXTENSION IF NOT EXISTS vector;
 ### Port Conflict
 
 ```python
-# Error: Connection refused on port 5433
-# The dev database listens on 127.0.0.1:5433
-db_url = "postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
+# Error: Connection refused on port 5434
+# The dev database listens on 127.0.0.1:5434
+db_url = "postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended"
 ```
 
 ### Dimension Mismatch

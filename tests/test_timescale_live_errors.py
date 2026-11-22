@@ -6,7 +6,7 @@ Postgres connection with bogus / non-existent object names so the server
 raises, and the manager wraps it.
 
 Requires: the docker ``postgres-ext`` container (PostgreSQL 18 + TimescaleDB)
-exposed on ``127.0.0.1:5433``.
+exposed on ``127.0.0.1:5434``.
 
 Run with: uv run pytest tests/test_timescale_live_errors.py -v
 """
@@ -45,7 +45,7 @@ from tortoise_extended.timescale.stream import (
 
 DB_URL = os.environ.get(
     "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5433/tortoise_test",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
 )
 
 BOGUS_TABLE = "definitely_not_a_table_xyz"
@@ -56,7 +56,7 @@ BOGUS_CHUNK = "_timescaledb_internal._hyper_99999_99999_chunk"
 def _pg_available() -> bool:
     """Quick check — can we connect to the test PG?"""
     try:
-        sock = socket.create_connection(("localhost", 5433), timeout=2)
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
         sock.close()
         return True
     except OSError:
@@ -65,7 +65,7 @@ def _pg_available() -> bool:
 
 pytestmark = pytest.mark.skipif(
     not _pg_available(),
-    reason="PostgreSQL not available on localhost:5433",
+    reason="PostgreSQL not available on localhost:5434",
 )
 
 

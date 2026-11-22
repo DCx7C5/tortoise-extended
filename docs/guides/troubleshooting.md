@@ -54,12 +54,12 @@ docker compose -f docker-compose.dev.yml up -d
 ConnectionRefusedError: [Errno 111] Connection refused
 ```
 
-**Cause:** PostgreSQL not running on port 5433 (the dev database port).
+**Cause:** PostgreSQL not running on port 5434 (the dev database port).
 
 **Fix:**
 ```python
-# The dev database listens on 127.0.0.1:5433
-db_url = "postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended"
+# The dev database listens on 127.0.0.1:5434
+db_url = "postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended"
 
 # Start it with
 # docker compose -f docker-compose.dev.yml up -d
@@ -142,7 +142,7 @@ asyncpg.exceptions.ConnectionPoolTimeoutError: Timed out while acquiring connect
 ```python
 # Increase pool size
 await Tortoise.init(
-    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended?min_size=10&max_size=50",
+    db_url="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended?min_size=10&max_size=50",
     modules={"models": ["myapp.models"]},
 )
 
@@ -294,7 +294,7 @@ ValueError: Table 'entities' already exists
 ```python
 # Skip schema generation
 await Tortoise.init(
-    db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended",
+    db_url="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended",
     modules={"models": ["myapp.models"]},
     generate_schemas=False,  # Don't create tables
 )
@@ -411,7 +411,7 @@ print(f"Free connections: {pool.get_idle_size()}")
 2. **Increase pool size:**
    ```python
    await Tortoise.init(
-       db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended?min_size=10&max_size=50",
+       db_url="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended?min_size=10&max_size=50",
        modules={"models": ["myapp.models"]},
    )
    ```
@@ -419,7 +419,7 @@ print(f"Free connections: {pool.get_idle_size()}")
 3. **Add connection timeout:**
    ```python
    await Tortoise.init(
-       db_url="postgres://postgres:postgres@127.0.0.1:5433/tortoise_extended?timeout=30",
+       db_url="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended?timeout=30",
        modules={"models": ["myapp.models"]},
    )
    ```

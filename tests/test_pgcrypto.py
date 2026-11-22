@@ -151,14 +151,14 @@ class TestPgcryptoAlgorithmAllowlist:
 
 _DB_URL = os.environ.get(
     "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5433/tortoise_test",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
 )
 
 
 def _pg_available() -> bool:
     """Quick check — can we connect to the test PG?"""
     try:
-        sock = socket.create_connection(("localhost", 5433), timeout=2)
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
         sock.close()
         return True
     except OSError:
@@ -189,7 +189,7 @@ class TestPgcryptoIntegration:
     """Live PostgreSQL tests for pgcrypto hash/digest functions.
 
     Skipped (entire class) when PostgreSQL is not available on
-    ``localhost:5433``, so unit/sqlite tests still run on non-PG machines.
+    ``localhost:5434``, so unit/sqlite tests still run on non-PG machines.
 
     The ``_init_pg_db`` fixture is ``function``-scoped because each SQLite
     unit test in this module calls ``Tortoise.init``/``close_connections``
@@ -198,7 +198,7 @@ class TestPgcryptoIntegration:
 
     pytestmark = pytest.mark.skipif(
         not _pg_available(),
-        reason="PostgreSQL not available on localhost:5433",
+        reason="PostgreSQL not available on localhost:5434",
     )
 
     @pytest.fixture(autouse=True)
