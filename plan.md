@@ -785,3 +785,18 @@ contradicts the repo were settled by measurement and an explicit ruling:
 **collection** time, so 2994's real cost is a test migration, not a two-line `warnings.warn`.
 User confirmed proceeding anyway (the documented "emits no runtime warning" decision is
 deliberately reversed).
+
+**Shipped 2026-11-23** — items 1 and 3 of §I.4 are done, item 2 in flight:
+
+| Row | Commit | What landed |
+|---|---|---|
+| `FUSION-UTILITIES` (2992) | `38c72f9` | `expressions/fusion.py` — RRF, weighted fusion (minmax/zscore/none), greedy MMR with a caller-supplied similarity callable, and two adapters (`ranking_from_hits`, `scores_from_hybrid_rows`); exported from both `__all__`s; 45 tests; `docs/api/fusion.md` |
+| `ALIAS-DEPRECATION-WARNING` (2994) | `eeebe39` | `DeprecationWarning` from `__init_subclass__` at `stacklevel=3` on both aliases; 13 test classes migrated to `BaseNode`/`BaseSample`, 2 kept on the aliases under explicit `pytest.warns` |
+| `TORTOISE-VERSION-GUARD` (2993) | in flight | folded with `PATCH-GUARD-IDENTITY` (2988) — one pass over `__init__.py` |
+
+Gate at both commits: ruff clean, basedpyright **0 errors / 1 warning** (the `cache/base.py:173`
+baseline), full suite **1495 passed, 1 skipped**, `python -W error -c "import tortoise_extended"`
+exits 0. Two defects found by planner review rather than by the workers: `diversity_rerank`
+contradicted its own docstring at `lambda_=0.0` (first pick was input order, not max relevance),
+and the fusion module initially introduced four new basedpyright warnings, which AGENTS.md
+forbids.
