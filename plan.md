@@ -718,6 +718,10 @@ parameters, bracketless `except`, t-strings and the `css-py314-devel` skill all 
 `[tool.basedpyright] pythonVersion` is pinned to 3.14. This is a **product decision, not a bug
 fix** — it is not scheduled here and must not be inferred from the assessment.
 
+**Decided 2026-11-23 (user ruling): keep `requires-python >= 3.14`.** The adoption cost is
+accepted; PEP 695, t-strings, bracketless `except` and the 3.14 basedpyright pin all stay. Do
+not reopen this from an adoption critique alone — it needs an explicit instruction.
+
 ### I.4 Genuinely new, not covered anywhere (candidate TODOs — NOT yet filed)
 
 Ordered by value/cost. None of these is in the shared list.
@@ -725,23 +729,32 @@ Ordered by value/cost. None of these is in the shared list.
 1. **Fusion utilities** — reciprocal rank fusion (RRF), weighted score combination, diversity
    re-ranking, layered over `GraphVectorSearch` / `HybridSearch`. Small, self-contained, and the
    highest ratio of usefulness to risk on this list. No such code exists today (grep: no
-   `reciprocal_rank` / `rrf` / `fusion`).
+   `reciprocal_rank` / `rrf` / `fusion`). → **FILED as `FUSION-UTILITIES` (2992).**
 2. **Tortoise-version compatibility guard** — a clear error at import when the installed
    `tortoise-orm` is outside the tested range, instead of a silent patch miss. Pairs with 2988.
+   → **FILED as `TORTOISE-VERSION-GUARD` (2993).**
 3. **Runtime `DeprecationWarning` on the alias bases** — completes the deprecation the
-   docstrings already announce.
-4. **`Meta.indexes` inheritance** — measure whether a subclass that omits `Meta.indexes`
-   inherits the parent's or silently drops them (the `NodeMixin.__init_subclass__` guard at
-   `models/node.py:123-165` suggests re-declaration is required). Fix or document loudly.
-5. **Batch traversal API** — multi-source/multi-target traversal in one round trip.
+   docstrings already announce. **Caveat measured 2026-11-23:** `models/graph_node.py:34-37`
+   explicitly states the alias "emits no runtime warning" — this is a *documented decision*, so
+   changing it is a deliberate reversal, not a fix. → **FILED as `ALIAS-DEPRECATION-WARNING`
+   (2994), low priority.**
+4. ~~**`Meta.indexes` inheritance**~~ — **already solved, no TODO.** Measured 2026-11-23:
+   `NodeMixin.__init_subclass__` (`models/node.py:146-170`) raises `NotImplementedError` at
+   class-creation time when a concrete subclass omits `Meta.indexes`, with a message naming the
+   re-declaration requirement. That *is* the "document it loudly" ask, enforced rather than
+   described.
+5. **Batch traversal API** — multi-source/multi-target traversal in one round trip. (Deferred.)
 6. **Benchmarks** — `GraphVectorSearch` / `HybridSearch` / traversal vs pure SQL, with HNSW
-   tuning notes (m, ef_construction, ef_search, rebuild thresholds).
-7. **Observability hooks** — query logging and slow-graph-expansion warnings.
-8. **Embedding-library thin helpers** — no hard dependency.
+   tuning notes (m, ef_construction, ef_search, rebuild thresholds). (Deferred.)
+7. **Observability hooks** — query logging and slow-graph-expansion warnings. (Deferred.)
+8. **Embedding-library thin helpers** — no hard dependency. (Deferred.)
 9. **Worked examples** — vector-only, hybrid vector + 1-hop, and a full lightweight GraphRAG
-   (entities + relations + optional communities).
+   (entities + relations + optional communities). (Deferred.)
 10. **Entity resolution / dedup** (exact + embedding + optional LLM confirm) and
     **community detection** (Leiden / k-core integration points) + a `CommunityReport` model.
     This is the largest item by an order of magnitude and is arguably a **separate library**;
-    it should not be smuggled into an ergonomics release.
-11. **Contribution guide + public roadmap**.
+    it should not be smuggled into an ergonomics release. (Deferred, deliberately.)
+11. **Contribution guide + public roadmap**. (Deferred.)
+
+**Scope ruling 2026-11-23 (user):** items 1–3 filed; item 4 closed as already-solved; items
+5–11 deferred until the §H ergonomics build-out ships.
