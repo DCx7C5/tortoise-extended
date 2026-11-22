@@ -673,3 +673,75 @@ from unlocked rows. That is a genuine TOCTOU window, documented in D2 rather tha
 
 **Also measured during verification:** AGENTS.md §Testing lists `tests/test_pathfinding.py` and
 `tests/test_graph_traversal.py`; neither exists. Recorded in `DOCS-ERGO` for correction.
+
+## I. External adoption assessment — triage (2026-11-23)
+
+An unsolicited third-party review of the library arrived (adoption-oriented: "what would make
+this the go-to foundation for hybrid RAG / GraphRAG"). It is recorded here with a verdict per
+item, because roughly half of it is **already planned** in §H, one item is **factually wrong**,
+and one is a **doctrine reversal that only the user can decide**. Nothing below is scheduled
+until the scope question is answered.
+
+### I.1 Already covered by §H (no new work)
+
+| Assessment ask | Already |
+|---|---|
+| "clean registration API instead of silent import-time side effects" | `LIFECYCLE-EXTENSIONS` (2966) + `LIFECYCLE-SETUP` (2978) — `ensure_extensions()` + `setup()`. Note: a `register()` **cannot** replace the import-time patches; the patches must be live before any model class is imported (AGENTS.md rule 1), so `setup()` is additive, not a replacement |
+| "patch applied / not-applied runtime checks" | partially `LIFECYCLE-SETUP`; the *guard-identity* half is now `PATCH-GUARD-IDENTITY` (2988) |
+| "soft-delete + graph traversal consistency" | `NODE-SOFTDELETE` (2968) — subtree semantics + the `child_count` invariant |
+| "batch-friendly traversal / pathfinding" | `GRAPH-FACADE` (2969) |
+| "improve type stubs / pyright experience" | `STUBS-RUNTIME-DEP` (2991) — the overlay vs the PyPI stub package question |
+| "documentation is the weak point" | `DOCS-ERGO` (2974), which already carries the five surfaces the Track 2/3 review found missing |
+| "keep the Redis extra optional" | already true — `[project.optional-dependencies].redis` |
+| "make Meta.indexes inheritance work or document it loudly" | needs a measurement first — see I.4 |
+
+### I.2 Factually wrong or already true
+
+- **"Deprecate old aliases (`BaseGraphNodeModel` → `BaseNode`)"** — the aliases are *already*
+  documented deprecated (`models/graph_node.py:32`, `models/event_stream.py:78`). The genuine
+  gap is narrower: they carry a `.. deprecated::` docstring but emit **no `DeprecationWarning`**,
+  so nothing fails or warns at runtime. That is a small, real follow-up — see I.4.
+- **"contribute VectorField/filters upstream so the extension shrinks"** — not a code task in
+  this repo; it is a relationship/roadmap matter and cannot be scheduled as a TODO here.
+- **"more comprehensive test suite against real Postgres + pgvector + Timescale"** — the suite
+  already runs **1412 passed / 1 skipped** against live PostgreSQL 18.7 + pgvector 0.8.6 +
+  TimescaleDB 2.29.2 + Redis (measured 2026-11-22). The gap is not coverage breadth.
+
+### I.3 The one doctrine reversal — user decision only
+
+**"Lower the Python floor to 3.11 or 3.12."** Verified: `requires-python = ">=3.14"` is this
+library's own choice, **not** inherited — `tortoise-orm` itself declares `Requires-Python:
+>=3.10`. So the assessment's premise is correct and the floor is technically movable.
+
+But lowering it would reverse the repo's stated doctrine and break its tooling: PEP 695 type
+parameters, bracketless `except`, t-strings and the `css-py314-devel` skill all assume 3.14, and
+`[tool.basedpyright] pythonVersion` is pinned to 3.14. This is a **product decision, not a bug
+fix** — it is not scheduled here and must not be inferred from the assessment.
+
+### I.4 Genuinely new, not covered anywhere (candidate TODOs — NOT yet filed)
+
+Ordered by value/cost. None of these is in the shared list.
+
+1. **Fusion utilities** — reciprocal rank fusion (RRF), weighted score combination, diversity
+   re-ranking, layered over `GraphVectorSearch` / `HybridSearch`. Small, self-contained, and the
+   highest ratio of usefulness to risk on this list. No such code exists today (grep: no
+   `reciprocal_rank` / `rrf` / `fusion`).
+2. **Tortoise-version compatibility guard** — a clear error at import when the installed
+   `tortoise-orm` is outside the tested range, instead of a silent patch miss. Pairs with 2988.
+3. **Runtime `DeprecationWarning` on the alias bases** — completes the deprecation the
+   docstrings already announce.
+4. **`Meta.indexes` inheritance** — measure whether a subclass that omits `Meta.indexes`
+   inherits the parent's or silently drops them (the `NodeMixin.__init_subclass__` guard at
+   `models/node.py:123-165` suggests re-declaration is required). Fix or document loudly.
+5. **Batch traversal API** — multi-source/multi-target traversal in one round trip.
+6. **Benchmarks** — `GraphVectorSearch` / `HybridSearch` / traversal vs pure SQL, with HNSW
+   tuning notes (m, ef_construction, ef_search, rebuild thresholds).
+7. **Observability hooks** — query logging and slow-graph-expansion warnings.
+8. **Embedding-library thin helpers** — no hard dependency.
+9. **Worked examples** — vector-only, hybrid vector + 1-hop, and a full lightweight GraphRAG
+   (entities + relations + optional communities).
+10. **Entity resolution / dedup** (exact + embedding + optional LLM confirm) and
+    **community detection** (Leiden / k-core integration points) + a `CommunityReport` model.
+    This is the largest item by an order of magnitude and is arguably a **separate library**;
+    it should not be smuggled into an ergonomics release.
+11. **Contribution guide + public roadmap**.
