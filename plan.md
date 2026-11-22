@@ -463,3 +463,107 @@ independent cache-layer fixes; G6 trivia bundled with other edits.
   `_build_cache_key` sorts signatures — reordered identical filters share
   one cache key.
 - G6: `Entity(BaseCacheableModel)` docstring; BaseGraphEdgeModel helpers annotate `UUID`.
+
+---
+
+## H. Node & stream ergonomics — build-out on `BaseNode` / `BaseSample` (2026-11-22)
+
+> **Trigger:** user request — "what can we build on top of BaseNode/BaseSample, their
+> mixins and hybrids, for easier usage". All seven proposed bundles were selected
+> 2026-11-22; **breaking changes are permitted** (version `0.1.0`, no git tags); no
+> off-limits surface was declared.
+
+### H.1 Measured starting point
+
+| Surface | Shipped today |
+|---|---|
+| `NodeMixin` | pk-free: `parent_id` annotation, `depth`, `is_root`, `child_count`, `namespace`, `metadata_json`; `children()`, `descendants()`, `ancestors()`, `siblings()`, `path_to_root()`, `subtree()`, `is_leaf`; `child_count` maintained in `save()`/`delete()` |
+| `BaseNode` | `UUID7Field` pk + `TimestampMixin` + a **forced** `name` field; `ordering_field = "name"` |
+| `BaseGraphEdgeModel` | `between()`, `between_any()`, `outgoing()`, `incoming()`, `is_self_loop` — reachable only from the edge model |
+| `SampleMixin` | ClassVar config (`time_field`, `stream_field`, `chunk_time_interval`, `number_partitions`, `compress_after`, `drop_after`); `setup()`, `bulk_insert()`, `in_range()`, `latest_per_stream()`, `time_series()` |
+| Query layer | `GraphTraversal`, `GraphVectorSearch`, `pathfinding`, `RecursiveCTE` — all take **model classes + raw column names** |
+
+Gaps that motivate the work:
+
+1. **Asymmetry:** `BaseHierarchyModel` has `move_to()`; `NodeMixin` does not. Reparenting
+   an adjacency-list subtree by hand means recomputing `depth` for every descendant and
+   fixing `child_count` on two parents — silent corruption if one step is missed.
+2. **No constructor:** creating a child requires hand-setting `parent_id` *and*
+   `depth=parent.depth+1`; nothing bumps `child_count`.
+3. **Flat results:** `descendants()`/`subtree()` return flat lists; every consumer
+   immediately rebuilds a tree.
+4. **Edges unreachable from nodes:** linking two nodes means instantiating the edge model
+   directly; there is no `node.connect(other)`.
+5. **No hybrid proof:** `NodeMixin`'s docstring advertises a BigInt-keyed hybrid node
+   table ("a hybrid node table can key on `BigInt` instead of the default `UUID`"), but no
+   shipped class exercises it.
+6. **Soft delete orphans trees:** `BaseSoftDeleteModel` + adjacency list soft-deletes a
+   parent while its children stay visible — a broken tree.
+7. **Deployment footguns:** `AGENTS.md` documents three manual steps (import order,
+   `CREATE EXTENSION`, per-model `Sample.setup()`); nothing in `src/` executes
+   `CREATE EXTENSION` at all.
+
+### H.2 Decisions
+
+- **D1 — placement.** Node helpers are **methods on `NodeMixin`**, not a helper module.
+  Precedent: `children()`/`descendants()`/`path_to_root()`/`subtree()` are methods, and
+  `BaseHierarchyModel.move_to()` is a method.
+- **D2 — `move_to` mirrors the ltree implementation, not a second dialect.** Same guards
+  and same execution shape as `BaseHierarchyModel.move_to`: `select_for_update()` on both
+  rows inside `in_transaction()`, namespace guard, self-move guard, cycle guard (target
+  inside the moved subtree), one bulk `UPDATE` for the whole depth delta, then
+  `refresh_from_db()`. Raises `GraphError` (node.py's error type, **not**
+  `HierarchyError`). Extension: `new_parent=None` detaches the subtree to a root
+  (`is_root=True`, `depth=0`), which the ltree version does not offer.
+- **D3 — tree shape.** `to_tree()` returns `list[NodeTree[ModelT]]` where
+  `NodeTree(msgspec.Struct, Generic[ModelT])` holds `node: ModelT` + `children`. Precedent
+  for a model-carrying Struct: `GraphVectorHit{node, distance, hops}`. Build is O(n) via a
+  `parent_id` map; a cycle or a node whose parent is absent from the input is reported via
+  `GraphError`, never silently dropped.
+- **D4 — edge declaration is duck-typed.** `edge_model: ClassVar[type[Model] | None] = None`
+  validated structurally (`source_id`/`target_id` present in `_meta.fields_map`) — mirrors
+  `GraphTraversal.__init__`'s validation and avoids a runtime import cycle between
+  `models/node.py` and `models/graph_edge.py`.
+- **D5 — lifecycle module.** New `src/tortoise_extended/lifecycle.py` exporting
+  `ensure_extensions()`, `setup()` and `SetupReport`. `CREATE EXTENSION IF NOT EXISTS` for
+  `vector`, `ltree`, `timescaledb`, `pgcrypto`, `pg_trgm`, `uuid-ossp`. Missing connection
+  raises a new `SetupError(TortoiseExtendedError)`; the import-order assertion checks the
+  `_apply_patches()` sentinel rather than re-running it.
+- **D6 — hybrids get their own modules** (`models/unified_node.py`,
+  `models/soft_delete_node.py`) following the `models/graph_node.py` precedent.
+- **D7 — stream sugar is classmethods on `SampleMixin`.** `record(*, stream=None, at=None,
+  **fields)` maps `stream`→`stream_field`, `at`→`time_field`; `gapfill()` is
+  TimescaleDB-only (`time_bucket_gapfill` + `locf`/`interpolate`) and must bound the range.
+- **D8 — declarative config layers over the ClassVars.** `class Meta: timescale = {...}`
+  wins over the existing ClassVars, read via `cls.__dict__["Meta"]` because Tortoise's
+  `MetaInfo` carries only known keys. **Spike before implementing** — whether `MetaInfo`
+  tolerates an unknown `Meta` attribute is unverified.
+- **D9 — parked.** Splitting `BaseNode`'s forced `name` field into a `NamedNodeMixin` was
+  discussed but **not selected**; it stays a parked low-priority row.
+
+### H.3 Phases → TODOs
+
+| Phase | TODO | Depends on |
+|---|---|---|
+| P1 node ergonomics | `NODE-ERGO` (`add_child`, `move_to`, `root`/`is_ancestor_of`/`is_descendant_of`, `NodeTree` + `to_tree`) | — |
+| P1 node↔edge | `NODE-EDGE-HYBRID` (`edge_model`, `connect`/`disconnect`/`neighbours`) | `NODE-ERGO` (same file) |
+| P2 lifecycle | `LIFECYCLE-SETUP` (`ensure_extensions`, `setup`, `SetupReport`) | — |
+| P3 hybrids | `UNIFIED-NODE` (`BaseUnifiedNode`), `SOFTDELETE-NODE` (`BaseSoftDeleteNode`) | `NODE-ERGO` |
+| P4 facade | `GRAPH-FACADE` (`Graph`) | `NODE-EDGE-HYBRID` |
+| P5 streams | `SAMPLE-RECORD-LATEST`, `SAMPLE-GAPFILL` | — |
+| P6 declarative | `TIMESCALE-META-SPIKE` → `TIMESCALE-META-IMPL` | `SAMPLE-*` |
+| P7 docs | `DOCS-ERGO` | all of the above |
+
+**TODO positions:** NODE-ERGO 2964 · NODE-EDGE-HYBRID 2965 · LIFECYCLE-SETUP 2966 ·
+UNIFIED-NODE 2967 · SOFTDELETE-NODE 2968 · GRAPH-FACADE 2969 · SAMPLE-RECORD-LATEST 2970 ·
+SAMPLE-GAPFILL 2971 · TIMESCALE-META-SPIKE 2972 · TIMESCALE-META-IMPL 2973 · DOCS-ERGO 2974 ·
+NODE-NAME-SPLIT 2975 (parked, not selected).
+
+**Serialisation:** `NODE-ERGO` and `NODE-EDGE-HYBRID` both edit `models/node.py` → strictly
+sequential. Everything else in P2–P5 is file-disjoint and can run in parallel once P1 lands.
+
+### H.4 Deliberately out of scope
+
+Nested-set / closure-table materialisation (adjacency + `RecursiveCTE` is the design),
+pandas/DataFrame export (new dependency), sync wrappers (AGENTS.md rule 5), automatic
+cascade delete (the orphan policy is deliberate and documented).
