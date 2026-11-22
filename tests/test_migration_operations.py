@@ -342,6 +342,20 @@ class TestCreateContinuousAggregateRun:
         assert editor.statements == []
 
     @pytest.mark.asyncio
+    async def test_run_rejects_comment_quote_injection(self) -> None:
+        """The migration path enforces the same parse-based shape contract as
+        the manager: quotes inside ``/* */`` cannot hide a statement separator."""
+        op = CreateContinuousAggregate(
+            view_name="v",
+            query="SELECT 1 FROM events /* ' */ ; SELECT 2 /* ' */",
+            source_table="events",
+        )
+        editor = FakeSchemaEditor()
+        with pytest.raises(ValueError, match="single bare SELECT"):
+            await op.run("app", FakeState(), dry_run=False, state_editor=editor)
+        assert editor.statements == []
+
+    @pytest.mark.asyncio
     async def test_run_rejects_mismatched_source_table(self) -> None:
         """A source_table not referenced by the query must fail validation —
         the migration path enforces the same cross-check as the manager."""

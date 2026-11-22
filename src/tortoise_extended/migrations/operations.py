@@ -310,8 +310,9 @@ class CreateContinuousAggregate(Operation):
 
         Creates the materialized view with ``timescaledb.continuous`` and
         registers an ``add_continuous_aggregate_policy`` refresh schedule.
-        ``query`` is validated as a single bare ``SELECT``/``WITH ... SELECT``
-        (no ``;``) before interpolation — the same shape contract enforced by
+        ``query`` is parsed with PostgreSQL's grammar and must be exactly one
+        bare ``SELECT``/``WITH ... SELECT`` statement before interpolation —
+        the same shape contract enforced by
         :meth:`ContinuousAggregateManager.create` — so a migration does not
         silently execute a multi-statement or non-``SELECT`` payload. When
         ``source_table`` is set, the query is also cross-checked to reference
@@ -324,8 +325,8 @@ class CreateContinuousAggregate(Operation):
         :param state_editor: Active schema editor for DDL execution.
 
         Raises:
-            ValueError: If ``query`` is not a single bare SELECT/WITH
-                statement without ``;``, or (when ``source_table`` is set)
+            ValueError: If ``query`` does not parse as exactly one bare
+                SELECT/WITH statement, or (when ``source_table`` is set)
                 does not reference it.
         """
         if dry_run or state_editor is None:

@@ -28,16 +28,77 @@ Usage (illustrative; needs async context + configured DB)::
 """
 
 from collections.abc import Sequence
-import re
 from typing import cast
 
 import msgspec
+import pglast
+from pglast.ast import SelectStmt
+from pglast.stream import maybe_double_quote_name
+from pglast.visitors import referenced_relations
 from tortoise import connections
 from tortoise.backends.base.client import BaseDBAsyncClient
 
 from tortoise_extended._quote import quote_ident, quote_literal
 from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import TimescaleError
+
+
+_INVALID_SHAPE = (
+    "Continuous aggregate query must be a single bare "
+    "SELECT (or WITH ... SELECT) statement; got "
+)
+"""Shared prefix for the two shape rejections (statement count, statement kind)."""
+
+_COMMENT_TOKENS = frozenset({"BOM", "C_COMMENT", "SQL_COMMENT"})
+"""``pglast.scan`` token names that carry no SQL token of their own."""
+
+_ALLOWED_LEADING_KEYWORDS = frozenset({"SELECT", "WITH"})
+
+
+def _first_keyword(statement: str) -> str:
+    """Return the first non-comment keyword of *statement*, upper-cased.
+
+    PostgreSQL's own lexer (:func:`pglast.scan`) is used instead of
+    ``str.split`` so a leading ``--``/``/* */`` comment does not mask the
+    keyword it precedes.
+
+    Args:
+        statement: A single SQL statement.
+
+    Returns:
+        The leading keyword (for example ``"SELECT"``), or ``""`` when the
+        text holds no token other than comments.
+    """
+    for token in pglast.scan(statement):
+        if token.name not in _COMMENT_TOKENS:
+            return token.name.upper()
+    return ""
+
+
+def _quoted_name(name: str) -> str:
+    """Render *name* the way PostgreSQL prints a (possibly qualified) relation.
+
+    Each dotted component is quoted only when PostgreSQL would have to quote
+    it, matching the strings returned by
+    :func:`pglast.visitors.referenced_relations`.
+    """
+    return ".".join(maybe_double_quote_name(part) for part in name.split("."))
+
+
+def _references_source(relations: set[str], source_table: str) -> bool:
+    """Whether a parsed query reads from *source_table*.
+
+    A schema-qualified ``source_table`` (``metrics.events``) requires both the
+    schema and the relation to match.  An unqualified one matches the relation
+    name alone, whether or not the query qualifies it (``events`` matches both
+    ``events`` and ``metrics.events``).
+    """
+    wanted = _quoted_name(source_table)
+    if "." in source_table:
+        return wanted in relations
+    return any(
+        relation == wanted or relation.endswith(f".{wanted}") for relation in relations
+    )
 
 
 class ContinuousAggregateInfo(msgspec.Struct):
@@ -55,12 +116,27 @@ class ContinuousAggregateInfo(msgspec.Struct):
 
 
 def validate_cagg_query(query: str, source_table: str | None = None) -> str:
-    """Validate a continuous-aggregate ``SELECT`` and return it stripped.
+    """Validate a continuous-aggregate ``SELECT`` and return it normalized.
 
-    Ensures the query is a single bare ``SELECT``/``WITH ... SELECT`` statement
-    — guarding against multi-statement injection.  When ``source_table`` is
-    given it must also reference that hypertable, keeping a mismatched source
-    from silently aggregating the wrong table.  Shared by
+    The query is parsed with PostgreSQL's own grammar (``pglast``).  It must be
+    exactly one statement, that statement must be a ``SELECT`` — a ``WITH``
+    query is a ``SELECT`` carrying a ``withClause``, so it passes the same
+    check — and it must begin with the ``SELECT`` or ``WITH`` keyword.  Because
+    statement boundaries come from the real parser, a ``;`` inside a string
+    literal, a comment, or a dollar-quoted string is never mistaken for a
+    separator, and a payload that only *looks* like one statement is rejected.
+
+    One trailing ``;`` is accepted and stripped from the returned text
+    (``"SELECT 1;"`` validates as ``"SELECT 1"``).  That is safe — a single
+    statement cannot smuggle in a second one — and it keeps the result usable
+    inside the ``AS (...)`` wrapper, where a trailing ``;`` would be a syntax
+    error.
+
+    When ``source_table`` is given, the parsed query must reference it through
+    a ``RangeVar``: ``events`` matches ``events`` and ``metrics.events``, while
+    ``metrics.events`` requires both the schema and the relation to match.  A
+    name that only appears inside a comment or a string literal does not count,
+    and a CTE reference never does.  Shared by
     :meth:`ContinuousAggregateManager.create` and the
     :class:`~tortoise_extended.migrations.operations.CreateContinuousAggregate`
     migration operation so both enforce the same shape contract.
@@ -71,46 +147,52 @@ def validate_cagg_query(query: str, source_table: str | None = None) -> str:
             ``None`` the source-reference cross-check is skipped.
 
     Returns:
-        The stripped query string (validated).
+        The exact text of that statement, without trailing semicolons or
+        leading comments.
 
     Raises:
-        ValueError: If the query is not a bare SELECT/WITH statement without
-            ``;`` outside a string literal, or (when ``source_table`` is given)
-            does not reference it.
+        ValueError: If the query is not valid SQL, is not exactly one statement,
+            is not a bare SELECT/WITH statement, or (when ``source_table`` is
+            given) does not reference it.
     """
-    # Single-quoted string literals are stripped first so a ``;`` inside a
-    # literal (e.g. ``'a;b'``) is not mistaken for a multi-statement separator.
-    # The same literal-stripped text is reused for the source-table scan, so
-    # the regex is computed once and shared.
     inner = query.strip()
-    first_keyword = inner.upper().split(None, 1)[0] if inner else ""
-    no_literals = re.sub(r"'[^']*(?:''[^']*)*'", "", inner)
-    if ";" in no_literals or first_keyword not in ("SELECT", "WITH"):
-        raise ValueError(
-            "Continuous aggregate query must be a single bare "
-            "SELECT (or WITH ... SELECT) statement without ';'; "
-            f"got {first_keyword!r}..."
-        )
+    # ``parse_sql`` returns one entry per statement and ``split`` returns the
+    # exact text of each: the count is the injection gate, the slice is the
+    # text that gets interpolated into the DDL (so a trailing ``;`` and any
+    # leading comments never reach it).  Both use PostgreSQL's grammar, so a
+    # ``;`` hidden inside a comment cannot masquerade as a statement boundary.
+    try:
+        statements = pglast.parse_sql(inner)
+        slices = pglast.split(inner, only_slices=True)
+    except pglast.Error as exc:
+        msg = f"Continuous aggregate query is not valid SQL: {exc}"
+        raise ValueError(msg) from exc
+    if len(statements) != 1 or len(slices) != 1:
+        raise ValueError(f"{_INVALID_SHAPE}{len(statements)} statements")
+    statement = inner[slices[0]]
+    stmt = statements[0].stmt
+    first_keyword = _first_keyword(statement)
+    # The keyword check is kept (rather than relying on the AST alone) because
+    # ``TABLE x`` and ``VALUES (1)`` parse as ``SelectStmt`` too, and the
+    # documented contract is a bare ``SELECT``/``WITH ... SELECT``.
+    if first_keyword not in _ALLOWED_LEADING_KEYWORDS or not isinstance(
+        stmt, SelectStmt
+    ):
+        raise ValueError(f"{_INVALID_SHAPE}{first_keyword!r}...")
     if source_table is None:
-        return inner
+        return statement
     # The query must actually read from the declared source hypertable —
     # validating it keeps a mismatched source_table from silently creating an
-    # aggregate over the wrong table.  ``source_table`` may be
-    # schema-qualified (``metrics.events``); single-quoted string literals are
-    # stripped first, then the table is matched on word boundaries with an
-    # optional schema prefix — so a schema-qualified source is accepted and a
-    # same-named table nested inside another identifier (``my_events``) or a
-    # string literal (``'events'``) is not falsely accepted.
-    if "." in source_table:
-        source_pattern = re.escape(source_table)
-    else:
-        source_pattern = rf"(?:\w+\.)?{re.escape(source_table)}"
-    if re.search(rf"\b{source_pattern}\b", no_literals) is None:
+    # aggregate over the wrong table.  ``referenced_relations`` walks the
+    # parsed tree's ``RangeVar`` nodes (skipping CTE references), so a table
+    # name that only appears inside a comment, a string literal, or a longer
+    # identifier (``my_events``) is not falsely accepted.
+    if not _references_source(referenced_relations(stmt), source_table):
         raise ValueError(
             f"Continuous aggregate query must reference the source "
             f"table {source_table!r}"
         )
-    return inner
+    return statement
 
 
 class ContinuousAggregateManager:
@@ -150,20 +232,22 @@ class ContinuousAggregateManager:
             using_db: Database connection to use (default: 'default')
 
         Raises:
-            ValueError: If *query* is not a bare ``SELECT``/``WITH``
-                statement (when ``allow_full_statement`` is False), or if it
-                does not reference ``_source_table``.
+            ValueError: If *query* is not valid SQL, is not a single bare
+                ``SELECT``/``WITH`` statement (when ``allow_full_statement``
+                is False), or if it does not reference ``_source_table``.
             TimescaleError: If the aggregate cannot be created.
 
         .. warning::
 
-            Unless ``allow_full_statement=True``, ``query`` is validated and
-            interpolated into ``CREATE MATERIALIZED VIEW ... AS ({query})``.
-            It must be a single bare ``SELECT`` (or ``WITH ... SELECT``)
-            statement — anything containing ``;`` outside a string literal or
-            starting with another keyword raises :class:`ValueError`. A ``;``
-            inside a string literal (e.g. ``'a;b'``) is a valid bare SELECT
-            and is accepted. The pre-fix auto-detection of
+            Unless ``allow_full_statement=True``, ``query`` is parsed with
+            PostgreSQL's grammar and must be exactly one ``SELECT`` (or
+            ``WITH ... SELECT``) statement; it is then interpolated into
+            ``CREATE MATERIALIZED VIEW ... AS ({query})``. More than one
+            statement, a non-``SELECT`` statement, or a query that does not
+            parse raises :class:`ValueError`. A ``;`` inside a string literal
+            (e.g. ``'a;b'``), a comment, or a dollar-quoted string belongs to
+            that statement and is accepted; a single trailing ``;`` is
+            accepted and stripped. The pre-fix auto-detection of
             ``"CREATE MATERIALIZED VIEW"`` prefixes was removed because
             a bare SELECT may legitimately contain that literal text,
             silently bypassing validation (G23).

@@ -79,7 +79,7 @@ operations = [
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `view_name` | `str` | Required | Materialized view name |
-| `query` | `str` | Required | Aggregate SELECT (must group by a `time_bucket(...)` column). Validated as a single bare `SELECT`/`WITH ... SELECT` without `;` before execution — same shape contract as `ContinuousAggregateManager.create()`. |
+| `query` | `str` | Required | Aggregate SELECT (must group by a `time_bucket(...)` column). Parsed with PostgreSQL's grammar and validated as exactly one bare `SELECT`/`WITH ... SELECT` statement before execution (a trailing `;` is stripped) — same shape contract as `ContinuousAggregateManager.create()`. |
 | `time_column` | `str` | `"time_bucket"` | Bucket column name |
 | `refresh_interval` | `str` | `"1 hour"` | Refresh policy interval |
 

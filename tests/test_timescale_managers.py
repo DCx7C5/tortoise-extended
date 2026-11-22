@@ -56,9 +56,7 @@ class ErrorConn:
 class FakeConnections:
     """Stand-in for the module-level ``connections`` singleton."""
 
-    def __init__(
-        self, conn: FakeConn | ErrorConn | RecordingConn
-    ) -> None:
+    def __init__(self, conn: FakeConn | ErrorConn | RecordingConn) -> None:
         self.conn = conn
 
     def get(self, name: str) -> FakeConn | ErrorConn | RecordingConn:
@@ -333,9 +331,7 @@ class TestHypertableTimeColumnValidation:
         monkeypatch.setattr(
             "tortoise_extended.timescale.hypertable.connections", holder
         )
-        await HypertableManager.create_hypertable(
-            "events", validate_time_column=False
-        )
+        await HypertableManager.create_hypertable("events", validate_time_column=False)
         assert len(conn.sqls) == 1
         assert "create_hypertable(" in conn.sqls[0]
         assert "pg_index" not in conn.sqls[0]
@@ -368,15 +364,14 @@ class CannedRecordingConn(RecordingConn):
         super().__init__()
         self.result = result
 
-    async def execute_query(
-        self, sql: str, *_args: RowValue
-    ) -> QueryResult:
+    async def execute_query(self, sql: str, *_args: RowValue) -> QueryResult:
         self.sqls.append(sql)
         return self.result
 
 
 class TestGetCompressionStats:
     """CompressionManager.get_stats() result-shape branches."""
+
     @pytest.mark.asyncio
     async def test_mapping_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_connections(
@@ -584,6 +579,21 @@ class TestSqlHardening:
             )
         assert conn.sqls == []
 
+    @pytest.mark.asyncio
+    async def test_cagg_comment_injection_never_reaches_connection(
+        self, monkeypatch
+    ) -> None:
+        """The comment-quote payload is rejected before any SQL is sent."""
+        conn = self._recording_conn(monkeypatch)
+        payload = (
+            "SELECT time_bucket('1 day', ts) AS b, count(*) FROM events "
+            "GROUP BY b /* ' */ ) ; DROP TABLE x; "
+            "CREATE MATERIALIZED VIEW x AS (SELECT 1 /* ' */"
+        )
+        with pytest.raises(ValueError):
+            await ContinuousAggregateManager.create("v", "events", payload)
+        assert conn.sqls == []
+
     def test_cagg_validate_semicolon_inside_literal_is_allowed(self) -> None:
         """A ``;`` inside a string literal is NOT a multi-statement separator.
 
@@ -616,6 +626,97 @@ class TestSqlHardening:
                 "SELECT 'a;b' AS label, COUNT(*) FROM other_table GROUP BY label",
                 "events",
             )
+
+    def test_cagg_validate_comment_quote_hides_no_separator(self) -> None:
+        """2026-11-22 HIGH: quotes inside ``/* */`` no longer hide a ``;``.
+
+        The pre-fix literal-stripping regex paired the two quotes that sit
+        inside the comments, deleting the span between them — including the
+        ``;`` — so this two-statement payload passed validation and was
+        interpolated into ``CREATE MATERIALIZED VIEW ... AS ({query})``.
+        """
+        with pytest.raises(ValueError, match="single bare SELECT"):
+            validate_cagg_query(
+                "SELECT 1 FROM events /* ' */ ; SELECT 2 /* ' */",
+                "events",
+            )
+
+    def test_cagg_validate_reproduced_payload_rejected(self) -> None:
+        """The reproduced payload never parses as a single statement."""
+        payload = (
+            "SELECT time_bucket('1 day', ts) AS b, count(*) FROM events "
+            "GROUP BY b /* ' */ ) ; DROP TABLE x; "
+            "CREATE MATERIALIZED VIEW x AS (SELECT 1 /* ' */"
+        )
+        with pytest.raises(ValueError, match="not valid SQL"):
+            validate_cagg_query(payload, "events")
+
+    def test_cagg_validate_source_only_inside_comment_rejected(self) -> None:
+        """A declared source that appears only in a comment is not a source.
+
+        Same root cause as the injection: the old cross-check ran on
+        comment-stripped text, so any table could be aggregated as long as the
+        declared name was mentioned in a comment.
+        """
+        with pytest.raises(ValueError, match="must reference the source table"):
+            validate_cagg_query(
+                "SELECT time_bucket('1 day', ts) AS b, count(*) "
+                "FROM secret /* events */ GROUP BY b",
+                "events",
+            )
+
+    def test_cagg_validate_cte_named_after_source_rejected(self) -> None:
+        """A CTE reference is not a table reference."""
+        with pytest.raises(ValueError, match="must reference the source table"):
+            validate_cagg_query(
+                "WITH events AS (SELECT 1 AS ts) "
+                "SELECT time_bucket('1 day', ts) AS b FROM events",
+                "events",
+            )
+
+    def test_cagg_validate_trailing_semicolon_stripped(self) -> None:
+        """A single trailing ``;`` is one statement — accepted and normalized."""
+        assert (
+            validate_cagg_query("SELECT 1 FROM events;", "events")
+            == "SELECT 1 FROM events"
+        )
+        assert (
+            validate_cagg_query("  SELECT 1 FROM events ;  ", "events")
+            == "SELECT 1 FROM events"
+        )
+
+    def test_cagg_validate_invalid_sql_raises_value_error(self) -> None:
+        """A parse failure surfaces as ``ValueError``, not ``pglast.Error``."""
+        with pytest.raises(ValueError, match="not valid SQL"):
+            validate_cagg_query("SELECT FROM WHERE", "events")
+
+    def test_cagg_validate_keyword_forms_rejected(self) -> None:
+        """``TABLE``/``VALUES`` parse as ``SelectStmt``; the keyword gate holds."""
+        for query in ("TABLE events", "VALUES (1)"):
+            with pytest.raises(ValueError, match="single bare SELECT"):
+                validate_cagg_query(query, "events")
+
+    def test_cagg_validate_qualified_source_requires_matching_schema(self) -> None:
+        """A schema-qualified source must match schema and relation."""
+        with pytest.raises(ValueError, match="must reference the source table"):
+            validate_cagg_query("SELECT 1 FROM events", "metrics.events")
+        assert (
+            validate_cagg_query("SELECT 1 FROM metrics.events", "metrics.events")
+            == "SELECT 1 FROM metrics.events"
+        )
+
+    def test_cagg_validate_unqualified_source_matches_qualified_reference(
+        self,
+    ) -> None:
+        """An unqualified source matches the relation name alone."""
+        assert validate_cagg_query("SELECT 1 FROM metrics.events", "events")
+
+    def test_cagg_validate_leading_comment_does_not_mask_keyword(self) -> None:
+        """The leading keyword comes from the lexer, so a comment cannot hide it."""
+        assert (
+            validate_cagg_query("/* note */ SELECT 1 FROM events", "events")
+            == "SELECT 1 FROM events"
+        )
 
     @pytest.mark.asyncio
     async def test_cagg_query_allows_cte_and_select(self, monkeypatch) -> None:
@@ -702,10 +803,12 @@ class TestSqlHardening:
             "AS SELECT 1 FROM events"
         )
         # No wrapping, no quoting of the view name
-        assert "CREATE MATERIALIZED VIEW \"v\"" not in conn.sqls[0]
+        assert 'CREATE MATERIALIZED VIEW "v"' not in conn.sqls[0]
 
     @pytest.mark.asyncio
-    async def test_cagg_allow_full_statement_rejects_empty_query(self, monkeypatch) -> None:
+    async def test_cagg_allow_full_statement_rejects_empty_query(
+        self, monkeypatch
+    ) -> None:
         """SEC-M04: empty query must be rejected even when allow_full_statement=True."""
         with pytest.raises(ValueError, match="must not be empty"):
             await ContinuousAggregateManager.create(
