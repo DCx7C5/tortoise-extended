@@ -18,7 +18,7 @@
   - [Overview](api/index.md)
   - [VectorField](api/vector-field.md)
   - [LTreeField](api/ltree-field.md)
-  - [Fields (IPv4Field, PathField, URLField, UUID4Field, UUID7Field)](api/fields.md)
+  - [Fields (IPv4Field, PathField, URLField, UUID4Field, UUID7Field, CharField)](api/fields.md)
   - [Indexes](api/indexes.md)
   - [Graph Filters](api/graph-filters.md)
   - [Recursive CTE](api/recursive-cte.md)

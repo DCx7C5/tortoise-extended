@@ -28,7 +28,7 @@ What do you need?
 │
 ├─ Time-series data ─────────────────────► HypertableManager + CompressionManager
 │
-├─ Append-heavy event streams ───────────► BaseEventStreamModel (+ typed rollups)
+├─ Append-heavy event streams ───────────► BaseSample (+ typed rollups)
 │
 ├─ Auto-refresh aggregations ────────────► ContinuousAggregateManager
 │
@@ -41,6 +41,7 @@ What do you need?
 ├─ Soft delete (keep rows, hide them) ─────► BaseSoftDeleteModel + SoftDeleteQuerySet
 │
 ├─ 64-bit JOIN-fast primary key ───────────► BaseModel
+├─ Cross-table / external refs ────────────► UnifiedIdModel (BigInt pk + UUID7 uid)
 ├─ User accounts (email + password) ─────► BaseUserModel (argon2id)
 │
 └─ Plain Tortoise model, no extras ────────► tortoise.models.Model
@@ -51,13 +52,13 @@ What do you need?
 | Need | Use | Why |
 |------|-----|-----|
 | Trees with fast subtree queries | `BaseHierarchyModel` (ltree) | `@>`/`<@` operators, GiST index, `get_ancestors`/`get_descendants` |
-| Heterogeneous nodes, one edge table | `BaseGraphNodeModel` + `BaseGraphEdgeModel` | `source_id`/`target_id` are plain columns — link nodes of different types |
+| Heterogeneous nodes, one edge table | `BaseNode` + `BaseGraphEdgeModel` | `source_id`/`target_id` are plain columns — link nodes of different types |
 | Multi-hop traversal over an edge table | `GraphTraversal` | CTE-based ancestors/descendants/neighbors, typed edge filters |
 | Paths, cycles, reachability | `shortest_path` / `all_paths` / `find_cycles` | BFS over the edge table |
 | Fully custom recursive queries | `RecursiveCTE` | Build your own `WITH RECURSIVE` SQL |
 | Same query: vector-similar AND graph-reachable | `GraphVectorSearch` | Single recursive CTE + pgvector predicate |
 
-Rule of thumb: adjacency (`BaseGraphNodeModel`/`BaseGraphEdgeModel`) for arbitrary graphs,
+Rule of thumb: adjacency (`BaseNode`/`BaseGraphEdgeModel`) for arbitrary graphs,
 materialized paths (`BaseHierarchyModel`) for trees you query by subtree,
 `GraphTraversal`/pathfinding on top of either.
 
@@ -71,17 +72,18 @@ Pick the base per model — each is opt-in and independent:
 | 64-bit pk (large tables, JOIN-heavy) | `BaseModel` | — | builds graph/timescale bases internally |
 | `created_at`/`updated_at` | `TimestampMixin` | any base (put it **last** in bases tuple, after the model base) | stack with `BaseModel`, `BaseSoftDeleteModel` |
 | Soft delete (`deleted_at`, auto-filtered) | `BaseSoftDeleteModel` | pairs with `SoftDeleteQuerySet` | stack with `BaseModel`, `TimestampMixin` |
-| Graph nodes / edges | `BaseGraphNodeModel` / `BaseGraphEdgeModel` | declare their own `UUID` pk | use with `GraphTraversal`, `shortest_path` |
+| Graph nodes / edges | `BaseNode` / `BaseGraphEdgeModel` | `BaseNode` = pk-free `NodeMixin` + UUID7 identity | `BaseGraphNodeModel` is the deprecated alias; use with `GraphTraversal`, `shortest_path` |
 | ltree trees | `BaseHierarchyModel` | declares `path`, `name`, `parent_id`, `depth`, `namespace` | use with `GiSTIndex` |
+| Cross-table / external refs | `UnifiedIdModel` | BigInt pk + UUID7 `uid` | use `uid` for graph edges, polymorphic refs, cache keys |
 | Redis row caching | `BaseCacheableModel` | `RedisCache.init()` first | use with `CachedQuerySet`, `@cached` |
-| Stream / time-series tables | `BaseEventStreamModel` | composite pk (`stream_id`, `time_field`) | use with `HypertableManager`, rollups |
+| Stream / time-series tables | `BaseSample` | BigInt identity + `(stream, time)` unique index | `BaseEventStreamModel` is the deprecated alias; use with `HypertableManager`, rollups |
 | User accounts | `BaseUserModel` | extends `BaseModel`; argon2id hashing | stack with `TimestampMixin` |
 
 **Rules:**
 - `BaseModel`/`TimestampMixin`/`BaseSoftDeleteModel` are pure Tortoise — no PG-only
   behavior (they run on SQLite too).
-- Do **not** combine `BaseModel` with `BaseGraphNodeModel`/`BaseGraphEdgeModel`/`BaseHierarchyModel`/
-  `BaseEventStreamModel` — those declare their own primary keys and the two `id`
+- Do **not** combine `BaseModel` with `BaseNode`/`BaseGraphEdgeModel`/`BaseHierarchyModel`/
+  `BaseSample` — those declare their own primary keys and the two `id`
   definitions collide.
 - Tortoise copies base fields **only for abstract bases** — keep every base
   here abstract; concrete inheritance silently yields an empty child table.
@@ -112,10 +114,13 @@ Pick the base per model — each is opt-in and independent:
 | `all_paths` | `from tortoise_extended import all_paths` | Find all paths between nodes |
 | `find_cycles` | `from tortoise_extended import find_cycles` | Detect cycles in graph |
 | `HybridSearch` | `from tortoise_extended import HybridSearch` | Vector + FTS weighted scoring |
-| `BaseGraphNodeModel` | `from tortoise_extended import BaseGraphNodeModel` | Graph nodes with adjacency (no FK on edges) |
+| `BaseNode` | `from tortoise_extended import BaseNode` | Primary graph-node base (`NodeMixin` + UUID7 identity, no FK on edges) |
+| `NodeMixin` | `from tortoise_extended import NodeMixin` | pk-free adjacency-list mixin, stackable with any identity base |
+| `BaseGraphNodeModel` | `from tortoise_extended import BaseGraphNodeModel` | Deprecated UUID4 alias of `BaseNode` |
 | `BaseGraphEdgeModel` | `from tortoise_extended import BaseGraphEdgeModel` | Typed/weighted edges |
 | `BaseHierarchyModel` | `from tortoise_extended import BaseHierarchyModel` | ltree tree operations |
 | `BaseModel` | `from tortoise_extended import BaseModel` | 64-bit `BigInt` primary key |
+| `UnifiedIdModel` | `from tortoise_extended import UnifiedIdModel` | BigInt pk + UUID7 `uid` for cross-table refs |
 | `TimestampMixin` | `from tortoise_extended import TimestampMixin` | `created_at` / `updated_at` columns |
 | `BaseSoftDeleteModel` | `from tortoise_extended import BaseSoftDeleteModel` | Soft delete (`deleted_at`, auto-filtered) |
 | `SoftDeleteQuerySet` | `from tortoise_extended import SoftDeleteQuerySet` | Auto-filters soft-deleted rows; `.with_deleted()`, `.restore()` |
@@ -124,7 +129,8 @@ Pick the base per model — each is opt-in and independent:
 | `CachedQuerySet` | `from tortoise_extended import CachedQuerySet` | QuerySet caching (`CachedQuerySet(Model).filter(...).cache()`) |
 | `@cached` | `from tortoise_extended import cached` | Function-level caching |
 | `HypertableManager` | `from tortoise_extended.timescale import HypertableManager` | TimescaleDB hypertables |
-| `BaseEventStreamModel` | `from tortoise_extended import BaseEventStreamModel` | Append-heavy stream tables + typed rollups |
+| `BaseSample` | `from tortoise_extended import BaseSample` | Append-heavy stream tables + typed rollups |
+| `BaseEventStreamModel` | `from tortoise_extended import BaseEventStreamModel` | Deprecated alias of `BaseSample` |
 | `CompressionManager` | `from tortoise_extended.timescale import CompressionManager` | Chunk compression |
 | `RetentionPolicy` | `from tortoise_extended.timescale import RetentionPolicy` | Auto-delete old data |
 | `ContinuousAggregateManager` | `from tortoise_extended.timescale import ContinuousAggregateManager` | Auto-refresh aggregations |
@@ -265,7 +271,7 @@ keyword-augmented recall.
 ```python
 from tortoise import fields, models
 from tortoise_extended import (
-    BaseGraphNodeModel,
+    BaseNode,
     BaseGraphEdgeModel,
     VectorField,
     HNSWIndex,
@@ -280,7 +286,7 @@ class TextUnit(models.Model):
     embedding = VectorField(dimensions=1536)
 
 
-class Entity(BaseGraphNodeModel):
+class Entity(BaseNode):
     description = fields.TextField(default="")
     embedding = VectorField(dimensions=1536, null=True)
 
@@ -357,10 +363,11 @@ continuous aggregates, and retention.
 
 ```python
 from datetime import datetime, timedelta
-from tortoise_extended import BaseEventStreamModel, fields
+from tortoise import fields
+from tortoise_extended import BaseSample
 
 
-class ClickEvent(BaseEventStreamModel):
+class ClickEvent(BaseSample):
     time_field: ClassVar[str] = "ts"  # override default "created_at"
     stream_field: ClassVar[str] = "stream_id"
     compress_after: ClassVar[str | None] = "7 days"
@@ -440,14 +447,14 @@ HNSW for low-latency ANN.
 
 ```python
 from tortoise_extended import (
-    BaseGraphNodeModel,
+    BaseNode,
     BaseGraphEdgeModel,
     find_cycles,
     shortest_path,
 )
 
 
-class Person(BaseGraphNodeModel):
+class Person(BaseNode):
     pass
 
 
@@ -540,8 +547,8 @@ auto-filters `deleted_at IS NULL` on every default-manager query while
 6. **BaseGraphEdgeModel helpers are sync QuerySet-returning**: call `.all()` (async) to execute
 7. **Cache is optional**: Redis must be initialized separately via `RedisCache.init()`
 8. **CachedQuerySet**: construct it directly (`CachedQuerySet(Model)`) or wire it as a custom manager — plain `Model.filter()` returns a standard QuerySet without `.cache()`
-9. **BaseEventStreamModel**: PostgreSQL + the time partition column must be covered by a PK / unique index (and any space-dimension column too when `number_partitions` is set — see `../api/event-streams.md`); `bulk_insert` uses COPY and cannot generate identity IDs
+9. **BaseSample**: PostgreSQL + the time partition column must be covered by a PK / unique index (and any space-dimension column too when `number_partitions` is set — see `../api/event-streams.md`); `bulk_insert` uses COPY and cannot generate identity IDs
 10. **TimescaleDB**: Table must be a hypertable before compression/retention
 11. **Meta.indexes are not inherited** from abstract bases — redeclare them on every concrete subclass (`BaseHierarchyModel`, `BaseModel`, `BaseSoftDeleteModel`, `TimestampMixin`)
-12. **Bases with their own pk collide**: don't stack `BaseModel` with `BaseGraphNodeModel`/`BaseGraphEdgeModel`/`BaseHierarchyModel`/`BaseEventStreamModel`
+12. **Bases with their own pk collide**: don't stack `BaseModel` with `BaseNode`/`BaseGraphEdgeModel`/`BaseHierarchyModel`/`BaseSample`
 13. **Keep bases abstract**: Tortoise copies base fields only for `abstract = True` classes

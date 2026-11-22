@@ -1,6 +1,6 @@
 # Event Streams (TimescaleDB)
 
-`BaseEventStreamModel` turns any Tortoise model into a multi-stream
+`BaseEventStreamModel` (deprecated alias of `BaseSample`) turns any Tortoise model into a multi-stream
 time-series table: hypertable + optional stream dimension, a composite
 `(stream, time DESC)` index, compression/retention policies, COPY-based
 bulk ingestion, and typed ORM-style query helpers that wrap the raw SQL
@@ -11,7 +11,8 @@ Requires PostgreSQL + TimescaleDB.
 ## Quick Reference
 
 ```python
-from tortoise_extended import BaseEventStreamModel, TimeBucketRow
+from tortoise_extended import BaseSample, BaseEventStreamModel, TimeBucketRow
+# BaseEventStreamModel is the deprecated alias of BaseSample
 ```
 
 ## Model
@@ -19,10 +20,10 @@ from tortoise_extended import BaseEventStreamModel, TimeBucketRow
 ```python
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise import fields
-from tortoise_extended import BaseEventStreamModel
+from tortoise_extended import BaseSample
 
 
-class Event(BaseEventStreamModel):
+class Event(BaseSample):
     id = fields.BigIntField(primary_key=True)
     created_at = fields.DatetimeField(use_tz=True)
     stream_id = fields.IntField()
@@ -33,8 +34,8 @@ class Event(BaseEventStreamModel):
         table = "events"
 ```
 
-`BaseEventStreamModel` extends `BaseModel` (BigInt `id`); subclass it and add
-your own columns. Configuration is class-level:
+`BaseSample` extends `BaseModel` (BigInt `id`); subclass it and add
+your own columns. `BaseEventStreamModel` is the deprecated alias. Configuration is class-level:
 
 | Attribute | Default | Meaning |
 |-----------|---------|---------|

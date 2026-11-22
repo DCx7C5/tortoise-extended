@@ -152,7 +152,6 @@ class TestPickleSerializer:
 
     def test_rejects_arbitrary_class_reconstruction(self):
         """SEC-M01: a crafted pickle that calls os.system must be rejected."""
-        import io
         import pickle as _pickle
 
         class _FakePayload:

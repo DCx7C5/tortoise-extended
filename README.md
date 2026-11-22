@@ -43,18 +43,21 @@ entities = (
 `tortoise-extended` monkey-patches [tortoise-orm](https://github.com/tortoise/tortoise-orm) at import time to add:
 
 - **`VectorField`** — pgvector `vector` column type (self-contained, no `tortoise-embeddings` dependency)
+- **`CharField`** — validated `varchar` column (`tortoise_extended.fields.char`)
 - **`HNSWIndex` / `IVFFlatIndex` / `GiSTIndex`** — pgvector and GiST index types
 - **pgvector filters** — `__l2_distance`, `__cosine_distance`, `__inner_product` query filters
 - **`RecursiveCTE`** — builder for recursive Common Table Expressions
 - **`GraphTraversal` + pathfinding helpers** — ancestors, descendants, neighbors, shortest path, all paths, cycle detection
 - **`GraphVectorSearch`** — single-query graph + vector compositor with typed results
 - **`HybridSearch`** — weighted vector + full-text search scoring
-- **Model base classes** — `BaseModel` (BigInt pk), `TimestampMixin` (`created_at`/`updated_at`),
-  `BaseSoftDeleteModel` + `SoftDeleteQuerySet` (auto-filtered soft delete), `BaseUserModel`
-  (Django-style email/password auth with argon2id hashing), `BaseGraphNodeModel` /
-  `BaseGraphEdgeModel` / `BaseHierarchyModel`, `BaseCacheableModel`, `BaseEventStreamModel`
+- **Model base classes** — `BaseModel` (BigInt pk), `UnifiedIdModel` (BigInt pk + UUID7 `uid`
+  for cross-table refs), `TimestampMixin` (`created_at`/`updated_at`), `BaseSoftDeleteModel` +
+  `SoftDeleteQuerySet` (auto-filtered soft delete), `BaseUserModel` (Django-style email/password
+  auth with argon2id hashing), `NodeMixin` / `BaseNode` (pk-free adjacency list + UUID7 identity),
+  `BaseGraphEdgeModel` / `BaseHierarchyModel`, `BaseCacheableModel`, `SampleMixin` / `BaseSample`
+  (TimescaleDB streams); `BaseGraphNodeModel` / `BaseEventStreamModel` are deprecated aliases
 - **`LTreeField` + ltree filters** — PostgreSQL `ltree` hierarchical column type
-- **TimescaleDB** — hypertable/compression/retention/continuous-aggregate managers, `BaseEventStreamModel`, migration operations
+- **TimescaleDB** — hypertable/compression/retention/continuous-aggregate managers, `BaseSample`, migration operations
 - **pgcrypto query helpers** — `Digest`/`DigestHex`/`HMACDigest` (hash and HMAC expressions)
 - **Redis caching** (optional `redis` extra) — `RedisCache`, `BaseCacheableModel`, `CachedQuerySet`, `@cached`
 
@@ -63,17 +66,25 @@ entities = (
 ```
 src/tortoise_extended/
 ├── __init__.py              # Public API + monkey-patch application (_apply_patches)
+├── _quote.py                # shared SQL identifier/literal quoting
+├── _types.py                # concrete type aliases + duck-typed protocols
+├── exceptions.py            # exception hierarchy
+├── py.typed                 # PEP 561 typed-package marker
 ├── models/
 │   ├── base.py                # BaseModel (BigInt pk)
+│   ├── unified.py             # UnifiedIdModel (BigInt pk + UUID7 uid)
 │   ├── user.py                # BaseUserModel (Django-style email/password auth)
 │   ├── mixins.py              # TimestampMixin / TimestampEndMixin (created_at/updated_at)
 │   ├── soft_delete.py         # BaseSoftDeleteModel + SoftDeleteQuerySet
-│   ├── graph_node.py          # BaseGraphNodeModel (adjacency-list, UUID pk)
+│   ├── node.py                # NodeMixin + BaseNode (pk-free adjacency list, UUID7 identity)
+│   ├── graph_node.py          # BaseGraphNodeModel (deprecated alias of BaseNode, UUID4 pk)
 │   ├── graph_edge.py          # BaseGraphEdgeModel (typed/weighted edges, UUID pks)
 │   ├── hierarchy_model.py     # BaseHierarchyModel (ltree-path hierarchy)
 │   ├── cacheable_model.py     # BaseCacheableModel (model-level Redis caching)
-│   └── event_stream.py        # BaseEventStreamModel (TimescaleDB multi-stream hypertable)
+│   ├── sample.py              # SampleMixin + BaseSample (TimescaleDB streams)
+│   └── event_stream.py        # BaseEventStreamModel (deprecated alias of BaseSample)
 ├── fields/
+│   ├── char.py            # CharField (validated varchar column)
 │   ├── vector.py          # VectorField (pgvector vector type)
 │   ├── ltree.py           # LTreeField (PostgreSQL ltree type)
 │   ├── ipv4.py            # IPv4Field (PostgreSQL inet type)
@@ -104,13 +115,17 @@ src/tortoise_extended/
 
 The package ships reusable base classes rather than a fixed GraphRAG schema — compose them into your own models:
 
-- **`BaseGraphNodeModel`** — a `Model` base with a UUID pk, `parent_id` adjacency-list traversal, `depth`, `is_root`, and a `child_count` denormalized degree counter.
+- **`BaseNode`** (+ `NodeMixin`) — the primary graph-node base: a pk-free adjacency-list mixin plus a UUID7 identity base, with `parent_id` traversal, `depth`, `is_root`, and a `child_count` denormalized degree counter.
+- **`BaseGraphNodeModel`** — deprecated alias of `BaseNode` (UUID4 pk); kept for compatibility, do not build new models on it.
 - **`BaseGraphEdgeModel`** — a `Model` base with `source_id` / `target_id` directed edges, `edge_type`, and `weight`.
 - **`BaseHierarchyModel`** — a node base using an `ltree` path column for O(1) ancestor/descendant checks (requires `LTreeField`).
 
 ```python
 from tortoise import fields
 from tortoise_extended import BaseGraphNodeModel, BaseGraphEdgeModel
+
+# `BaseGraphNodeModel` is the deprecated alias shown here for brevity; new code
+# should derive from `BaseNode` (see the module docstring in models/node.py).
 
 
 class Category(BaseGraphNodeModel):
@@ -398,7 +413,8 @@ tortoise-orm >=1.1.7,<1.2        (with the asyncpg extra)
 tortoise-orm-stubs >=1.0.2
 msgspec >=0.21.0
 pypika-tortoise >=0.6.5,<0.7
-redis[hiredis] >=5.0.0           (optional `redis` extra)
+argon2-cffi >=25.1.0             (argon2id hashing for BaseUserModel)
+redis[hiredis] >=7.0.0           (optional `redis` extra)
 ```
 
 Add new dependencies with `uv add <pkg>` so `pyproject.toml` stays the single source of truth.
@@ -412,13 +428,13 @@ uv run basedpyright
 uv run pytest tests/ -v
 ```
 
-719 tests covering all modules (zero warnings — the suite runs with `filterwarnings = ["error"]`).
+The suite is configured to fail on warnings (`filterwarnings = ["error"]`) and covers every feature area.
 
 ## Design Decisions
 
 ### Why self-contained VectorField?
 
-`tortoise-embeddings` monkey-patches functions we also patch (`get_filters_for_field`, `MetaInfo.add_field`, `Tortoise.init`, `MigrationWriter._format_operation`). Only one monkey-patch can win per function. Our ~50-line `VectorField` avoids the conflict entirely.
+`tortoise-embeddings` monkey-patches functions we also patch (`get_filters_for_field`, `MetaInfo.add_field`, `Tortoise.init`, `MigrationWriter._format_operation`). Only one monkey-patch can win per function. Our self-contained ~185-line `VectorField` avoids the conflict entirely.
 
 ### Why raw SQL for graph helpers?
 
@@ -455,7 +471,7 @@ Detailed documentation is available in the [`docs/`](docs/) directory:
 
 - **[Getting Started](docs/getting-started/)** — Installation, quickstart, configuration
 - **[Architecture](docs/architecture/)** — Overview, schema, vector search, graph traversal, design decisions
-- **[API Reference](docs/api/)** — Complete API docs for all modules
+- **[API Reference](docs/api/)** — API docs for the public modules
 - **[Guides](docs/guides/)** — Migration, performance tuning, troubleshooting
 - **[Docker](docs/docker/)** — Setup and configuration
 

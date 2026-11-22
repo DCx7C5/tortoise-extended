@@ -3,9 +3,9 @@
 How to connect a `ProjectModel` entity to its `ProjectFileTree` using the
 ltree-based `BaseHierarchyModel` base class.
 
-> **Why not `BaseGraphNodeModel`?** A file tree is a *tree* — it never forks and
+> **Why not `BaseNode`?** A file tree is a *tree* — it never forks and
 > rejoins. `BaseHierarchyModel` gives you materialized ltree paths backed by a
-> and `validate_hierarchy()`. Use `BaseGraphNodeModel`/`BaseGraphEdgeModel` only when files
+> GiST index and `validate_hierarchy()`. Use `BaseNode`/`BaseGraphEdgeModel` only when files
 > must participate in arbitrary, cyclic, or cross-project links.
 
 ## Models

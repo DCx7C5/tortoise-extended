@@ -2,6 +2,58 @@
 
 Additional field types for PostgreSQL and common Python value domains.
 
+## CharField
+
+Drop-in replacement for `tortoise.fields.CharField` that stores the column as
+PostgreSQL `TEXT` instead of `VARCHAR(n)`. `max_length` is still required and
+still enforced in Python by `MaxLengthValidator`, but it is not emitted as a
+SQL type constraint — which removes the PostgreSQL 18 `character varying`
+warning and makes length changes migration-free.
+
+### Import
+
+```python
+from tortoise_extended import CharField
+```
+
+### Constructor
+
+```python
+CharField(max_length: int, *, null: bool = False, default=None,
+          description: str | None = None, validators=None, **kwargs)
+```
+
+### Python Type
+
+`str` (or `str | None` with `null=True`)
+
+### SQL Type
+
+`TEXT` on every backend.
+
+### Usage
+
+```python
+from tortoise import models
+from tortoise_extended import CharField
+
+
+class Article(models.Model):
+    title = CharField(max_length=200)
+    slug = CharField(max_length=100, unique=True)
+
+    class Meta:
+        table = "articles"
+```
+
+### Notes
+
+- `max_length` must be `>= 1`; it feeds `MaxLengthValidator`, not the DDL.
+- Supports `unique=True`, `db_index=True`, and `primary_key=True` (unlike
+  `TextField`, which blocks all three).
+
+---
+
 ## IPv4Field
 
 PostgreSQL `inet` column for IPv4 addresses.

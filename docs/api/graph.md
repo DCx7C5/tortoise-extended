@@ -2,11 +2,17 @@
 
 Base classes for graph traversal with adjacency list pattern and ltree hierarchies.
 
+> **Naming:** `BaseNode` (+ `NodeMixin`) and `BaseSample` (+ `SampleMixin`) are the primary
+> bases. `BaseGraphNodeModel` / `BaseEventStreamModel` below are deprecated aliases kept for
+> compatibility — build new models on `BaseNode`.
+
 ## Imports
 
 ```python
 from tortoise_extended import (
-    BaseGraphNodeModel,
+    BaseNode,
+    NodeMixin,
+    BaseGraphNodeModel,  # deprecated alias of BaseNode
     BaseGraphEdgeModel,
     BaseHierarchyModel,
     GiSTIndex,
@@ -15,7 +21,50 @@ from tortoise_extended import (
 
 ---
 
-## BaseGraphNodeModel
+## BaseNode
+
+Primary graph-node base: `NodeMixin` (pk-free adjacency-list fields and
+traversal helpers) layered over a time-ordered `UUID7Field` primary key and
+`TimestampMixin`. Subclass it and add only your extra columns.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `UUID7Field` | Primary key (time-ordered, index-friendly) |
+| `name` | `CharField(100)` | Node name |
+| `parent_id` | `UUIDField(null=True)` | Parent node ID (bare column, no FK) |
+| `depth` | `IntField(default=0)` | Hierarchy depth (root=0) |
+| `is_root` | `BooleanField(default=False)` | True if root node |
+| `child_count` | `IntField(default=0)` | Denormalized child count |
+| `namespace` | `CharField(100, default="default")` | Multi-tenant namespace |
+| `metadata_json` | `JSONField(default=dict)` | Arbitrary metadata |
+| `created_at` / `updated_at` | `DatetimeField` | From `TimestampMixin` |
+
+Traversal methods (`children()`, `descendants()`, `ancestors()`, `siblings()`,
+`path_to_root()`, `subtree()`, `is_leaf`) are the same as listed below.
+
+### Usage
+
+```python
+from tortoise import fields
+from tortoise_extended import BaseNode
+
+
+class Category(BaseNode):
+    description = fields.TextField(default="")
+
+    class Meta:
+        table = "categories"
+        indexes = (("namespace", "depth"),)
+```
+
+---
+
+## BaseGraphNodeModel (deprecated alias of `BaseNode`)
+
+> Deprecated: `BaseGraphNodeModel` is the UUID4-pinned compatibility alias of
+> `BaseNode` (`models/node.py`). New models should derive from `BaseNode`.
 
 Abstract base class for graph nodes with adjacency list traversal. Extends
 `Model` directly and declares all of its own fields — subclass it and add only
@@ -233,7 +282,8 @@ errors = await root.validate_hierarchy()
 
 ## Notes
 
-- `BaseGraphNodeModel` and `BaseGraphEdgeModel` are abstract — subclass them for concrete models
+- `BaseNode` and `BaseGraphEdgeModel` are abstract — subclass them for concrete models
+  (`BaseGraphNodeModel` is the deprecated alias of `BaseNode`)
 - QuerySet-returning methods on `BaseGraphEdgeModel` are sync (not async) — they return lazy QuerySets
 - `BaseHierarchyModel.move_to()` updates all descendant paths atomically
 - Use `namespace` field for multi-tenant graph isolation

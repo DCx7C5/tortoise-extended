@@ -19,9 +19,12 @@ What the package provides:
   `SoftDeleteQuerySet`, `NodeMixin` / `BaseNode` (pk-free adjacency-list mixin + UUID7
   identity), `BaseGraphEdgeModel` / `BaseHierarchyModel`, `BaseCacheableModel`,
   `SampleMixin` / `BaseSample` (pk-free TimescaleDB stream mixin + BigInt identity),
-  `TimestampMixin`; `BaseGraphNodeModel` and `BaseEventStreamModel` remain as deprecated
+  `UnifiedIdModel` (BigInt pk + UUID7 `uid` for cross-table refs), `TimestampMixin`;
+  `BaseGraphNodeModel` and `BaseEventStreamModel` remain as deprecated
   aliases of `BaseNode` / `BaseSample` (all opt-in abstract bases under `tortoise_extended.models`)
 - **`LTreeField` + ltree filters** — PostgreSQL `ltree` hierarchical column type
+- **`CharField`** — validated `varchar` column (`tortoise_extended.fields.char`)
+- **pgcrypto query helpers** — `Digest` / `DigestHex` / `HMACDigest` (`expressions/pgcrypto.py`)
 - **TimescaleDB integration** — `HypertableManager`, `CompressionManager`, `RetentionPolicy`,
   `ContinuousAggregateManager`, and migration operations (`CreateHypertable`,
   `CreateContinuousAggregate`)
@@ -40,7 +43,7 @@ design — see `src/tortoise_extended/__init__.py` (`_apply_patches()`).
 2. **Never depend on `tortoise-embeddings`.** It monkey-patches the same functions
    (`get_filters_for_field`, `MetaInfo.add_field`, `Tortoise.init`, `OperationGenerator.generate`,
    `MigrationWriter._format_operation`). Only one monkey-patch can win per function. `VectorField`
-   is intentionally ~160 lines and self-contained to avoid the conflict.
+   is intentionally self-contained (~185 lines, `fields/vector.py`) to avoid the conflict.
 3. **Never use raw SQL for CRUD.** Extensions build on the Tortoise QuerySet API. Raw SQL is
    reserved for what Tortoise cannot express: recursive CTEs, `DISTINCT ON`, `UNION` subqueries,
    `ts_rank_cd` ranking, and `ARRAY[]` literals (see `expressions/`).
@@ -54,16 +57,20 @@ design — see `src/tortoise_extended/__init__.py` (`_apply_patches()`).
 
 Every multi-step session starts with `todowrite`. The list IS the plan — keep it current in real time.
 
-**Session reference (canonical todo list):** the project's shared work list lives in opencode session **`ses_003ad5f8effepj1UctRRK4mndd`** (`~/.local/share/opencode/opencode.db`, table `todo`). This is the same session that owns AGENTS.md edits. When starting a new chat, dereference this ID first and continue that list — never fork a parallel todo set in the new session:
+**Session reference (canonical todo list):** the project's shared work list lives in `~/.local/share/opencode/opencode.db`, table `todo`, scoped by this project's `project_id` (see [Task Tracking](#task-tracking-opencodedb)). Query it **by project, not by session id** — a session can be compacted or deleted, a project row cannot. When starting a new chat, read this list first and continue it — never fork a parallel todo set in the new session:
 
 ```bash
-sqlite3 -readonly ~/.local/share/opencode/opencode.db \
-  "SELECT position, status, content FROM todo WHERE session_id='ses_003ad5f8effepj1UctRRK4mndd' ORDER BY position;"
+sqlite3 -readonly ~/.local/share/opencode/opencode.db -separator " || " \
+  "SELECT t.status, t.priority, t.content FROM todo t
+   JOIN session s ON t.session_id = s.id
+   WHERE s.project_id = 'fe11928eaae08e83eec30af1464e8adb752eb2da'
+     AND t.status != 'completed'
+   ORDER BY t.time_created;"
 ```
 
-- This session (the owner) claims/completes items via `todowrite`; statuses live in `todo` keyed by `(session_id, position)`.
-- A new chat reads the ID here, mirrors the pending items with `todowrite` in its own session, and keeps them in sync with the referenced list — completed/claimed status is recorded against the owner session.
-- If the ID is stale (session compacted/deleted), pick the most recent `python-planner` session from `opencode.db` and update this reference.
+- The owning session claims/completes items via `todowrite`; statuses live in `todo` keyed by `(session_id, position)`.
+- A new chat mirrors every **non-completed** row into its own session via `todowrite` (same `content` + `priority`, status `pending`, in `position` order) and keeps them in sync — completed/claimed status is recorded against the owning session.
+- If the project-row query returns nothing (the list is drained), or the owning session is gone, continue the most recent `python-planner` session: `SELECT id FROM session WHERE agent='python-planner' ORDER BY time_created DESC LIMIT 1;`. Dated check (2026-11-22): `ses_f3eb827a1ffe06rMp8sDV1ePsR`.
 - **One `in_progress` at a time.** Exactly one item `in_progress`; the rest `pending` / `completed` / `cancelled`.
 - **Claim → work → complete.** Mark a TODO `in_progress` before starting it; mark `completed` ONLY after the work is actually done AND verified (lint/type/test pass). Never complete on intent.
 - **One TODO per finding.** Every error and warning deserves its own TODO — never fold multiple diagnostics into a single "cleanup" TODO, never one TODO per file. If findings share a root cause, say so in the descriptions; they still get separate TODOs.
@@ -74,8 +81,8 @@ sqlite3 -readonly ~/.local/share/opencode/opencode.db \
 
 Every new chat thread continues the shared work list — never starts a fresh one. First action of the session:
 
-1. **Import pending todos into this session.** Read the reference session's list (query above), then mirror every **non-completed** item into this chat via `todowrite` (same `content` + `priority`, status `pending`, in `position` order). Do NOT import completed items — they stay in the owner session as history.
-2. **Last session lookup (if the reference is missing/stale).** Find the most recent python-planner session and update the reference in §1:
+1. **Import pending todos into this session.** Read the project list (query above), then mirror every **non-completed** item into this chat via `todowrite` (same `content` + `priority`, status `pending`, in `position` order). Do NOT import completed items — they stay in the owning session as history.
+2. **Last session lookup (if the project row is empty).** Find the most recent python-planner session and record it in §1:
 
 ```bash
 sqlite3 -readonly ~/.local/share/opencode/opencode.db \
@@ -86,14 +93,14 @@ sqlite3 -readonly ~/.local/share/opencode/opencode.db \
 
 ## 2. Error & Warning → TODO protocol (always)
 
-1. **Always check diagnostics** — `pycharm_get_file_problems` (IDE/type diagnostics) and `pycharm_lint_files` (ruff). All PyCharm tools are available for read-only inspection. **Verification is PyCharm-MCP-only — agents MUST NOT run `ruff`/`basedpyright` directly**; `pycharm_get_file_problems` (IDE/type diagnostics) + `pycharm_lint_files` (ruff) are the canonical gate.
+1. **Always check diagnostics** — the merge gate is the CLI in [Verification Gate](#verification-gate-cli--pycharm-ide): `uv run ruff check src tests` + `uv run basedpyright` (0 errors) + `uv run pytest`. When the PyCharm MCP server is connected, `pycharm_get_file_problems` (IDE/type diagnostics) and `pycharm_lint_files` (ruff) are the preferred *per-file* check and an additional signal — never a replacement for the CLI gate. If the PyCharm tools are unavailable in a session, run the CLI gate; never skip verification because the IDE tool is missing.
 2. **Analyze findings by root cause** — group errors/warnings by concern, not by file; then create ONE TODO PER FINDING (§1).
 3. **Typing is first-class — read into it.** Read basedpyright/pyright output thoroughly. Typing warnings AND errors are especially important: they reveal real contract breaks, not noise. Every `report*` diagnostic deserves a TODO.
 4. **Update if necessary** — after fixes, re-run diagnostics; anything still failing gets a TODO created or updated.
 
 ### 2.1 PyCharm MCP tools — when to use each
 
-All `pycharm_*` tools are read-only inspection or IDE actions, always loaded — use them instead of shelling out to `ruff`/`basedpyright`/`git`/`grep`.
+All `pycharm_*` tools are read-only inspection or IDE actions — when the PyCharm MCP server is connected, prefer them over shelling out to `git`/`grep`/file reads. Lint and type checking are the exception: the gate is the CLI (see [Verification Gate](#verification-gate-cli--pycharm-ide)).
 
 **Diagnostics gate (mandatory before completing any implementation TODO):**
 - `pycharm_get_file_problems(file)` — full IDE/type diagnostics for ONE file (basedpyright `report*`, syntax, inspections). Returns per-problem severity + description + location. Use after editing a file to get its complete problem list.
@@ -137,7 +144,8 @@ uv run pytest tests/test_x.py -k name
 
 ```
 
-always use pycharm_get_file_problems and pycharm_lint_files
+Always run the CLI gate below; when the PyCharm MCP server is connected, also run
+`pycharm_get_file_problems` and `pycharm_lint_files` on every changed file.
 
 
 ## Repository Layout
@@ -148,6 +156,7 @@ src/tortoise_extended/
 ├── _quote.py                # shared SQL identifier/literal quoting (timescale + migrations)
 ├── _types.py                # concrete type aliases + duck-typed protocols
 ├── exceptions.py            # exception hierarchy (VectorFieldError, GraphTraversalError, ...)
+├── py.typed                 # PEP 561 typed-package marker
 ├── models/
 │   ├── base.py                # BaseModel (BigInt pk)
 │   ├── user.py                # BaseUserModel (Django-style email/password auth)
@@ -159,8 +168,10 @@ src/tortoise_extended/
 │   ├── hierarchy_model.py     # BaseHierarchyModel (ltree-path hierarchy)
 │   ├── cacheable_model.py     # BaseCacheableModel (model-level Redis caching)
 │   ├── sample.py              # SampleMixin + BaseSample (TimescaleDB multi-stream, pk-free mixin, BigInt identity)
+│   ├── unified.py             # UnifiedIdModel (BigInt pk + UUID7 uid)
 │   └── event_stream.py        # BaseEventStreamModel (deprecated alias of BaseSample)
 ├── fields/
+│   ├── char.py            # CharField (validated varchar column)
 │   ├── vector.py          # VectorField (pgvector vector type, 3 input formats)
 │   ├── ltree.py           # LTreeField (PostgreSQL ltree type)
 │   ├── ipv4.py            # IPv4Field (PostgreSQL inet type, IPv4 validation)
@@ -179,6 +190,7 @@ src/tortoise_extended/
 │   ├── pathfinding.py       # shortest_path, all_paths, find_cycles
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)
 │   ├── ltree_filters.py     # ltree query operators
+│   ├── pgcrypto.py          # Digest / DigestHex / HMACDigest SQL wrappers
 │   └── _edge_filter.py      # shared edge-table filter clause (et_clause)
 ├── migrations/
 │   └── operations.py        # CreateHypertable, CreateContinuousAggregate
@@ -198,7 +210,7 @@ src/tortoise_extended/
 
 tests/                       # pytest suite — one module per feature area
 docker/                      # PostgreSQL 18 + pgvector + TimescaleDB, Redis
-doc/                         # user documentation (getting-started, architecture, api, guides, docker)
+docs/                        # user documentation (getting-started, architecture, api, guides, docker)
 ```
 
 > **Note:** The `src/` tree above is authoritative and README is kept in
@@ -220,7 +232,8 @@ doc/                         # user documentation (getting-started, architecture
 ## Type Checking (basedpyright)
 
 - **Zero errors is the gate.** `uv run basedpyright` must pass with **0 errors**
-  (`[tool.basedpyright]`: strict mode, `pythonVersion 3.14`, `stubPath src/tortoise_extended/stubs`).
+  (`[tool.basedpyright]` in `pyproject.toml` — the single config file — sets strict mode,
+  `pythonVersion 3.14`, `stubPath src/tortoise_extended/stubs`).
   Remaining warnings are tracked as todos and cleaned in batches — never introduce new warnings.
 - **`Any` policy:** `Any` is **banned** in runtime code, along with `object` and
   aliases of them. The former `LibraryAny` alias is removed (`e58662e`). Runtime annotations use
@@ -233,11 +246,11 @@ doc/                         # user documentation (getting-started, architecture
   runtime typing back in. Stubs must be self-sufficient and mirror the runtime API surface exactly
   (e.g. `Model._meta`, `Model.pk`, classmethods returning `QuerySet[Self]` / `QuerySetSingle[Self]`).
   `# pyright: reportExplicitAny=false` is permitted at the top of stub files.
-- **Migrations are CLI-checked.** `[tool.basedpyright]` in `pyproject.toml` previously excluded `**/migrations`, which
-  silently hid `src/tortoise_extended/migrations/` errors from the CLI (PyCharm IDE lint saw them).
-  The exclude entry was removed; keep it out — never re-add a migrations exclusion.
+- **Migrations are CLI-checked.** An earlier `**/migrations` exclude silently hid
+  `src/tortoise_extended/migrations/` errors from the CLI (PyCharm IDE lint saw them). The exclude
+  entry was removed from `[tool.basedpyright]`; keep it out — never re-add a migrations exclusion.
 
-## Verification Gate (PyCharm IDE)
+## Verification Gate (CLI + PyCharm IDE)
 
 PyCharm MCP tools are **available and expected** for verification — read-only inspection
 (`pycharm_read_file`, `pycharm_search_*`, `pycharm_git_status`, `pycharm_list_*`, ...) plus the
@@ -248,13 +261,16 @@ order:
 
 1. `uv run ruff check src tests` — clean
 2. `uv run basedpyright` — 0 errors (pass `src/tortoise_extended/migrations/` explicitly if touched)
-3. `uv run pytest tests/ -q` — 1,010 passed, 1 skipped (1 skip = `test_all.py` aggregator)
+3. `uv run pytest tests/ -q` — full suite green, exactly 1 skip (`test_all.py` aggregator). Record the observed pass count when you run it; never copy a stale number into docs.
 4. **`pycharm_lint_files`** on all changed files (min severity: error)
 5. **`pycharm_get_file_problems`** on all changed files — resolve any remaining IDE-reported issues
 
-**Gate scope — why `basedpyright` says 0/0/0 while tests look noisy.** `[tool.basedpyright]`
-`include` covers **`src/` only**; `tests/` is intentionally NOT strict-type-gated. The strict
-type gate proves the shipped library is type-clean; **pytest is the behavioral truth** (it runs
+**Config — one file.** `[tool.basedpyright]` in `pyproject.toml` is the only type-check
+config (a root `pyrightconfig.json` was merged in and deleted on 2026-11-22). A root
+`pyrightconfig.json` would take precedence over this block and is **not** merged with it, so
+never re-add one. `include` is `["src"]`, so `tests/` is intentionally NOT strict-type-gated.
+The strict type gate proves the shipped library is type-clean;
+**pytest is the behavioral truth** (it runs
 every test, including live-Postgres integration). The IDE lint surface on tests decomposes into:
 
 - **SQL-dialect artifacts** — `Unable to resolve table 'x'` / `'(' or USING expected` inside
@@ -311,8 +327,8 @@ sqlite3 /home/daen/.local/share/opencode/opencode.db -separator " || " \
   `test_graph.py`, `test_graph_traversal.py`, `test_pathfinding.py`, `test_hybrid_search.py`,
   `test_recursive_cte.py`, `test_hypertable.py`, `test_cache.py`, `test_migration_operations.py`, ...
 - Tests are organized into `Test*` classes per concern.
-- Target: **zero warnings** — the suite currently passes with zero warnings. Do not add tests that
-  emit deprecation/async warnings.
+- Target: **zero warnings** — `filterwarnings = ["error"]` is set, so any warning fails the run.
+  Do not add tests that emit deprecation/async warnings.
 - Non-PostgreSQL-specific tests run against SQLite (e.g. `VectorField` falls back to `BLOB`).
 - `test_pg_integration.py` requires the Docker database (see below).
 
@@ -343,12 +359,13 @@ docker compose -f docker-compose.dev.yml down        # stop
 - `tortoise-orm-stubs>=1.0.2` — type stubs
 - `msgspec>=0.21.0` — fast serialization
 - `pypika-tortoise>=0.6.5,<0.7` — query builder used by expressions
-- optional: `redis[hiredis]>=5.0.0` (the `redis` extra)
-- dev: `pytest>=9.0.3`, `pytest-asyncio>=1.4.0`
+- `argon2-cffi>=25.1.0` — argon2id password hashing for `BaseUserModel` (the only auth runtime dep)
+- optional: `redis[hiredis]>=7.0.0` (the `redis` extra)
+- dev: `pytest>=9.0.3`, `pytest-asyncio>=1.4.0`, `coverage>=7.15.2`, `ruff>=0.15.0,<0.16`, `basedpyright>=1.39.9`
 
 **Never add a dependency by hand.** Use `uv add <pkg>` so both `pyproject.toml` and `uv.lock`
-stay in sync. Note `uv.lock` is currently not committed; if you introduce one deliberately, pin it
-to the project (`[tool.uv] package = true` is already set).
+stay in sync. `uv.lock` is not git-ignored; keep it in sync and commit it with any
+`pyproject.toml` change (`[tool.uv] package = true` is set).
 
 ## Documentation
 

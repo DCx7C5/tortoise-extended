@@ -258,11 +258,11 @@ def _apply_patches() -> None:
     3. **Filter extension** (``tortoise.filters.get_filters_for_field``) —
        ``_tortoise_extended_patched`` flag on the module.
     4. **asyncpg codec** (``asyncpg.Pool`` init hooks) —
-       ``_pgvector_codec_init`` flag on the pool class.
-    5. **Migration generation** (``MigrationGenerator.generate``) —
-       ``_tortoise_extended_patched`` flag on the generator class.
-    6. **MigrationWriter** (``MigrationWriter._format_operation``) —
-       ``_tortoise_extended_patched`` flag on the writer class.
+       ``_tortoise_extended_codec_patched`` flag on the pool class.
+
+    ``MigrationWriter._format_operation`` is patched separately, at import
+    time, by :mod:`tortoise_extended.migrations.operations` — not by this
+    function.
     """
     import tortoise.backends.asyncpg.client as _asyncpg_client_mod
     import tortoise.fields as _fields_mod
@@ -332,39 +332,38 @@ def _apply_patches() -> None:
         _models_mod.get_filters_for_field = _patched_get_filters_for_field
 
     # 4. Register pgvector codec on EVERY asyncpg connection via init callback
-    if getattr(
+    if not getattr(
         _asyncpg_client_mod.AsyncpgDBClient, "_tortoise_extended_codec_patched", False
     ):
-        return
-    _original_create_pool = _asyncpg_client_mod.AsyncpgDBClient.create_pool
+        _original_create_pool = _asyncpg_client_mod.AsyncpgDBClient.create_pool
 
-    async def _patched_create_pool(
-        self: _asyncpg_client_mod.AsyncpgDBClient,
-        **kwargs: str
-        | int
-        | float
-        | bool
-        | None
-        | Callable[[AsyncpgConnection], Awaitable[None]],
-    ) -> Pool:
-        # Inject init callback so EVERY new connection gets the codec
-        original_init = cast(
-            Callable[[AsyncpgConnection], Awaitable[None]] | None,
-            kwargs.pop("init", None),
+        async def _patched_create_pool(
+            self: _asyncpg_client_mod.AsyncpgDBClient,
+            **kwargs: str
+            | int
+            | float
+            | bool
+            | None
+            | Callable[[AsyncpgConnection], Awaitable[None]],
+        ) -> Pool:
+            # Inject init callback so EVERY new connection gets the codec
+            original_init = cast(
+                Callable[[AsyncpgConnection], Awaitable[None]] | None,
+                kwargs.pop("init", None),
+            )
+
+            async def _combined_init(conn: AsyncpgConnection) -> None:
+                await _combined_codec_init(conn, original_init)
+
+            kwargs["init"] = _combined_init
+            return await _original_create_pool(self, **kwargs)
+
+        _asyncpg_client_mod.AsyncpgDBClient.create_pool = _patched_create_pool
+        setattr(
+            _asyncpg_client_mod.AsyncpgDBClient,
+            "_tortoise_extended_codec_patched",
+            True,
         )
-
-        async def _combined_init(conn: AsyncpgConnection) -> None:
-            await _combined_codec_init(conn, original_init)
-
-        kwargs["init"] = _combined_init
-        return await _original_create_pool(self, **kwargs)
-
-    _asyncpg_client_mod.AsyncpgDBClient.create_pool = _patched_create_pool
-    setattr(
-        _asyncpg_client_mod.AsyncpgDBClient,
-        "_tortoise_extended_codec_patched",
-        True,
-    )
 
 
 __all__ = [

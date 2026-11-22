@@ -29,13 +29,20 @@ target-version = "py314"
 ignore = ["RUF002"]
 
 [tool.basedpyright]
+# Single source of truth for the type gate. A root `pyrightconfig.json` takes
+# precedence over this block and is NOT merged with it, so the two files used to
+# disagree silently — the JSON was merged in here and deleted (2026-11-22).
+# Never re-add a root pyrightconfig.json.
 typeCheckingMode = "strict"
 pythonVersion = "3.14"
 venvPath = "."
 venv = ".venv"
 stubPath = "src/tortoise_extended/stubs"
 
-include = ["src", "tests"]
+# `tests/` is intentionally NOT strict-type-gated (AGENTS.md §2) — pytest
+# fixtures, test doubles and deliberate protected/monkey-patch access are harness
+# looseness, not contract breaks.
+include = ["src"]
 exclude = [
     "**/__pycache__",
     "**/.venv",
@@ -130,15 +137,6 @@ enableTypeIgnoreComments = false
 strictListInference = false
 strictDictionaryInference = false
 strictSetInference = false
-
-# Per-root environments. `src/tortoise_extended` inherits the strict map above;
-# `tests` is intentionally NOT strict-type-gated (AGENTS.md §2) — pytest fixtures,
-# test doubles and deliberate protected/monkey-patch access are harness looseness,
-# not contract breaks, so the harness-noise rules are relaxed there.
-executionEnvironments = [
-    { root = "src/tortoise_extended" },
-    { root = "tests", extraPaths = ["."], reportArgumentType = "none", reportMissingParameterType = "none", reportAttributeAccessIssue = "none", reportOperatorIssue = "none", reportPrivateImportUsage = "none", reportIndexIssue = "none", reportTypedDictNotRequiredAccess = "none", reportCallIssue = "none", reportFunctionMemberAccess = "none", reportUnnecessaryTypeIgnoreComment = "none", reportAbstractUsage = "none", reportOptionalSubscript = "none", reportUnnecessaryIsInstance = "none", reportIncompatibleMethodOverride = "none", reportUnreachable = "none", reportUnusedCallResult = "none", reportPrivateUsage = "none", reportUnusedVariable = "none", reportUnknownParameterType = "none", reportUnknownMemberType = "none", reportUnknownVariableType = "none", reportUnusedParameter = "none", reportUnknownArgumentType = "none", reportImplicitOverride = "none", reportUnusedFunction = "none", reportUnusedImport = "none", reportMissingTypeArgument = "none", reportUnknownLambdaType = "none" },
-]
 
 [tool.hatch.build.targets.wheel]
 # `src/tortoise_extended` is the library itself. The `tortoise-orm` typing overlay

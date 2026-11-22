@@ -10,14 +10,17 @@ forced on a model that doesn't need it.
 ```python
 from tortoise_extended import (
     BaseModel,
+    UnifiedIdModel,
     TimestampMixin,
     TimestampEndMixin,
     BaseSoftDeleteModel,
     SoftDeleteQuerySet,
+    BaseNode,
     BaseGraphNodeModel,
     BaseGraphEdgeModel,
     BaseHierarchyModel,
     BaseCacheableModel,
+    BaseSample,
     BaseEventStreamModel,
     BaseUserModel,
 )
@@ -31,20 +34,21 @@ from tortoise_extended import (
 | 64-bit JOIN-fast primary key | `BaseModel` | internal-only tables |
 | `created_at` / `updated_at` columns | `TimestampMixin` | stackable with any base |
 | Soft delete (`deleted_at`, auto-filtered) | `BaseSoftDeleteModel` | pairs with `SoftDeleteQuerySet` |
-| Graph nodes / edges | `BaseGraphNodeModel` / `BaseGraphEdgeModel` | see [Graph](graph.md) |
+| Cross-table / external refs | `UnifiedIdModel` | BigInt pk + UUID7 `uid`, see below |
+| Graph nodes / edges | `BaseNode` / `BaseGraphEdgeModel` | `BaseGraphNodeModel` is the deprecated alias, see [Graph](graph.md) |
 | ltree trees | `BaseHierarchyModel` | see [Graph](graph.md) |
 | Redis row caching | `BaseCacheableModel` | see [Cache](cache.md) |
-| Time-series stream tables | `BaseEventStreamModel` | composite pk, see [Event Streams](event-streams.md) |
-| Django-style email/password auth | `BaseUserModel` | argon2id, extends `BaseModel` | stack with `TimestampMixin` |
+| Time-series stream tables | `BaseSample` | `BaseEventStreamModel` is the deprecated alias, see [Event Streams](event-streams.md) |
+| Django-style email/password auth | `BaseUserModel` | argon2id, extends `BaseModel`; stack with `TimestampMixin` |
 
 > **Dependency note:** `BaseModel`, `TimestampMixin`, and `BaseSoftDeleteModel`
 > are independent of the graph/cache/timescale features — they extend plain
-> Tortoise `Model`. `BaseGraphNodeModel`, `BaseHierarchyModel`, and
-> `BaseEventStreamModel` declare their own primary keys; do **not** combine
-> them with `BaseModel` (two `id` definitions = field collision).
+> Tortoise `Model`. `BaseNode`, `BaseHierarchyModel`, and `BaseSample` declare
+> their own primary keys; do **not** combine them with `BaseModel` (two `id`
+> definitions = field collision).
 >
 > `UnifiedIdModel` (BigInt pk + UUID7 `uid` for cross-table references) is
-> planned but **not yet shipped**.
+> shipped and exported from the top-level package.
 
 ---
 
@@ -55,7 +59,7 @@ Abstract base declaring `id = BigIntField(primary_key=True)`.
 Tortoise auto-creates `id = IntField(primary_key=True)` when a model declares
 no primary key; `BaseModel` exists for models that want a 64-bit key instead
 (JOIN-fast ints, large tables). Deliberately minimal — use
-`UnifiedIdModel` (planned) when a cross-table/external `uid` is needed too.
+`UnifiedIdModel` when a cross-table/external `uid` is needed too.
 
 ### Fields
 
@@ -76,6 +80,44 @@ class Account(BaseModel):
     class Meta:
         table = "accounts"
 ```
+
+---
+
+## UnifiedIdModel
+
+Abstract base extending `BaseModel` with a time-ordered UUID7 `uid` column.
+The BigInt `id` stays the internal FK target; `uid` is the globally unique
+reference used when a key must point at "any table" (graph edges, polymorphic
+refs, cache keys, public API identifiers) without shared-sequence coordination.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `BigIntField` | 64-bit auto-increment primary key (inherited) |
+| `uid` | `UUID7Field(unique=True)` | Time-ordered UUID7 for cross-table / external refs |
+
+### Usage
+
+```python
+from tortoise import fields
+from tortoise_extended import UnifiedIdModel
+
+
+class Document(UnifiedIdModel):
+    title = fields.CharField(max_length=200)
+
+    class Meta:
+        table = "documents"
+
+
+doc = await Document.create(title="Design Doc")
+doc.id   # int (internal FK target)
+doc.uid  # UUID7 (cross-table reference)
+```
+
+> `uid` is opt-in: forcing it on every model adds a unique-index write per
+> insert and introduces two-ID confusion on internal-only tables.
 
 ---
 

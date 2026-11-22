@@ -87,6 +87,7 @@ Results (list[dict])
 | `fields/path.py` | text path column | `pathlib.Path` normalization |
 | `fields/url.py` | validated URL column | Scheme/netloc validation |
 | `fields/uuid.py` | UUID4/UUID7 columns | Auto-generation defaults |
+| `fields/char.py` | `TEXT`-backed character column | Python-side `MaxLengthValidator` |
 | `indexes/hnsw_index.py` | ANN index creation | HNSW, IVFFlat DDL |
 | `indexes/ltree_index.py` | GiST index creation | ltree GiST DDL |
 | `expressions/graph_filters.py` | Distance operators | L2, cosine, inner product |
@@ -96,15 +97,19 @@ Results (list[dict])
 | `expressions/pathfinding.py` | Pathfinding | Shortest path, all paths, cycles |
 | `expressions/hybrid_search.py` | Hybrid search | Vector + FTS weighted scoring |
 | `expressions/ltree_filters.py` | ltree operators | Ancestor/descendant/match filters |
+| `expressions/pgcrypto.py` | pgcrypto helpers | `Digest`, `DigestHex`, `HMACDigest` |
 | `models/base.py` | Model base | `BaseModel` (BigInt pk) |
+| `models/unified.py` | Unified-id base | `UnifiedIdModel` (BigInt pk + UUID7 `uid`) |
 | `models/user.py` | User base model | `BaseUserModel` (email/password auth) |
 | `models/mixins.py` | Timestamp mixins | `TimestampMixin` / `TimestampEndMixin` |
 | `models/soft_delete.py` | Soft delete | `BaseSoftDeleteModel` + `SoftDeleteQuerySet` |
-| `models/graph_node.py` | Graph nodes | Adjacency list base class |
+| `models/node.py` | Graph nodes | `NodeMixin` + `BaseNode` (UUID7 identity) |
+| `models/graph_node.py` | Graph nodes (legacy) | `BaseGraphNodeModel`, deprecated alias of `BaseNode` |
 | `models/graph_edge.py` | Graph edges | Typed/weighted edge base class |
 | `models/hierarchy_model.py` | ltree trees | `BaseHierarchyModel` for ltree models |
 | `models/cacheable_model.py` | Redis row caching | `BaseCacheableModel` |
-| `models/event_stream.py` | Event streams | `BaseEventStreamModel` (COPY ingestion, rollups) |
+| `models/sample.py` | Event streams | `SampleMixin` + `BaseSample` (COPY ingestion, rollups) |
+| `models/event_stream.py` | Event streams (legacy) | `BaseEventStreamModel`, deprecated alias of `BaseSample` |
 | `timescale/hypertable.py` | Hypertable manager | Create/drop/list hypertables |
 | `timescale/compression.py` | Compression manager | Chunk compression policies |
 | `timescale/retention.py` | Retention policies | Auto-delete old chunks |

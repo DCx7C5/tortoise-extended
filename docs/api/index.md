@@ -1,12 +1,12 @@
 # API Reference
 
-Complete API documentation for all tortoise-extended modules.
+API documentation for the public modules.
 
 ## Modules
 
 - **[VectorField](vector-field.md)** — pgvector column type for vector similarity search
 - **[LTreeField](ltree-field.md)** — PostgreSQL ltree type for hierarchical paths
-- **[Fields](fields.md)** — IPv4Field, PathField, URLField, UUID4Field, UUID7Field
+- **[Fields](fields.md)** — IPv4Field, PathField, URLField, UUID4Field, UUID7Field, CharField
 - **[Indexes](indexes.md)** — HNSW, IVFFlat, and GiST index types
 - **[Graph Filters](graph-filters.md)** — pgvector distance operators (L2, cosine, inner product)
 - **[Recursive CTE](recursive-cte.md)** — Recursive Common Table Expressions
@@ -15,10 +15,10 @@ Complete API documentation for all tortoise-extended modules.
 - **[Pathfinding](pathfinding.md)** — Shortest path, all paths, cycle detection
 - **[Hybrid Search](hybrid-search.md)** — Vector + FTS weighted scoring
 - **[pgcrypto](pgcrypto.md)** — pgcrypto query helpers (Digest, DigestHex, HMACDigest)
-- **[Graph (Node/Edge/Hierarchy)](graph.md)** — BaseGraphNodeModel, BaseGraphEdgeModel, BaseHierarchyModel base classes
-- **[Model Bases](models.md)** — BaseModel, BaseUserModel, BaseSoftDeleteModel + SoftDeleteQuerySet, TimestampMixin
+- **[Graph (Node/Edge/Hierarchy)](graph.md)** — BaseNode, BaseGraphEdgeModel, BaseHierarchyModel base classes (BaseGraphNodeModel is the deprecated alias)
+- **[Model Bases](models.md)** — BaseModel, UnifiedIdModel, BaseUserModel, BaseSoftDeleteModel + SoftDeleteQuerySet, TimestampMixin
 - **[TimescaleDB](timescale.md)** — HypertableManager, CompressionManager, RetentionPolicy, ContinuousAggregateManager
-- **[Event Streams](event-streams.md)** — BaseEventStreamModel: multi-stream hypertables, COPY ingestion, typed rollups
+- **[Event Streams](event-streams.md)** — BaseSample (BaseEventStreamModel is the deprecated alias): multi-stream hypertables, COPY ingestion, typed rollups
 - **[Cache (Redis)](cache.md)** — RedisCache, BaseCacheableModel, CachedQuerySet, decorators
 - **[Exceptions](exceptions.md)** — domain error hierarchy (all derive from `TortoiseExtendedError`)
 - **[Migrations](migrations.md)** — CreateHypertable, CreateContinuousAggregate migration operations
@@ -27,7 +27,7 @@ Complete API documentation for all tortoise-extended modules.
 
 ### Fields
 ```python
-from tortoise_extended import VectorField, LTreeField
+from tortoise_extended import VectorField, LTreeField, CharField
 from tortoise_extended import IPv4Field, PathField, URLField, UUID4Field, UUID7Field
 ```
 
@@ -48,9 +48,11 @@ from tortoise_extended import shortest_path, all_paths, find_cycles
 
 ```python
 from tortoise_extended import (
-    BaseGraphNodeModel,
+    BaseNode,
+    NodeMixin,
     BaseGraphEdgeModel,
     BaseHierarchyModel,
+    BaseGraphNodeModel,  # deprecated alias of BaseNode
 )
 ```
 
@@ -59,6 +61,7 @@ from tortoise_extended import (
 ```python
 from tortoise_extended import (
     BaseModel,
+    UnifiedIdModel,
     TimestampMixin,
     BaseSoftDeleteModel,
     SoftDeleteQuerySet,
@@ -74,7 +77,7 @@ from tortoise_extended.timescale import (
     RetentionPolicy,
     ContinuousAggregateManager,
 )
-from tortoise_extended import BaseEventStreamModel, TimeBucketRow
+from tortoise_extended import BaseSample, BaseEventStreamModel, TimeBucketRow  # BaseEventStreamModel is the deprecated alias
 ```
 
 ### Cache

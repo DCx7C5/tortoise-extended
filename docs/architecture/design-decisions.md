@@ -102,20 +102,26 @@ Monkey-patching allows us to extend the ORM without maintaining a fork. The patc
 ### The Problem
 
 Graph-style schemas (nodes + edges + hierarchies) repeat across projects:
-`BaseGraphNodeModel` / `BaseGraphEdgeModel` for entity-relationship graphs, `BaseHierarchyModel`
-for ltree-path trees. Hand-rolling them each time leads to inconsistent
-indexes and wrong query patterns.
+`BaseNode` (+ `NodeMixin`) / `BaseGraphEdgeModel` for entity-relationship graphs,
+`BaseHierarchyModel` for ltree-path trees. Hand-rolling them each time leads to
+inconsistent indexes and wrong query patterns.
 
 ### Our Solution
 
-Provide three small, well-indexed abstract base models:
+Provide small, well-indexed abstract base models:
 
-- `BaseGraphNodeModel` — `id`, `name`, `type`, `description`, `embedding`, `metadata`
+- `BaseNode` (+ `NodeMixin`) — pk-free adjacency-list mixin plus a UUID7 identity
+  base: `id`, `name`, `type`, `description`, `embedding`, `metadata`, `parent_id`,
+  `depth`, `is_root`, `child_count`
+- `BaseGraphNodeModel` — deprecated compatibility alias of `BaseNode` pinned to
+  UUID4 identity; do not build new models on it
 - `BaseGraphEdgeModel` — `source_id`/`target_id` (plain columns, no FK — one edge
   table can link nodes of different types), `type`, `weight`, `metadata`,
   plus `outgoing(...)` / `incoming(...)` queryset helpers
 - `BaseHierarchyModel` — `path` `LTreeField`, `parent_id`, `depth`, `namespace`
   with a `GiSTIndex` on `path`
+- `BaseSample` (+ `SampleMixin`) — TimescaleDB multi-stream base with a BigInt
+  identity; `BaseEventStreamModel` is its deprecated alias
 
 ### Trade-offs
 

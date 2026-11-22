@@ -9,14 +9,13 @@
 
 ### Tier 1 — model primitives (low risk, no new deps) — `done`
 > **Status (2026-08-13):** items 1–3 shipped in `6a308d9` (BaseModel,
-> TimestampMixin, BaseSoftDeleteModel + SoftDeleteQuerySet). `UnifiedIdModel`
-> still waits on Tier 1b (`UUID7Field`).
+> TimestampMixin, BaseSoftDeleteModel + SoftDeleteQuerySet).
 >
-> **Reconciled (2026-09-02):** `UnifiedIdModel` is still **`todo`/pending** —
-> a `models/unified.py` module exists (BigInt pk + `uid = UUID7Field`) but it
-> is **not** wired into the public API (`models/__init__.py` / top-level
-> `__all__`). It is being implemented separately; only the plan's status is
-> updated here, no code.
+> **Reconciled (2026-11-22):** `UnifiedIdModel` is **`done`** — shipped at
+> `models/unified.py` (BigInt pk + `uid = UUID7Field(unique=True)`), exported
+> from `models/__init__.py` and the top-level `__all__`
+> (`src/tortoise_extended/__init__.py`), and guarded by
+> `tests/test_unified_id_model.py::test_exports`.
 1. **Base-model family** (user picks per model, nothing forced):
    - **`BaseModel`** — abstract, `id = BigIntField(primary_key=True)` only.
      Default for internal-only tables (JOIN-fast ints, no extra index).
@@ -24,9 +23,9 @@
      declared — manual declaration is only needed for a non-default pk
      type, which is exactly what BigInt pk requires.)
    - **`UnifiedIdModel(BaseModel)`** — adds
-     `uid = UUID7Field(unique=True, index=True)`. For models that
+     `uid = UUID7Field(unique=True)`. For models that
      participate in cross-table refs, external lookups, cache keys, or
-     polymorphic refs. *Still `todo` — ships with Tier 1b; not yet public.*
+     polymorphic refs. *`done` — shipped and public.*
    - Rationale: forcing `uid` on *every* model is an anti-pattern (extra
      unique-index write on every insert; two-ID confusion on tables that
      never need cross-table refs). Choice = full accessibility.
@@ -106,19 +105,21 @@
 - **`BaseCacheableModel`**, **`BaseEventStreamModel`** — already mentioned in
   the plan; confirmed shipped. *`done`.*
 
-### Tier 5 — pgcrypto (encrypted storage + query helpers) — `done`
-> **Landing (2026-09-02):** shipped together — `PGPEncryptedField` (thin
-> ciphertext storage) plus the pgcrypto query-expression helpers. Scope rule:
-> **the library performs NO encryption itself** — it only provides the field
-> and the SQL wrappers so the *application* can invoke pgcrypto from inside
+### Tier 5 — pgcrypto (encrypted storage + query helpers) — `wip`
+> **Landing (2026-09-02):** the pgcrypto query-expression helpers shipped.
+> Scope rule: **the library performs NO encryption itself** — it only provides
+> fields and SQL wrappers so the *application* can invoke pgcrypto from inside
 > Tortoise queries. Requires `CREATE EXTENSION IF NOT EXISTS pgcrypto;` (added
 > to `docker/postgres-ext/scripts/00-extensions.sql`).
+>
+> **Reconciled (2026-11-22):** item 15 is `done`; item 14
+> (`PGPEncryptedField`) is **`todo`** — `fields/pgcrypto.py` does not exist.
 
-14. **`PGPEncryptedField`** (`fields/pgcrypto.py`) — thin `BYTEA` (PG) /
+14. **`PGPEncryptedField`** (`fields/pgcrypto.py`) — *`todo`.* Thin `BYTEA` (PG) /
     `BLOB` (SQLite) storage field subclassing `BinaryField`. Stores ciphertext
     `bytes` the application produces; does **not** encrypt/decrypt. Pair with
     the `pgp_sym_*` helpers below (or any app-side encryptor).
-15. **pgcrypto query helpers** (`expressions/pgcrypto.py`) — tortoise
+15. **pgcrypto query helpers** (`expressions/pgcrypto.py`) — *`done`.* tortoise
     `Function` wrappers rendering pgcrypto SQL (algorithm/key/options as string
     literals), usable in `.annotate()`/`.filter()`/`.update()`:
     - `Digest(data, algo)` → `digest()` (`bytea`); `DigestHex(data, algo)` →
@@ -139,7 +140,7 @@
 ### Tier 1b/4 — Python 3.14 stdlib notes
 - **`UUID7Field`** (Tier 1b) should use `uuid.uuid7()` as its default — Python
   3.14 stdlib, time-ordered + sortable (see §F unified-id design). *Shipped —
-  `UUID7Field` is `done`; only `UnifiedIdModel` (the consumer) remains `todo`.*
+  `UUID7Field` and its consumer `UnifiedIdModel` are both `done`.*
 - **Auth kit** (Tier 4.12): argon2 hashing is sync CPU-bound — run
   it in `asyncio.to_thread` inside `set_password`/`check_password`; never
   block the event loop with hashing.
@@ -156,22 +157,56 @@
   or raise `NotSupportedError`.
 - Every item needs tests (mirror feature-area layout in `tests/`).
 
+### Internal hygiene — single pyright config — `done` (2026-11-22)
+> **Resolved (2026-11-22):** `pyrightconfig.json` at the repo root took
+> precedence over `[tool.basedpyright]` in `pyproject.toml` and the two were
+> never merged — the JSON's rule map was identical, but `include`
+> (`["src"]` vs `["src", "tests"]`) and a pyproject-only `executionEnvironments`
+> tests block disagreed, so the JSON silently won. The JSON was folded into
+> `[tool.basedpyright]` and deleted at the user's instruction, preserving the
+> effective gate (`include = ["src"]`, strict mode, `stubPath`, identical
+> rule severities). `[tool.basedpyright]` is now the only config.
+> `tests/test_stubs.py::TestStubWiring` reads it directly, and `AGENTS.md`
+> records the precedence rule so a root JSON is never re-added.
+
 ### Internal hygiene — typing debt — `todo`
-1. **Type asyncpg result-row shapes** — the `reportUnknown*` suppression
-   cluster in `timescale/` is the only *reducible* part of the 114
-   `# pyright: ignore` comments. `execute_query` returns
-   `(sql, rows)` where `rows` is untyped; strict mode can't infer
-   `result[1]`. Define small typed `Row` protocols / aliases for the
-   `execute_query` tuples and annotate:
-   - `timescale/hypertable.py` — 7 `reportUnknown*` sites
-   - `timescale/retention.py` — 4
-   - `timescale/compression.py` — 3
-   - stragglers in `expressions/ltree_filters.py`, `graph_filters.py`,
-     `cache/queryset.py` — 1 each
-   Expected result: eliminate ~15 `reportUnknown*` suppressions. The
-   `reportExplicitAny`/`LibraryAny` cluster (~75) is permanent by design
-   (untyped upstream — tortoise/asyncpg/redis runtime) and must NOT be
-   touched. Gate stays `basedpyright` 0/0/0 + ruff clean.
+> **Gate status (2026-11-22):** `uv run basedpyright` reports **9 errors**,
+> all in `src/tortoise_extended/models/node.py` and all introduced by
+> `c95792b` (pk-free `NodeMixin` split). None come from the docs pass or the
+> dependency refresh — the count is identical under `basedpyright` 1.39.10
+> and 1.40.2, and identical with the old `pyrightconfig.json` in place.
+> `ruff` is clean.
+>
+> - `NodeMixin` methods read `self.id` (7× `reportAttributeAccessIssue`) —
+>   the mixin is pk-free, so `id` is declared only by the identity base
+>   (`BaseNode`). Needs a typing-only declaration in the mixin (e.g.
+>   `if TYPE_CHECKING: id: UUID | int`) or `self.pk` at the call sites.
+> - `node.py:272` — `_fetch_parent_id` returns `UUID | None` but
+>   `row.parent_id` is `UUID | int | None`.
+> - `node.py:492` — `BaseNode.parent_id = fields.UUIDField(...)` conflicts
+>   with the inherited value annotation `parent_id: UUID | int | None`
+>   (boundary `cast` or a field-typed annotation).
+>
+> **Re-measured (2026-11-22):** 11 `# pyright: ignore` comments in total —
+> 6 in `src/` (`models/soft_delete.py` ×5, all
+> `reportIncompatibleMethodOverride`; `cache/queryset.py` ×1,
+> `reportUnnecessaryIsInstance`) and 5 in `tests/` (3×
+> `reportUnusedFunction` on `_db` fixtures, 2×
+> `reportIncompatibleMethodOverride`). `timescale/` has **zero**. The
+> `LibraryAny` alias no longer exists (`_types.py`), so there is no
+> `reportExplicitAny` cluster to clean.
+
+0. **Clear the 9 `models/node.py` gate errors** — see the status note above;
+   the gate cannot be called green until this lands.
+
+1. **Type asyncpg result-row shapes** — `execute_query` returns `(sql, rows)`
+   where `rows` is untyped, so strict mode cannot infer `result[1]`. Define
+   small typed `Row` protocols / aliases for the `execute_query` tuples and
+   annotate the call sites in `timescale/` (`hypertable.py`,
+   `retention.py`, `compression.py`) plus `expressions/ltree_filters.py`,
+   `graph_filters.py`. Expected result: no new `# pyright: ignore` comments
+   in `timescale/` (currently zero) and clearer row typing at those call
+   sites. Gate stays `basedpyright` 0/0/0 + ruff clean.
 
 ---
 
@@ -343,6 +378,17 @@ class UUID7Field(fields.UUIDField):
 **Upgrades:** no shipped data → no migration. Tier-1b adds `UUID7Field` +
 `UnifiedIdModel`, re-points `BaseGraphNodeModel`/`BaseGraphEdgeModel` (UUID pk → uid, BigInt
 pk) and `FileNode` (§B) at it in one repo-internal change.
+
+> **Reconciled (2026-11-22):** the `BaseGraphNodeModel(UnifiedIdModel)`
+> re-point above was **superseded and never executed**. What shipped is a
+> pk-free `NodeMixin` plus `BaseNode` with a UUID7 primary key
+> (`models/node.py`); `BaseGraphNodeModel` remains the UUID4 compatibility
+> alias of `BaseNode` (`models/graph_node.py`), and `BaseGraphEdgeModel`
+> still extends plain `Model` with UUID `source_id`/`target_id` columns
+> (`models/graph_edge.py`). `BaseSample` / `SampleMixin`
+> (`models/sample.py`) is the stream-side counterpart with a BigInt
+> identity. The decision record is kept as written; this note records the
+> outcome.
 
 **Boundaries:**
 - `uid` is opt-in — forcing it on every model is the anti-pattern (extra

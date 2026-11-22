@@ -95,7 +95,8 @@ async def graph_traversal():
 ```
 
 > **Note:** `BaseGraphEdgeModel` stores `source_id` / `target_id` as plain UUID columns (no
-> database FK constraint), and `BaseGraphNodeModel` keeps `parent_id` the same way — this
+> database FK constraint), and `BaseNode` (the primary graph-node base; the older
+> `BaseGraphNodeModel` is its deprecated alias) keeps `parent_id` the same way — this
 > lets one edge table link nodes of different types. Traverse edges with the
 > `BaseGraphEdgeModel.outgoing(...)` / `BaseGraphEdgeModel.incoming(...)` classmethods above, or use
 > `GraphTraversal` for multi-hop traversal. If you instead declare real

@@ -2,7 +2,8 @@
 
 The overlay lives at ``src/tortoise_extended/stubs/tortoise-stubs/``
 (``.pyi`` files, one per overlaid module). basedpyright resolves it via the
-``stubPath`` setting in ``pyproject.toml`` (``[tool.basedpyright]``), which
+``stubPath`` setting in ``[tool.basedpyright]`` in ``pyproject.toml`` — the
+single pyright config — which
 points at ``src/tortoise_extended/stubs`` — the PEP 561 ``-stubs`` suffix on
 the inner directory name makes pyright treat it as the stub overlay for the
 ``tortoise`` package.
@@ -373,24 +374,36 @@ class TestStubOverlayPresent:
 
 
 class TestStubWiring:
-    """pyproject.toml [tool.basedpyright] still points at the stub overlay."""
+    """The single pyright config still points at the stub overlay."""
 
     @staticmethod
     def _basedpyright_config() -> dict[str, object]:
+        """Return the effective ``[tool.basedpyright]`` config.
+
+        ``pyproject.toml`` is the only pyright/basedpyright config: a root
+        ``pyrightconfig.json`` would take precedence over it and the two are
+        never merged, so the former JSON was folded in and deleted (2026-11-22).
+        """
         with open(PYPROJECT_TOML, "rb") as f:
             toml = tomllib.load(f)
-        return toml.get("tool", {}).get("basedpyright", {})
+        config = toml.get("tool", {}).get("basedpyright", {})
+        assert isinstance(config, dict), config
+        return config
 
     def test_stub_path_configured(self) -> None:
         """``stubPath`` points at ``src/tortoise_extended/stubs`` so basedpyright
         finds the ``tortoise-stubs/`` overlay inside it."""
         config = self._basedpyright_config()
-        stub_path = Path(config["stubPath"])
+        stub_path = Path(str(config["stubPath"]))
         assert stub_path == STUBS_DIR.relative_to(PROJECT_ROOT), config["stubPath"]
         assert (PROJECT_ROOT / stub_path).is_dir()
 
     def test_migrations_not_excluded(self) -> None:
         """The migrations exclude entry must never be re-added."""
-        config = self._basedpyright_config()
-        excludes = config.get("exclude", [])
-        assert not any(re.search(r"migrations", e) for e in excludes), excludes
+        excludes = self._basedpyright_config().get("exclude", [])
+        assert isinstance(excludes, list), excludes
+        assert not any(re.search(r"migrations", str(e)) for e in excludes), excludes
+
+    def test_no_root_pyrightconfig(self) -> None:
+        """A root ``pyrightconfig.json`` would silently override the pyproject block."""
+        assert not (PROJECT_ROOT / "pyrightconfig.json").exists()
