@@ -170,22 +170,23 @@
 > records the precedence rule so a root JSON is never re-added.
 
 ### Internal hygiene — typing debt — `todo`
-> **Gate status (2026-11-22):** `uv run basedpyright` reports **9 errors**,
-> all in `src/tortoise_extended/models/node.py` and all introduced by
-> `c95792b` (pk-free `NodeMixin` split). None come from the docs pass or the
-> dependency refresh — the count is identical under `basedpyright` 1.39.10
-> and 1.40.2, and identical with the old `pyrightconfig.json` in place.
-> `ruff` is clean.
+> **Gate status (2026-11-22):** green — `uv run basedpyright` reports
+> **0 errors, 1 warning**; `uv run ruff check src tests` is clean. The 9
+> errors introduced by `c95792b` (pk-free `NodeMixin` split) were cleared in
+> commit `4abe6d4` (local `main`, unpushed) via TODO 2957: a typing-only
+> `id: UUID | int` declaration on the pk-free `NodeMixin`, the parent-id read
+> path widened to `UUID | int | None`, and `BaseNode` / the deprecated
+> `BaseGraphNodeModel` declaring the narrowed value type under
+> `TYPE_CHECKING` while keeping the real field objects in the `else` branch
+> (runtime field registration unchanged).
 >
-> - `NodeMixin` methods read `self.id` (7× `reportAttributeAccessIssue`) —
->   the mixin is pk-free, so `id` is declared only by the identity base
->   (`BaseNode`). Needs a typing-only declaration in the mixin (e.g.
->   `if TYPE_CHECKING: id: UUID | int`) or `self.pk` at the call sites.
-> - `node.py:272` — `_fetch_parent_id` returns `UUID | None` but
->   `row.parent_id` is `UUID | int | None`.
-> - `node.py:492` — `BaseNode.parent_id = fields.UUIDField(...)` conflicts
->   with the inherited value annotation `parent_id: UUID | int | None`
->   (boundary `cast` or a field-typed annotation).
+> - Original break-down (resolved): 7× `reportAttributeAccessIssue` on
+>   `self.id` in the pk-free mixin; `_fetch_parent_id` returning
+>   `UUID | None` against a `UUID | int | None` row; and the `parent_id`
+>   field assignment conflicting with the inherited value annotation.
+> - The single remaining warning is `reportImplicitOverride` in
+>   `cache/base.py:173` (`find_class` overrides `Unpickler`); it predates
+>   this work and is below the earlier 11-warning baseline.
 >
 > **Re-measured (2026-11-22):** 11 `# pyright: ignore` comments in total —
 > 6 in `src/` (`models/soft_delete.py` ×5, all
@@ -196,8 +197,8 @@
 > `LibraryAny` alias no longer exists (`_types.py`), so there is no
 > `reportExplicitAny` cluster to clean.
 
-0. **Clear the 9 `models/node.py` gate errors** — see the status note above;
-   the gate cannot be called green until this lands.
+0. ~~**Clear the 9 `models/node.py` gate errors**~~ — **done** in `4abe6d4`
+   (TODO 2957); gate is green at 0 errors. See the status note above.
 
 1. **Type asyncpg result-row shapes** — `execute_query` returns `(sql, rows)`
    where `rows` is untyped, so strict mode cannot infer `result[1]`. Define
