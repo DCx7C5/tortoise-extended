@@ -13,6 +13,7 @@ import pytest
 from tortoise import Tortoise, fields
 
 import tortoise_extended  # noqa: F401 — apply patches
+from tortoise_extended._types import CacheValue
 from tortoise_extended.exceptions import GraphError
 from tortoise_extended.models import BaseModel, NodeMixin
 
@@ -345,6 +346,19 @@ class TestAddChild:
         stored = await HybridNode.get(pk=child.pk)
         assert stored.parent_id == parent.pk
         assert stored.depth == 1
+
+    async def test_accepts_nested_json_metadata(self) -> None:
+        """``metadata_json`` takes the recursive JSON shape, not scalars only."""
+        parent = await HybridNode.create(namespace="shop", depth=0)
+        payload: dict[str, CacheValue] = {
+            "label": "kit",
+            "nested": {"tags": ["a", "b"], "depth": 2},
+            "flags": [True, None, 1.5],
+        }
+        child = await parent.add_child(metadata_json=payload)
+        assert child.metadata_json == payload
+        stored = await HybridNode.get(pk=child.pk)
+        assert stored.metadata_json == payload
 
     async def test_bumps_child_count_exactly_once(self) -> None:
         parent = await HybridNode.create(namespace="shop", depth=0)

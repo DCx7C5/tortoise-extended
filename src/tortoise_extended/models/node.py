@@ -41,7 +41,7 @@ from tortoise.expressions import F
 from tortoise.models import Model
 from tortoise.transactions import in_transaction
 
-from tortoise_extended._types import RowValue
+from tortoise_extended._types import CacheValue
 from tortoise_extended.exceptions import GraphError
 from tortoise_extended.fields import CharField
 from tortoise_extended.fields.uuid import UUID7Field
@@ -356,7 +356,7 @@ class NodeMixin(Model):
             parent_id=self.id,
         ).order_by(self.ordering_field)
 
-    async def add_child(self, **kwargs: RowValue) -> Self:
+    async def add_child(self, **kwargs: CacheValue) -> Self:
         """Create and persist a direct child of this node.
 
         The child gets ``parent_id=self.pk``, ``depth=self.depth + 1``,
@@ -368,7 +368,10 @@ class NodeMixin(Model):
         the in-memory counter on this instance so it does not read stale.
 
         Args:
-            **kwargs: Additional field values for the new child node.
+            **kwargs: Additional field values for the new child node. Values
+                use :data:`~tortoise_extended._types.CacheValue`, so a
+                JSON-serializable ``dict`` / ``list`` is accepted for
+                ``JSONField`` columns such as ``metadata_json``.
 
         Returns:
             The persisted child node.
@@ -383,7 +386,7 @@ class NodeMixin(Model):
                 "save the parent node first."
             )
             raise GraphError(msg)
-        child_fields: dict[str, RowValue] = {
+        child_fields: dict[str, CacheValue] = {
             "parent_id": self.pk,
             "depth": self.depth + 1,
             "is_root": False,
@@ -391,7 +394,7 @@ class NodeMixin(Model):
         }
         child_fields.update(kwargs)
         # ``using_db`` is bound explicitly: the helper takes field values only
-        # (no connection parameter), and it keeps the ``RowValue`` splat from
+        # (no connection parameter), and it keeps the ``CacheValue`` splat from
         # being matched against ``create()``'s connection argument.
         child = await self.__class__.create(using_db=None, **child_fields)
         # save() already bumped the parent's DB counter on create; bumping it

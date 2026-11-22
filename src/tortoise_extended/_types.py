@@ -10,9 +10,9 @@ NOTE (verified 2026-07-31): the old ``reportExplicitAny`` guidance is gone —
 ``LibraryAny`` no longer exists, so no ``# pyright: ignore[reportExplicitAny]``
 comments are needed or permitted.
 
-The module also hosts the shared ``ParamSpec`` / ``TypeVar`` instances and
-``TypeAlias``es that warning-cleanup tasks import instead of re-declaring
-them locally (see the FOUNDATION backlog).
+The module also hosts the shared ``ParamSpec`` / ``TypeVar`` instances and the
+PEP 695 ``type`` aliases that warning-cleanup tasks import instead of
+re-declaring them locally (see the FOUNDATION backlog).
 
 Protocols in this module describe *partial* surfaces of upstream Tortoise
 classes. They exist so code can call private upstream methods (e.g. ``_run_sql``)
@@ -30,7 +30,7 @@ declaring class, so private-method calls on patched objects must go through
 
 from collections.abc import Callable, Sequence
 from datetime import date, datetime, time
-from typing import ParamSpec, Protocol, TypeAlias, TypedDict, TypeVar
+from typing import ParamSpec, Protocol, TypedDict, TypeVar
 
 from tortoise.models import Model
 
@@ -43,26 +43,26 @@ R = TypeVar("R")
 T = TypeVar("T")
 """Bare ``TypeVar`` for generic helpers (e.g. ``Model`` subclasses)."""
 
-RowValue: TypeAlias = str | int | float | bool | bytes | None
+type RowValue = str | int | float | bool | bytes | None
 """A single SQL result value (PostgreSQL wire types)."""
 
-CoercedValue: TypeAlias = RowValue | datetime | date | time
+type CoercedValue = RowValue | datetime | date | time
 """A cache value after field-type coercion (JSON str restored to datetime/date/time)."""
 
-RowMapping: TypeAlias = dict[str, RowValue]
+type RowMapping = dict[str, RowValue]
 """A raw SQL result row."""
 
-SerializedRecord: TypeAlias = dict[str, RowValue]
+type SerializedRecord = dict[str, RowValue]
 """A serialized model record as stored in the cache backend."""
 
-ModelKwargs: TypeAlias = dict[str, CoercedValue]
+type ModelKwargs = dict[str, CoercedValue]
 """Keyword arguments accepted by Model.create / Model.construct mirrors."""
 
-CacheValue: TypeAlias = RowValue | list["CacheValue"] | dict[str, "CacheValue"]
+type CacheValue = RowValue | list[CacheValue] | dict[str, CacheValue]
 """A value storable in a cache backend (JSON-serializable shape)."""
 
-FieldDefaultValue: TypeAlias = (
-    str | int | float | bool | bytes | list["FieldDefaultValue"] | None
+type FieldDefaultValue = (
+    str | int | float | bool | bytes | list[FieldDefaultValue] | None
 )
 """A field default that is not a callable."""
 
