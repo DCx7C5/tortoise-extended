@@ -531,32 +531,65 @@ Gaps that motivate the work:
 - **D1 — placement.** Node helpers are **methods on `NodeMixin`**, not a helper module.
   Precedent: `children()`/`descendants()`/`path_to_root()`/`subtree()` are methods, and
   `BaseHierarchyModel.move_to()` is a method.
-- **D2 — `move_to` mirrors the ltree implementation, not a second dialect.** Same guards
-  and same execution shape as `BaseHierarchyModel.move_to`: `select_for_update()` on both
-  rows inside `in_transaction()`, namespace guard, self-move guard, cycle guard (target
-  inside the moved subtree), one bulk `UPDATE` for the whole depth delta, then
-  `refresh_from_db()`. Raises `GraphError` (node.py's error type, **not**
-  `HierarchyError`). Extension: `new_parent=None` detaches the subtree to a root
-  (`is_root=True`, `depth=0`), which the ltree version does not offer.
+- **D2 — `move_to` follows the ltree *guards*, not its locking trick.** Same guards as
+  `BaseHierarchyModel.move_to` (`models/hierarchy_model.py:431-528`): namespace, self-move,
+  cycle; same `in_transaction()` + `refresh_from_db()` envelope; raises `GraphError`
+  (node.py's error type, **not** `HierarchyError`). The ltree version is a
+  **two-statement** shape — a self `UPDATE` (`parent_id`, `depth`, plus `is_root` here)
+  followed by a descendant bulk `UPDATE` that `.exclude(pk=self.pk)` — and that shape is
+  mandatory, not stylistic: a single subtree `UPDATE` would never write the moved node's own
+  `parent_id`. Three adjacency-list differences are explicit:
+  (i) the cycle guard cannot be an O(1) path-prefix test — there is no path, so the
+  descendant set must be materialised (recursive CTE or `pk__in=`) from **unlocked** rows,
+  which makes the guard TOCTOU-prone;
+  (ii) `select_for_update()` must take the two rows in a deterministic order (sorted by pk),
+  or concurrent A↔B moves deadlock instead of raising;
+  (iii) the descendant bulk `UPDATE` needs an explicit predicate (`pk__in=<materialised
+  ids>` or a recursive-CTE `UPDATE` — the AGENTS.md rule-3 raw-SQL carve-out).
+  Extension: `new_parent=None` detaches to a root (`parent_id=None`, `depth=0`,
+  `is_root=True`).
 - **D3 — tree shape.** `to_tree()` returns `list[NodeTree[ModelT]]` where
   `NodeTree(msgspec.Struct, Generic[ModelT])` holds `node: ModelT` + `children`. Precedent
   for a model-carrying Struct: `GraphVectorHit{node, distance, hops}`. Build is O(n) via a
-  `parent_id` map; a cycle or a node whose parent is absent from the input is reported via
-  `GraphError`, never silently dropped.
+  `parent_id` map. A node whose `parent_id` is `None` **or points outside the input set**
+  becomes a root of the returned forest (promotion — the normal case is a subtree slice such
+  as `descendants()`); only a genuine cycle raises `GraphError`.
 - **D4 — edge declaration is duck-typed.** `edge_model: ClassVar[type[Model] | None] = None`
   validated structurally (`source_id`/`target_id` present in `_meta.fields_map`) — mirrors
-  `GraphTraversal.__init__`'s validation and avoids a runtime import cycle between
-  `models/node.py` and `models/graph_edge.py`.
+  `GraphTraversal.__init__`'s validation and keeps the pk-free mixin independent of any
+  concrete edge class. (Not for cycle avoidance: `graph_edge.py` imports neither `node.py`
+  nor `graph_node.py`, and `node.py` imports neither — there is no cycle to avoid.)
 - **D5 — lifecycle module.** New `src/tortoise_extended/lifecycle.py` exporting
   `ensure_extensions()`, `setup()` and `SetupReport`. `CREATE EXTENSION IF NOT EXISTS` for
   `vector`, `ltree`, `timescaledb`, `pgcrypto`, `pg_trgm`, `uuid-ossp`. Missing connection
-  raises a new `SetupError(TortoiseExtendedError)`; the import-order assertion checks the
-  `_apply_patches()` sentinel rather than re-running it.
+  raises a new `SetupError(TortoiseExtendedError)`.
+  **No import-order assertion inside `setup()`** — importing `tortoise_extended.lifecycle`
+  necessarily executes `tortoise_extended/__init__.py`, which calls `_apply_patches()` at
+  module scope, so any in-setup check is true by construction; the real flag lives on
+  `tortoise.filters` (`_tortoise_extended_patched`, set in `__init__.py:325`), not on
+  `tortoise_extended`. The contract is already covered by
+  `tests/test_import_order.py:54-60` — reference it, do not re-test it.
+  **Ordering is fixed:** `generate_schemas()` (when requested) runs **before** any
+  `model.setup()`, because `SampleMixin.setup()` calls `create_hypertable` immediately and
+  its own docstring requires the table to exist (`models/sample.py:159-172`).
 - **D6 — hybrids get their own modules** (`models/unified_node.py`,
   `models/soft_delete_node.py`) following the `models/graph_node.py` precedent.
+  `BaseSoftDeleteNode` fixes **both** delete paths — the instance `delete()`/`restore()`
+  and the inherited `SoftDeleteQuerySet.delete()`/`restore()`, which bulk-soft-delete
+  whatever the filter matched and would otherwise leave children visible. The invariant is
+  stated, not deferred: `child_count` counts **live** children, so a subtree soft delete
+  decrements the deleted subtree's parent by exactly one and `restore()` re-increments.
 - **D7 — stream sugar is classmethods on `SampleMixin`.** `record(*, stream=None, at=None,
   **fields)` maps `stream`→`stream_field`, `at`→`time_field`; `gapfill()` is
   TimescaleDB-only (`time_bucket_gapfill` + `locf`/`interpolate`) and must bound the range.
+  **`at` is required in practice:** `BaseSample` declares no time column
+  (`models/sample.py:575-576`) and tortoise-orm 1.1.x has no `auto_now`/`auto_now_add`
+  (the examples at `sample.py:49` and `:338-339` are stale), so `at=None` has no guaranteed
+  DB default to fall back on. `record()` therefore raises `TimescaleError` on `at=None`
+  unless the subclass's time column carries an explicit default — the row picks one and
+  asserts it. `gapfill()` takes `start`/`end` as `datetime | None = None` and raises
+  `TimescaleError` when either is missing (a required keyword-only parameter would raise
+  `TypeError` first and could never be tested).
 - **D8 — declarative config layers over the ClassVars.** `class Meta: timescale = {...}`
   wins over the existing ClassVars, read via `cls.__dict__["Meta"]` because Tortoise's
   `MetaInfo` carries only known keys. **Spike before implementing** — whether `MetaInfo`
@@ -568,25 +601,75 @@ Gaps that motivate the work:
 
 | Phase | TODO | Depends on |
 |---|---|---|
-| P1 node ergonomics | `NODE-ERGO` (`add_child`, `move_to`, `root`/`is_ancestor_of`/`is_descendant_of`, `NodeTree` + `to_tree`) | — |
-| P1 node↔edge | `NODE-EDGE-HYBRID` (`edge_model`, `connect`/`disconnect`/`neighbours`) | `NODE-ERGO` (same file) |
-| P2 lifecycle | `LIFECYCLE-SETUP` (`ensure_extensions`, `setup`, `SetupReport`) | — |
-| P3 hybrids | `UNIFIED-NODE` (`BaseUnifiedNode`), `SOFTDELETE-NODE` (`BaseSoftDeleteNode`) | `NODE-ERGO` |
+| P1 node ergonomics | `NODE-ERGO` (`add_child`, `root`/`is_ancestor_of`/`is_descendant_of`, `NodeTree` + `to_tree`) | — |
+| P1 subtree move | `NODE-MOVE-TO` (`move_to` only — the TOCTOU/locking piece, split out) | `NODE-ERGO` (same file) |
+| P1 node↔edge | `NODE-EDGE-HYBRID` (`edge_model`, `connect`/`disconnect`/`neighbours`) | `NODE-MOVE-TO` (same file) |
+| P2 lifecycle | `LIFECYCLE-EXTENSIONS` (`ensure_extensions`, `SetupError`, `SetupReport`) → `LIFECYCLE-SETUP` (`setup()` fan-out) | — |
+| P3 hybrids | `UNIFIED-NODE` (`BaseUnifiedNode`) → `NODE-SOFTDELETE` (`BaseSoftDeleteNode`) | `NODE-ERGO` |
 | P4 facade | `GRAPH-FACADE` (`Graph`) | `NODE-EDGE-HYBRID` |
-| P5 streams | `SAMPLE-RECORD-LATEST`, `SAMPLE-GAPFILL` | — |
+| P5 streams | `SAMPLE-RECORD-LATEST` → `SAMPLE-GAPFILL` | — |
 | P6 declarative | `TIMESCALE-META-SPIKE` → `TIMESCALE-META-IMPL` | `SAMPLE-*` |
 | P7 docs | `DOCS-ERGO` | all of the above |
 
-**TODO positions:** NODE-ERGO 2964 · NODE-EDGE-HYBRID 2965 · LIFECYCLE-SETUP 2966 ·
-UNIFIED-NODE 2967 · SOFTDELETE-NODE 2968 · GRAPH-FACADE 2969 · SAMPLE-RECORD-LATEST 2970 ·
+**TODO positions:** NODE-ERGO 2964 · NODE-EDGE-HYBRID 2965 · LIFECYCLE-EXTENSIONS 2966 ·
+UNIFIED-NODE 2967 · NODE-SOFTDELETE 2968 · GRAPH-FACADE 2969 · SAMPLE-RECORD-LATEST 2970 ·
 SAMPLE-GAPFILL 2971 · TIMESCALE-META-SPIKE 2972 · TIMESCALE-META-IMPL 2973 · DOCS-ERGO 2974 ·
-NODE-NAME-SPLIT 2975 (parked, not selected).
+NODE-NAME-SPLIT 2975 (parked → cancelled) · SEC-REVIEW-2026-11-22 2976 ·
+NODE-MOVE-TO 2977 · LIFECYCLE-SETUP 2978 · TRACKING-DRIFT-SESSION-JOIN 2979.
 
-**Serialisation:** `NODE-ERGO` and `NODE-EDGE-HYBRID` both edit `models/node.py` → strictly
-sequential. Everything else in P2–P5 is file-disjoint and can run in parallel once P1 lands.
+Row names are the row titles in the shared list (`NODE-SOFTDELETE` is the P3 soft-delete
+hybrid). `TRACKING-DRIFT-SESSION-JOIN` is not an ergonomics row — it records the measured
+`todo`↔`session` join drift found while verifying the review (see H.5).
+
+**Serialisation — the real rule.** One writer at a time per shared file:
+`models/node.py` (NODE-ERGO → NODE-MOVE-TO → NODE-EDGE-HYBRID); `models/sample.py`
+(SAMPLE-RECORD-LATEST → SAMPLE-GAPFILL); `models/__init__.py` + top-level `__init__.py` +
+`docs/api/models.md` (UNIFIED-NODE → NODE-SOFTDELETE → LIFECYCLE-*). The earlier claim that
+"P2–P5 are file-disjoint" was **false**: P3's two rows share four files, P5's two rows share
+`models/sample.py`, and three rows edit the top-level `__init__.py`.
+
+**Size exception (recorded deliberately).** `NODE-ERGO` and the lifecycle row were each
+split because they exceeded the single-session size guide — `move_to` alone carries the
+locking/TOCTOU design, and `ensure_extensions`/`SetupReport` are separable from the
+`setup()` fan-out. Every remaining row is one concern over ≤3 declared files.
 
 ### H.4 Deliberately out of scope
 
 Nested-set / closure-table materialisation (adjacency + `RecursiveCTE` is the design),
-pandas/DataFrame export (new dependency), sync wrappers (AGENTS.md rule 5), automatic
-cascade delete (the orphan policy is deliberate and documented).
+pandas/DataFrame export (new dependency), sync wrappers (AGENTS.md rule 5), and **hard-delete**
+cascade (the orphan policy is deliberate and documented — subtree soft delete is in scope as
+`NODE-SOFTDELETE`).
+
+### H.5 Review verdict and the corrections it forced (2026-11-22)
+
+A `css-review` Track 2 (plan) + Track 3 (TODO batch) pass returned **HOLD — do not dispatch**
+with 8 HIGH findings. All eight were re-verified against source before acting (AGENTS.md
+"never trust an audit report's severity blindly") and all eight were real. Corrections applied
+to this section and to the rows:
+
+| # | Finding | Correction |
+|---|---|---|
+| H1 | The batch is orphaned: `todo.session_id` names a session absent from `session`, so the documented `todo`↔`session` join returns zero rows | Escalated to `TRACKING-DRIFT-SESSION-JOIN` (2979) — measured **1266** orphaned rows, and **no** `session` row exists after 2026-09-24, so this is wider than one batch. `css_todo_*` still resolves the owner; the raw-SQL bootstrap in AGENTS.md is the broken path |
+| H2 | "P2–P5 are file-disjoint" was false (P3 pair shares 4 files, P5 pair shares `models/sample.py`, three rows edit the top-level `__init__.py`) | Replaced with an explicit one-writer-per-file serialisation rule (H.3) |
+| H3 | D3 said an absent parent raises `GraphError`; the TODO said it becomes a root | Decided **promotion** (a `descendants()` slice must be renderable) — D3 and the row now agree, and the case is asserted |
+| H4 | `move_to`'s stated shape never wrote the moved node's own `parent_id` | Split to `NODE-MOVE-TO` (2977) with the mandatory **two-statement** shape: self `UPDATE` then descendant bulk `UPDATE` |
+| H5 | `root()` as "last of `path_to_root()`" returned self (`path_to_root` sorts ascending) | Fixed to index `[0]`, with an assertion |
+| H6 | `setup()` ordered per-model DDL before `generate_schemas()` | Ordering fixed: extensions → `generate_schemas()` → per-model `setup()`; the row's acceptance test is the ordering proof |
+| H7 | The import-order assertion inside `setup()` cannot fail, and named the wrong sentinel | Removed from `setup()`; the flag lives on `tortoise.filters`, and `tests/test_import_order.py:54-60` already covers the contract |
+| H8 | Two of three named pytest paths in `GRAPH-FACADE` do not exist | Replaced with `tests/test_graph_integration.py` + `tests/test_graph_traversal_struct.py` |
+
+Also folded in from the MEDIUM/LOW set: `add_child` must not double-bump `child_count`
+(`NodeMixin.save()` already does); `move_to` needs a deterministic lock order and an explicit
+descendant predicate (TOCTOU is documented, not hidden); `Tortoise.apps` can be `None` and
+`get_models_iterable()` is the right accessor; `TimescaleConfig` is now defined by the row that
+uses it; `record(at=None)` had no guaranteed behaviour (tortoise-orm 1.1.x has no `auto_now`);
+one "mandatory start/end" error path was unreachable (`TypeError` first); `NODE-SOFTDELETE` now
+covers the queryset path and states the `child_count` invariant instead of deferring it;
+`DOCS-ERGO` gained five missing surfaces; `NODE-NAME-SPLIT` was set to `cancelled`.
+
+**Design-level consequence worth naming:** the ltree `move_to` cannot be "mirrored exactly" —
+an adjacency list has no path column, so the cycle guard must materialise the descendant set
+from unlocked rows. That is a genuine TOCTOU window, documented in D2 rather than papered over.
+
+**Also measured during verification:** AGENTS.md §Testing lists `tests/test_pathfinding.py` and
+`tests/test_graph_traversal.py`; neither exists. Recorded in `DOCS-ERGO` for correction.
