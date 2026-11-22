@@ -177,8 +177,9 @@ class ContinuousAggregateManager:
                 "COUNT(*) AS count FROM events GROUP BY bucket",
             )
         """
-        conn = using_db or connections.get("default")
-
+        # Validate before resolving the connection: an empty (or otherwise
+        # invalid) query must be rejected without requiring a configured
+        # database, and a rejected query must never reach a connection.
         if allow_full_statement:
             # Trusted verbatim passthrough (caller-supplied complete
             # CREATE MATERIALIZED VIEW statement).
@@ -194,6 +195,8 @@ class ContinuousAggregateManager:
                 AS ({inner})
                 WITH {data_clause}
             """
+
+        conn = using_db or connections.get("default")
 
         try:
             _ = await conn.execute_query(query)
