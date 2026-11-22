@@ -196,6 +196,29 @@
 > `reportIncompatibleMethodOverride`). `timescale/` has **zero**. The
 > `LibraryAny` alias no longer exists (`_types.py`), so there is no
 > `reportExplicitAny` cluster to clean.
+>
+> **Full gate + infrastructure (2026-11-22):** with the rebuilt
+> `postgres-ext` container (PostgreSQL **18.7**, pgvector 0.8.6,
+> TimescaleDB 2.29.2) and `redis-ext` up, `uv run --extra redis pytest
+> tests/ -q` reports **1412 passed, 1 skipped** (the `test_all.py`
+> aggregator) — zero failures, zero errors, 1413 collected. Host ports are
+> **Postgres 5434** and **Redis 6381** (`5433`/`6380` belong to css-mcp);
+> every test, benchmark and doc reference was remapped in `9b8a029`.
+>
+> The image had been unbuildable: TimescaleDB 2.29.2 was compiled against
+> `postgresql-server-dev-18` **18.7** headers while the runtime base was
+> `postgres:18` **18.4**, so `initdb` aborted with `undefined symbol:
+> heap_datum_check`. Both stages are now pinned to
+> `postgres:18.7@sha256:eb63372c…` with
+> `postgresql-server-dev-18=18.7-1.pgdg13+5`. The 18.4 dev headers no
+> longer exist in PGDG, so the apt pin must move with the base — never bump
+> one without the other.
+>
+> Observed once at first boot of the rebuilt image: a non-fatal TimescaleDB
+> background-job message (`job 3 threw an error` / `cannot drop portal ""
+> while it is being set up`) during init. `initdb` completed, all six
+> extensions loaded, and the container restarted cleanly into the same data
+> directory; not reproducible on the running container.
 
 0. ~~**Clear the 9 `models/node.py` gate errors**~~ — **done** in `4abe6d4`
    (TODO 2957); gate is green at 0 errors. See the status note above.
