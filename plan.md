@@ -792,11 +792,14 @@ deliberately reversed).
 |---|---|---|
 | `FUSION-UTILITIES` (2992) | `38c72f9` | `expressions/fusion.py` — RRF, weighted fusion (minmax/zscore/none), greedy MMR with a caller-supplied similarity callable, and two adapters (`ranking_from_hits`, `scores_from_hybrid_rows`); exported from both `__all__`s; 45 tests; `docs/api/fusion.md` |
 | `ALIAS-DEPRECATION-WARNING` (2994) | `eeebe39` | `DeprecationWarning` from `__init_subclass__` at `stacklevel=3` on both aliases; 13 test classes migrated to `BaseNode`/`BaseSample`, 2 kept on the aliases under explicit `pytest.warns` |
-| `TORTOISE-VERSION-GUARD` (2993) | in flight | folded with `PATCH-GUARD-IDENTITY` (2988) — one pass over `__init__.py` |
+| `TORTOISE-VERSION-GUARD` (2993) | `a710b82` | `_check_tortoise_version()` runs before the first patch; manual version parse (no `packaging`); `TortoiseVersionError` / `PatchConflictError`; identity guards on `VectorField` + the three index types — folded with `PATCH-GUARD-IDENTITY` (2988) in one pass over `__init__.py` |
 
-Gate at both commits: ruff clean, basedpyright **0 errors / 1 warning** (the `cache/base.py:173`
-baseline), full suite **1495 passed, 1 skipped**, `python -W error -c "import tortoise_extended"`
-exits 0. Two defects found by planner review rather than by the workers: `diversity_rerank`
-contradicted its own docstring at `lambda_=0.0` (first pick was input order, not max relevance),
-and the fusion module initially introduced four new basedpyright warnings, which AGENTS.md
-forbids.
+**v0.2.0 is fully shipped.** Gate at `a710b82`: ruff clean, basedpyright **0 errors / 1 warning**,
+full suite **1526 passed, 1 skipped**. Two defects found by planner review rather than by the
+workers: `diversity_rerank` contradicted its own docstring at `lambda_=0.0` (first pick was input
+order, not max relevance), and the fusion module initially introduced four new basedpyright
+warnings, which AGENTS.md forbids.
+
+**Remaining from §I.4 is item 2's sibling**: the `2980` cagg injection fix (HIGH) ships `pglast`
+as a hard dependency — decided 2026-11-23, with the cp314 manylinux wheel measured as real. Its
+validator replacement is the last security item of the review batch.
