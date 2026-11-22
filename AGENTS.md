@@ -57,21 +57,32 @@ design — see `src/tortoise_extended/__init__.py` (`_apply_patches()`).
 
 Every multi-step session starts with `todowrite`. The list IS the plan — keep it current in real time.
 
-**Session reference (canonical todo list):** the project's shared work list lives in `~/.local/share/opencode/opencode.db`, table `todo`, scoped by this project's `project_id` (see [Task Tracking](#task-tracking-opencodedb)). Query it **by project, not by session id** — a session can be compacted or deleted, a project row cannot. When starting a new chat, read this list first and continue it — never fork a parallel todo set in the new session:
+**Session reference (canonical todo list).** The shared work list is reached through the
+`css_todo_*` MCP tools — `todo_owner`, `todo_list`, `todo_get`, `todo_claim`, `todo_complete`,
+`todo_add`, `todo_add_many`, `todo_set_status`, `todo_cancel`, `todo_reset`. They resolve the
+owning session themselves; never hardcode a `session_id`.
 
-```bash
-sqlite3 -readonly ~/.local/share/opencode/opencode.db -separator " || " \
-  "SELECT t.status, t.priority, t.content FROM todo t
-   JOIN session s ON t.session_id = s.id
-   WHERE s.project_id = 'fe11928eaae08e83eec30af1464e8adb752eb2da'
-     AND t.status != 'completed'
-   ORDER BY t.time_created;"
+```text
+todo_owner()                      # which session's list is canonical
+todo_list(status="pending")       # everything still open, position order
+todo_get([2964, 2977])            # full text of specific rows
 ```
 
-- The owning session claims/completes items via `todowrite`; statuses live in `todo` keyed by `(session_id, position)`.
-- A new chat mirrors every **non-completed** row into its own session via `todowrite` (same `content` + `priority`, status `pending`, in `position` order) and keeps them in sync — completed/claimed status is recorded against the owning session.
-- If the project-row query returns nothing (the list is drained), or the owning session is gone, continue the most recent `python-planner` session: `SELECT id FROM session WHERE agent='python-planner' ORDER BY time_created DESC LIMIT 1;`. Dated check (2026-11-22): `ses_f3eb827a1ffe06rMp8sDV1ePsR`.
-- **One `in_progress` at a time.** Exactly one item `in_progress`; the rest `pending` / `completed` / `cancelled`.
+- **Never query the database directly for reads.** Measured 2026-11-23: the `session` table has
+  **no row for any chat after 2026-09-24** (this project has 102 session rows, all dated
+  ≤ 2026-09-04), and **1266** `todo` rows reference a `session_id` that is absent from
+  `session`. So the old
+  `JOIN session s ON t.session_id = s.id WHERE s.project_id = 'fe11928e…'` query returns
+  **zero rows while the list is full**. The tools are the source of truth; the join is not.
+- `sqlite3` is only for the gaps the tools do not cover: deleting a row, VACUUM/backup/repair,
+  or a pre-boot bootstrap when the MCP server is unreachable. Never rewrite the whole list.
+- The owning session claims/completes items; statuses live in `todo` keyed by
+  `(session_id, position)`.
+- A new chat mirrors every **non-completed** row into its own session via `todowrite` (same
+  `content` + `priority`, status `pending`, in `position` order) and keeps them in sync —
+  completed/claimed status is recorded against the owning session.
+- **One `in_progress` at a time.** Exactly one item `in_progress`; the rest `pending` /
+  `completed` / `cancelled`.
 - **Claim → work → complete.** Mark a TODO `in_progress` before starting it; mark `completed` ONLY after the work is actually done AND verified (lint/type/test pass). Never complete on intent.
 - **One TODO per finding.** Every error and warning deserves its own TODO — never fold multiple diagnostics into a single "cleanup" TODO, never one TODO per file. If findings share a root cause, say so in the descriptions; they still get separate TODOs.
 - **Analyze existing TODOs before creating/updating.** Before adding a TODO, check the current list: if one already covers the work, update it; if not, create one. Never duplicate.
@@ -81,15 +92,15 @@ sqlite3 -readonly ~/.local/share/opencode/opencode.db -separator " || " \
 
 Every new chat thread continues the shared work list — never starts a fresh one. First action of the session:
 
-1. **Import pending todos into this session.** Read the project list (query above), then mirror every **non-completed** item into this chat via `todowrite` (same `content` + `priority`, status `pending`, in `position` order). Do NOT import completed items — they stay in the owning session as history.
-2. **Last session lookup (if the project row is empty).** Find the most recent python-planner session and record it in §1:
-
-```bash
-sqlite3 -readonly ~/.local/share/opencode/opencode.db \
-  "SELECT id, substr(title,1,50) FROM session WHERE agent='python-planner' ORDER BY time_created DESC LIMIT 1;"
-```
-
-3. **Keep this chat's list in sync.** Claim/complete here via `todowrite`; after completing an item, record the status against the owner session (see §1) so the next chat dereferences current state. This chat's copy is a mirror — never let it drift from the reference list.
+1. **Read the canonical list through the tools.** Call `todo_owner()`, then `todo_list()` —
+   do **not** run a `sqlite3` join (see §1: it returns nothing because no `session` row exists
+   for a current chat). Mirror every **non-completed** row into this chat via `todowrite` (same
+   `content` + `priority`, status `pending`, `position` order). Completed rows stay in the
+   owning session as history.
+2. **If `todo_owner()` reports no owner** (list drained, or the owning session is gone), start a
+   fresh list and say so explicitly. Never invent a `session` row to make the old join work.
+3. **Keep this chat's list in sync.** Claim and complete through the `css_todo_*` tools so the
+   durable record stays accurate; this chat's copy is a mirror — never let it drift.
 
 ## 2. Error & Warning → TODO protocol (always)
 
@@ -295,7 +306,8 @@ artifacts — ignore when CLI is clean.
 
 ## Task Tracking (opencode.db)
 
-Todos are stored in the **default opencode SQLite database**:
+Todos live in the **default opencode SQLite database**, but they are **read and written through
+the `css_todo_*` MCP tools**, not by querying the table (see §1 for why the join is broken):
 
 - **DB path:** `/home/daen/.local/share/opencode/opencode.db`
 - **Project row:** `fe11928eaae08e83eec30af1464e8adb752eb2da` (worktree
@@ -305,16 +317,29 @@ Todos are stored in the **default opencode SQLite database**:
 `todo` schema: `session_id, content, status, priority, position, time_created, time_updated`
 (composite PK `(session_id, position)`; `time_*` are epoch milliseconds).
 
-Read todos for this project:
+Read todos for this project — **through the tools**:
+
+```text
+todo_owner()                    # resolves the owning session for you
+todo_list(status="pending")     # open rows in position order
+todo_get([2964, 2977])          # full text of specific rows
+```
+
+**Do not use this query.** It is retained only to document the trap:
 
 ```bash
-sqlite3 /home/daen/.local/share/opencode/opencode.db -separator " || " \
+# BROKEN as of 2026-11-23 — returns zero rows even though the list is full, because
+# no `session` row exists for any chat after 2026-09-24.
+sqlite3 -readonly ~/.local/share/opencode/opencode.db -separator " || " \
   "SELECT t.status, t.priority, t.content FROM todo t
    JOIN session s ON t.session_id = s.id
    WHERE s.project_id = 'fe11928eaae08e83eec30af1464e8adb752eb2da'
      AND t.status != 'completed'
    ORDER BY t.time_created;"
 ```
+
+`sqlite3` is reserved for the gaps: deleting a row, VACUUM/backup/repair, and a pre-boot
+bootstrap when the MCP server is unreachable. Never rewrite the whole list with it.
 
 - The in-session `todowrite()` list mirrors this DB; status transitions (pending/in_progress/completed)
   must be written back to `opencode.db` so the durable record stays accurate.
@@ -324,7 +349,7 @@ sqlite3 /home/daen/.local/share/opencode/opencode.db -separator " || " \
 ## Testing
 
 - `tests/` mirrors feature areas: `test_vector_field.py`, `test_hnsw_index.py`, `test_ltree_field.py`,
-  `test_graph.py`, `test_graph_traversal.py`, `test_pathfinding.py`, `test_hybrid_search.py`,
+  `test_graph.py`, `test_graph_traversal_struct.py`, `test_graph_integration.py`, `test_hybrid_search.py`,
   `test_recursive_cte.py`, `test_hypertable.py`, `test_cache.py`, `test_migration_operations.py`, ...
 - Tests are organized into `Test*` classes per concern.
 - Target: **zero warnings** — `filterwarnings = ["error"]` is set, so any warning fails the run.
