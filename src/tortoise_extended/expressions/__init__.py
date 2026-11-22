@@ -1,5 +1,12 @@
 """Expressions for tortoise_extended: filters, criteria, CTEs."""
 
+from tortoise_extended.expressions.fusion import (
+    diversity_rerank,
+    ranking_from_hits,
+    reciprocal_rank_fusion,
+    scores_from_hybrid_rows,
+    weighted_score_fusion,
+)
 from tortoise_extended.expressions.graph_filters import (
     CosineDistance,
     HammingDistance,
@@ -42,4 +49,9 @@ __all__ = [
     "NeighborNode",
     "RecursiveCTE",
     "TraversalNode",
+    "diversity_rerank",
+    "ranking_from_hits",
+    "reciprocal_rank_fusion",
+    "scores_from_hybrid_rows",
+    "weighted_score_fusion",
 ]

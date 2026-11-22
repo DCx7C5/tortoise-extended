@@ -14,6 +14,7 @@ API documentation for the public modules.
 - **[Graph Vector Search](graph-vector-search.md)** — single-query vector + graph compositor with typed results
 - **[Pathfinding](pathfinding.md)** — Shortest path, all paths, cycle detection
 - **[Hybrid Search](hybrid-search.md)** — Vector + FTS weighted scoring
+- **[Fusion](fusion.md)** — RRF, weighted score fusion, MMR diversity re-ranking (pure Python)
 - **[pgcrypto](pgcrypto.md)** — pgcrypto query helpers (Digest, DigestHex, HMACDigest)
 - **[Graph (Node/Edge/Hierarchy)](graph.md)** — BaseNode, BaseGraphEdgeModel, BaseHierarchyModel base classes (BaseGraphNodeModel is the deprecated alias)
 - **[Model Bases](models.md)** — BaseModel, UnifiedIdModel, BaseUserModel, BaseSoftDeleteModel + SoftDeleteQuerySet, TimestampMixin
@@ -42,6 +43,13 @@ from tortoise_extended import RecursiveCTE
 from tortoise_extended import L2Distance, CosineDistance, InnerProduct
 from tortoise_extended import GraphTraversal, GraphVectorSearch, HybridSearch
 from tortoise_extended import shortest_path, all_paths, find_cycles
+from tortoise_extended import (
+    reciprocal_rank_fusion,
+    weighted_score_fusion,
+    diversity_rerank,
+    ranking_from_hits,
+    scores_from_hybrid_rows,
+)
 ```
 
 ### Graph

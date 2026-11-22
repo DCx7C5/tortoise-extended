@@ -67,6 +67,13 @@ from tortoise_extended.exceptions import (
     TortoiseExtendedError,
     VectorFieldError,
 )
+from tortoise_extended.expressions.fusion import (
+    diversity_rerank,
+    ranking_from_hits,
+    reciprocal_rank_fusion,
+    scores_from_hybrid_rows,
+    weighted_score_fusion,
+)
 from tortoise_extended.expressions.graph_filters import (
     CosineDistance,
     HammingDistance,
@@ -438,13 +445,18 @@ __all__ = [
     "all_paths",
     "cached",
     "cached_method",
+    "diversity_rerank",
     "find_cycles",
     "get_ltree_filters",
     "get_vector_filters",
     "invalidate",
     "patch",
+    "ranking_from_hits",
+    "reciprocal_rank_fusion",
+    "scores_from_hybrid_rows",
     "shortest_path",
     "vector_encoder",
+    "weighted_score_fusion",
 ]
 
 # Apply patches at import time (idempotent; `patch()` re-applies safely)
