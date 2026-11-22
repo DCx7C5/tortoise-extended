@@ -176,7 +176,7 @@ class Chunk(models.Model):
 - `default: Any` — Default value
 - `description: str | None` — Column comment
 
-**SQL type:** `vector` (PostgreSQL), `BLOB` (SQLite fallback)
+**SQL type:** `vector` (PostgreSQL only — pgvector has no other backend)
 
 **Python type:** `list[float] | None`
 

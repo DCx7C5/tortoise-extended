@@ -122,8 +122,8 @@ class VectorField(Field[list[float]]):
 
         Accepts every format the supported drivers produce: asyncpg's
         ``"[0.1,0.2]"`` text form, the pgvector binary layout (bytes /
-        memoryview, shared by the asyncpg binary codec and the SQLite BLOB
-        fallback), or a native list/tuple.
+        memoryview, as produced by the asyncpg binary codec), or a native
+        list/tuple.
 
         :param value: Raw value from the driver, or ``None``.
         :returns: A float list, or ``None``.
@@ -136,8 +136,8 @@ class VectorField(Field[list[float]]):
         if isinstance(value, str):
             return [float(x) for x in value.strip("[]").split(",") if x]
         if isinstance(value, memoryview):
-            # SQLite BLOB fallback and asyncpg binary codec share the
-            # pgvector binary layout: 4-byte header + N elements.
+            # asyncpg's binary codec returns the pgvector binary layout:
+            # 4-byte header + N elements.
             return self._decode_binary(value.tobytes(), self.vector_type)
         if isinstance(value, bytes):
             return self._decode_binary(value, self.vector_type)
