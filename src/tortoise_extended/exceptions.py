@@ -4,6 +4,10 @@ Every exception raised by the package derives from :class:`TortoiseExtendedError
 so consumers can catch a single base type. Domain subclasses map one-to-one
 onto the feature areas:
 
+- :class:`TortoiseVersionError` — the installed tortoise-orm release is outside
+  the range the monkey-patches are tested against
+- :class:`PatchConflictError` — a foreign object already owns an attribute this
+  package patches (a second monkey-patch would silently lose)
 - :class:`FieldDefinitionError` — field types (``VectorField``, ``LTreeField``)
 - :class:`IndexDefinitionError` — index types (``HNSWIndex``, ``IVFFlatIndex``)
 - :class:`GraphError` — graph models and traversals
@@ -28,6 +32,26 @@ Usage::
 
 class TortoiseExtendedError(Exception):
     """Base class for all ``tortoise-extended`` errors."""
+
+
+class TortoiseVersionError(TortoiseExtendedError):
+    """The installed tortoise-orm version is outside the supported range.
+
+    Raised at import time (before any monkey-patch is applied) when the
+    installed tortoise-orm is not in the range this package is tested against.
+    The message names the installed version, the tested range, and the remedy.
+    """
+
+
+class PatchConflictError(TortoiseExtendedError):
+    """A foreign object already owns an attribute ``tortoise_extended`` patches.
+
+    Raised instead of silently skipping the patch: when another package has
+    already defined e.g. ``tortoise.fields.VectorField``, applying our patch
+    would be a no-op while ``tortoise_extended`` keeps exporting this
+    package's class — the "only one monkey-patch can win" hazard made
+    invisible (AGENTS.md rule 2).
+    """
 
 
 class FieldDefinitionError(TortoiseExtendedError):

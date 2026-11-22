@@ -27,11 +27,19 @@ package (and calling :func:`patch` if used) must happen before
         modules={"models": ["..."]},
     )
 
+The patches are applied only on a tested tortoise-orm release
+(``>=1.1.7,<1.2``) and only when the patched attributes are either absent or
+already this package's own objects: an unsupported version or a foreign
+definition under a patched name raises instead of silently producing a wrong
+or partially applied patch set.
+
 The dev-only typing overlay lives in ``stubs/tortoise-stubs/``; see the drift
 note at the top of ``stubs/tortoise-stubs/__init__.pyi``.
 """
 
 from collections.abc import Awaitable, Callable
+from importlib.metadata import version as _distribution_version
+from types import ModuleType
 from typing import cast
 
 from asyncpg import Pool
@@ -61,10 +69,12 @@ from tortoise_extended.exceptions import (
     IndexDefinitionError,
     LTreeFieldError,
     MigrationOperationError,
+    PatchConflictError,
     RecursiveCTEError,
     RedisCacheError,
     TimescaleError,
     TortoiseExtendedError,
+    TortoiseVersionError,
     VectorFieldError,
 )
 from tortoise_extended.expressions.fusion import (
@@ -217,6 +227,143 @@ async def _combined_codec_init(
 
 
 # ---------------------------------------------------------------------------
+# tortoise-orm version guard
+# ---------------------------------------------------------------------------
+
+#: Oldest tortoise-orm release the monkey-patches below are tested against.
+MIN_VERSION: tuple[int, ...] = (1, 1, 7)
+
+#: First tortoise-orm release that is NOT supported (exclusive upper bound).
+MAX_EXCL: tuple[int, ...] = (1, 2)
+
+
+def _parse_version(raw: str) -> tuple[int, ...]:
+    """Parse the numeric release components of a version string.
+
+    ``packaging`` is deliberately not used: it is not a declared dependency
+    (it only appears transitively in ``uv.lock``), and the comparison here is
+    a plain tuple compare. Only the leading ASCII digits of each
+    dot-separated component are kept, and parsing stops at the first
+    component that is not entirely numeric, so pre-release and local suffixes
+    (and anything after them) are ignored: ``"1.2.0rc1"`` parses as
+    ``(1, 2, 0)`` and ``"1.1.9+local.1"`` as ``(1, 1, 9)``. A pre-release of
+    an out-of-range release is therefore rejected exactly like the final
+    release — ``1.2.0rc1`` still fails the ``< 1.2`` bound because the patches
+    may already target 1.2 internals.
+
+    A string with no numeric component at all yields ``()``, which fails the
+    lower bound and therefore raises rather than passing silently.
+    """
+    parts: list[int] = []
+    for chunk in raw.split("."):
+        digits = ""
+        for char in chunk:
+            if char not in "0123456789":
+                break
+            digits += char
+        if not digits:
+            break
+        parts.append(int(digits))
+        if len(digits) != len(chunk):
+            # Pre-release / local suffix starts here; later dot-separated
+            # components belong to the suffix, not to the release number.
+            break
+    return tuple(parts)
+
+
+def _installed_tortoise_version() -> str:
+    """Return the installed tortoise-orm version string.
+
+    ``tortoise.__version__`` is a real module attribute in the supported 1.1.x
+    line (a hardcoded ``"1.1.9"`` on the current install) and is the primary
+    source. The distribution-metadata lookup is only a fallback for builds
+    that drop the attribute — or leave it empty/non-string, which is
+    unusable for parsing.
+    """
+    import tortoise
+
+    declared = getattr(tortoise, "__version__", None)
+    if isinstance(declared, str) and declared:
+        return declared
+    return _distribution_version("tortoise-orm")
+
+
+def _check_tortoise_version() -> None:
+    """Fail fast when the installed tortoise-orm is outside the tested range.
+
+    The patches below mutate tortoise-orm internals (attribute names, filter
+    signatures, the asyncpg pool hook). On an untested release those targets
+    can move, and a partially applied patch set surfaces later as confusing
+    downstream failures. Refuse to patch instead — never warn and continue.
+
+    Raises:
+        TortoiseVersionError: when the installed version is outside
+            ``>=1.1.7,<1.2``; the message names the installed version, the
+            tested range, and the remedy.
+    """
+    raw = _installed_tortoise_version()
+    parsed = _parse_version(raw)
+    if MIN_VERSION <= parsed < MAX_EXCL:
+        return
+    minimum = ".".join(str(part) for part in MIN_VERSION)
+    maximum = ".".join(str(part) for part in MAX_EXCL)
+    raise TortoiseVersionError(
+        f"tortoise-extended requires tortoise-orm >={minimum},<{maximum}; "
+        f"installed version is {raw!r}. The monkey-patches in this package "
+        f"target tortoise-orm internals and are only tested in that range. "
+        f"Install a supported tortoise-orm (for example "
+        f"`uv add 'tortoise-orm[asyncpg]>={minimum},<{maximum}'`) or upgrade "
+        f"tortoise-extended to a release that supports {raw!r}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Monkey-patch attribute ownership
+# ---------------------------------------------------------------------------
+
+
+def _install_patched_attribute(
+    module: ModuleType,
+    attribute: str,
+    replacement: type,
+) -> None:
+    """Install ``replacement`` as ``module.attribute``, refusing foreign objects.
+
+    Presence alone is not enough: a co-installed package that pre-defines the
+    same attribute would turn our patch into a silent no-op while
+    ``tortoise_extended`` keeps exporting this package's class. Identity is
+    the contract —
+
+    * attribute absent → install;
+    * attribute already ``replacement`` → idempotent no-op;
+    * attribute holds anything else → raise :class:`PatchConflictError`.
+
+    Args:
+        module: The module object to patch (``tortoise.fields``,
+            ``tortoise.indexes``).
+        attribute: The attribute name to claim.
+        replacement: This package's class to install.
+
+    Raises:
+        PatchConflictError: when a different object already owns the name.
+    """
+    existing = getattr(module, attribute, None)
+    if existing is None:
+        setattr(module, attribute, replacement)
+        return
+    if existing is replacement:
+        return
+    raise PatchConflictError(
+        f"{module.__name__}.{attribute} already holds a foreign object "
+        f"({existing!r}), so tortoise-extended cannot install its own "
+        f"{replacement.__qualname__}: the patch would silently no-op while "
+        f"`tortoise_extended.{replacement.__name__}` still exports this "
+        f"package's class. Uninstall the conflicting extension or make "
+        f"tortoise-extended the only package patching this attribute."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Apply monkey-patches
 # ---------------------------------------------------------------------------
 
@@ -251,27 +398,40 @@ def _apply_patches() -> None:
 
     Called at import time. Safe to call multiple times (idempotent).
 
+    Before anything is patched, :func:`_check_tortoise_version` refuses to
+    continue on a tortoise-orm release outside the tested ``>=1.1.7,<1.2``
+    range — a partially applied patch set is worse than a clear failure.
+
     Every patch follows the same contract: it checks a guard condition
-    (``hasattr``, a ``_tortoise_extended_patched`` flag, or an
-    ``__all__`` membership test) before applying the mutation.  If the
-    target is already present the patch is a no-op, so re-importing the
-    package or calling ``patch()`` more than once has no effect.
+    (identity of the object in the slot, a ``_tortoise_extended_patched``
+    flag, or an ``__all__`` membership test) before applying the mutation. If
+    the target already holds our own object the patch is a no-op, so
+    re-importing the package or calling ``patch()`` more than once has no
+    effect. A *foreign* object under a name this package owns raises
+    :class:`PatchConflictError` instead of silently skipping the patch.
 
     Patch sites and their guards:
 
+    0. **Version guard** (:func:`_check_tortoise_version`) —
+       :class:`TortoiseVersionError` before any patch is applied.
     1. **VectorField registration** (``tortoise.fields.VectorField``) —
-       ``hasattr(_fields_mod, "VectorField")``.
+       identity: absent installs, ``VectorField`` is a no-op, anything else
+       raises :class:`PatchConflictError`.
     2. **Index types** (``tortoise.indexes.{HNSWIndex,IVFFlatIndex,GiSTIndex}``) —
-       ``hasattr(_indexes_mod, "<Name>")`` per type.
+       the same identity contract, per type.
     3. **Filter extension** (``tortoise.filters.get_filters_for_field``) —
-       ``_tortoise_extended_patched`` flag on the module.
+       ``_tortoise_extended_patched`` flag on the module. A foreign wrapper
+       is composed with (ours dispatches through it), not rejected.
     4. **asyncpg codec** (``asyncpg.Pool`` init hooks) —
-       ``_tortoise_extended_codec_patched`` flag on the pool class.
+       ``_tortoise_extended_codec_patched`` flag on the pool class. A foreign
+       ``create_pool`` wrapper is composed with, not rejected.
 
     ``MigrationWriter._format_operation`` is patched separately, at import
     time, by :mod:`tortoise_extended.migrations.operations` — not by this
     function.
     """
+    _check_tortoise_version()
+
     import tortoise.backends.asyncpg.client as _asyncpg_client_mod
     import tortoise.fields as _fields_mod
     import tortoise.filters as _filters_mod
@@ -283,7 +443,8 @@ def _apply_patches() -> None:
     # ran, those registrations are silently missed and models using them
     # break. Guard against that order violation — but only when the patches
     # have NOT already been applied (idempotent re-application via the public
-    # ``patch()`` stays safe).
+    # ``patch()`` stays safe). This guard protects against a *missing*
+    # attribute, so presence — not identity — is the right test here.
     from tortoise import Tortoise
 
     if Tortoise._inited and not hasattr(_fields_mod, "VectorField"):
@@ -296,17 +457,13 @@ def _apply_patches() -> None:
         )
 
     # 1. Register VectorField in the fields module
-    if not hasattr(_fields_mod, "VectorField"):
-        _fields_mod.VectorField = VectorField
+    _install_patched_attribute(_fields_mod, "VectorField", VectorField)
+    if "VectorField" not in _fields_mod.__all__:
         _fields_mod.__all__.append("VectorField")
 
     # 2. Register HNSWIndex, IVFFlatIndex and GiSTIndex in the indexes module
-    if not hasattr(_indexes_mod, "HNSWIndex"):
-        _indexes_mod.HNSWIndex = HNSWIndex
-    if not hasattr(_indexes_mod, "IVFFlatIndex"):
-        _indexes_mod.IVFFlatIndex = IVFFlatIndex
-    if not hasattr(_indexes_mod, "GiSTIndex"):
-        _indexes_mod.GiSTIndex = GiSTIndex
+    for _index_type in (HNSWIndex, IVFFlatIndex, GiSTIndex):
+        _install_patched_attribute(_indexes_mod, _index_type.__name__, _index_type)
 
     # 3. Patch get_filters_for_field to handle VectorField (idempotent)
     if not getattr(_filters_mod, "_tortoise_extended_patched", False):
@@ -422,6 +579,7 @@ __all__ = [
     "NeighborNode",
     "NodeMixin",
     "NodeTree",
+    "PatchConflictError",
     "PathField",
     "RecursiveCTE",
     "RecursiveCTEError",
@@ -435,6 +593,7 @@ __all__ = [
     "TimestampEndMixin",
     "TimestampMixin",
     "TortoiseExtendedError",
+    "TortoiseVersionError",
     "TraversalNode",
     "URLField",
     "UUID4Field",
