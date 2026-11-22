@@ -1,4 +1,4 @@
-"""Integration tests for BaseGraphNodeModel helper methods against live PostgreSQL.
+"""Integration tests for BaseNode helper methods against live PostgreSQL.
 
 Requires the docker stack (see ``docker-compose.dev.yml``): PostgreSQL 18 on
 ``127.0.0.1:5434``, database ``tortoise_test``.
@@ -15,7 +15,7 @@ from tortoise import Tortoise
 
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.exceptions import GraphError
-from tortoise_extended.models import BaseGraphNodeModel
+from tortoise_extended.models import BaseNode
 
 
 # ---------------------------------------------------------------------------
@@ -49,15 +49,15 @@ pytestmark = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 
 
-class ItGraphNode(BaseGraphNodeModel):
-    """BaseGraphNodeModel subclass under test."""
+class ItGraphNode(BaseNode):
+    """BaseNode subclass under test."""
 
     class Meta:
         table = "graph_node_it_nodes"
         indexes = (("namespace", "depth"),)
 
 
-class ItGraphNodeGuarded(BaseGraphNodeModel):
+class ItGraphNodeGuarded(BaseNode):
     """Subclass with orphan-delete protection enabled."""
 
     _block_orphan_delete = True
@@ -154,7 +154,7 @@ async def _make_tree() -> tuple[ItGraphNode, ItGraphNode, ItGraphNode, ItGraphNo
 
 
 # ---------------------------------------------------------------------------
-# BaseGraphNodeModel helpers
+# BaseNode helpers
 # ---------------------------------------------------------------------------
 
 
@@ -317,16 +317,28 @@ class TestGraphNodePathToRoot:
     async def test_deep_tree_path(self) -> None:
         """path_to_root() on a 4-level deep tree returns all ancestors."""
         root = await ItGraphNode.create(
-            name="root", namespace="shop", depth=0, is_root=True,
+            name="root",
+            namespace="shop",
+            depth=0,
+            is_root=True,
         )
         child = await ItGraphNode.create(
-            name="child", namespace="shop", parent_id=root.pk, depth=1,
+            name="child",
+            namespace="shop",
+            parent_id=root.pk,
+            depth=1,
         )
         grandchild = await ItGraphNode.create(
-            name="grandchild", namespace="shop", parent_id=child.pk, depth=2,
+            name="grandchild",
+            namespace="shop",
+            parent_id=child.pk,
+            depth=2,
         )
         leaf = await ItGraphNode.create(
-            name="leaf", namespace="shop", parent_id=grandchild.pk, depth=3,
+            name="leaf",
+            namespace="shop",
+            parent_id=grandchild.pk,
+            depth=3,
         )
         path = await leaf.path_to_root()
         assert [n.name for n in path] == ["root", "child", "grandchild", "leaf"]
@@ -335,7 +347,10 @@ class TestGraphNodePathToRoot:
     async def test_path_to_root_single_node(self) -> None:
         """A root node's path is just itself."""
         root = await ItGraphNode.create(
-            name="solo", namespace="shop", depth=0, is_root=True,
+            name="solo",
+            namespace="shop",
+            depth=0,
+            is_root=True,
         )
         path = await root.path_to_root()
         assert [n.name for n in path] == ["solo"]
@@ -355,10 +370,16 @@ class TestGraphNodePathToRoot:
         """path_to_root() raises GraphError when a parent_id points at a
         deleted row."""
         root = await ItGraphNode.create(
-            name="root", namespace="shop", depth=0, is_root=True,
+            name="root",
+            namespace="shop",
+            depth=0,
+            is_root=True,
         )
         child = await ItGraphNode.create(
-            name="child", namespace="shop", parent_id=root.pk, depth=1,
+            name="child",
+            namespace="shop",
+            parent_id=root.pk,
+            depth=1,
         )
         # Delete the parent row directly (bypassing the ORM hooks)
         conn = Tortoise.get_connection("default")
@@ -381,10 +402,15 @@ class TestGraphNodeOrphanGuard:
     async def test_delete_node_with_children_raises(self) -> None:
         """Deleting a parent that still has children raises GraphError."""
         parent = await ItGraphNodeGuarded.create(
-            name="parent", namespace="ns", depth=0,
+            name="parent",
+            namespace="ns",
+            depth=0,
         )
         await ItGraphNodeGuarded.create(
-            name="child", namespace="ns", parent_id=parent.pk, depth=1,
+            name="child",
+            namespace="ns",
+            parent_id=parent.pk,
+            depth=1,
         )
         with pytest.raises(GraphError, match="child node"):
             await parent.delete()
@@ -393,10 +419,15 @@ class TestGraphNodeOrphanGuard:
     async def test_delete_leaf_succeeds(self) -> None:
         """Deleting a leaf node (no children) succeeds."""
         parent = await ItGraphNodeGuarded.create(
-            name="parent", namespace="ns", depth=0,
+            name="parent",
+            namespace="ns",
+            depth=0,
         )
         child = await ItGraphNodeGuarded.create(
-            name="child", namespace="ns", parent_id=parent.pk, depth=1,
+            name="child",
+            namespace="ns",
+            parent_id=parent.pk,
+            depth=1,
         )
         await child.delete()
         remaining = await ItGraphNodeGuarded.filter(namespace="ns").all()
@@ -406,10 +437,15 @@ class TestGraphNodeOrphanGuard:
     async def test_delete_after_removing_children_succeeds(self) -> None:
         """Once all children are removed, the parent can be deleted."""
         parent = await ItGraphNodeGuarded.create(
-            name="parent", namespace="ns", depth=0,
+            name="parent",
+            namespace="ns",
+            depth=0,
         )
         child = await ItGraphNodeGuarded.create(
-            name="child", namespace="ns", parent_id=parent.pk, depth=1,
+            name="child",
+            namespace="ns",
+            parent_id=parent.pk,
+            depth=1,
         )
         await child.delete()
         await parent.delete()
@@ -421,10 +457,15 @@ class TestGraphNodeOrphanGuard:
         """ItGraphNode (without _block_orphan_delete) allows deleting a parent
         even when children exist."""
         parent = await ItGraphNode.create(
-            name="parent", namespace="ns", depth=0,
+            name="parent",
+            namespace="ns",
+            depth=0,
         )
         await ItGraphNode.create(
-            name="child", namespace="ns", parent_id=parent.pk, depth=1,
+            name="child",
+            namespace="ns",
+            parent_id=parent.pk,
+            depth=1,
         )
         # Should NOT raise
         await parent.delete()
@@ -444,12 +485,17 @@ class TestGraphNodeChildCount:
     async def test_create_increments_child_count(self) -> None:
         """Creating a child increments the parent's child_count."""
         parent = await ItGraphNode.create(
-            name="parent", namespace="ns", depth=0,
+            name="parent",
+            namespace="ns",
+            depth=0,
         )
         parent = await ItGraphNode.get(pk=parent.pk)
         assert parent.child_count == 0
         await ItGraphNode.create(
-            name="child", namespace="ns", parent_id=parent.pk, depth=1,
+            name="child",
+            namespace="ns",
+            parent_id=parent.pk,
+            depth=1,
         )
         parent = await ItGraphNode.get(pk=parent.pk)
         assert parent.child_count == 1
@@ -458,13 +504,21 @@ class TestGraphNodeChildCount:
     async def test_create_two_children(self) -> None:
         """Two children yield child_count == 2."""
         parent = await ItGraphNode.create(
-            name="parent", namespace="ns", depth=0,
+            name="parent",
+            namespace="ns",
+            depth=0,
         )
         await ItGraphNode.create(
-            name="c1", namespace="ns", parent_id=parent.pk, depth=1,
+            name="c1",
+            namespace="ns",
+            parent_id=parent.pk,
+            depth=1,
         )
         await ItGraphNode.create(
-            name="c2", namespace="ns", parent_id=parent.pk, depth=1,
+            name="c2",
+            namespace="ns",
+            parent_id=parent.pk,
+            depth=1,
         )
         parent = await ItGraphNode.get(pk=parent.pk)
         assert parent.child_count == 2
@@ -473,13 +527,20 @@ class TestGraphNodeChildCount:
     async def test_reparent_adjusts_both_parents(self) -> None:
         """Moving a child from one parent to another adjusts both counts."""
         p1 = await ItGraphNode.create(
-            name="p1", namespace="ns", depth=0,
+            name="p1",
+            namespace="ns",
+            depth=0,
         )
         p2 = await ItGraphNode.create(
-            name="p2", namespace="ns", depth=0,
+            name="p2",
+            namespace="ns",
+            depth=0,
         )
         child = await ItGraphNode.create(
-            name="child", namespace="ns", parent_id=p1.pk, depth=1,
+            name="child",
+            namespace="ns",
+            parent_id=p1.pk,
+            depth=1,
         )
         p1 = await ItGraphNode.get(pk=p1.pk)
         assert p1.child_count == 1
@@ -497,10 +558,15 @@ class TestGraphNodeChildCount:
     async def test_delete_decrements_child_count(self) -> None:
         """Deleting a child decrements the parent's child_count."""
         parent = await ItGraphNode.create(
-            name="parent", namespace="ns", depth=0,
+            name="parent",
+            namespace="ns",
+            depth=0,
         )
         child = await ItGraphNode.create(
-            name="child", namespace="ns", parent_id=parent.pk, depth=1,
+            name="child",
+            namespace="ns",
+            parent_id=parent.pk,
+            depth=1,
         )
         parent = await ItGraphNode.get(pk=parent.pk)
         assert parent.child_count == 1
@@ -512,13 +578,20 @@ class TestGraphNodeChildCount:
     async def test_child_count_survives_full_lifecycle(self) -> None:
         """child_count remains correct after a full create-reparent-delete cycle."""
         p1 = await ItGraphNode.create(
-            name="p1", namespace="ns", depth=0,
+            name="p1",
+            namespace="ns",
+            depth=0,
         )
         p2 = await ItGraphNode.create(
-            name="p2", namespace="ns", depth=0,
+            name="p2",
+            namespace="ns",
+            depth=0,
         )
         child = await ItGraphNode.create(
-            name="child", namespace="ns", parent_id=p1.pk, depth=1,
+            name="child",
+            namespace="ns",
+            parent_id=p1.pk,
+            depth=1,
         )
         # Reparent p1 -> p2
         child.parent_id = p2.pk
@@ -564,13 +637,21 @@ class TestGraphNodeNamespaceScoping:
         """siblings() filters by parent_id, not namespace — two nodes with
         the same parent but different namespaces are siblings."""
         parent_a = await ItGraphNode.create(
-            name="p_a", namespace="ns_a", depth=0,
+            name="p_a",
+            namespace="ns_a",
+            depth=0,
         )
         child_a = await ItGraphNode.create(
-            name="child_a", namespace="ns_a", parent_id=parent_a.pk, depth=1,
+            name="child_a",
+            namespace="ns_a",
+            parent_id=parent_a.pk,
+            depth=1,
         )
         await ItGraphNode.create(
-            name="child_b", namespace="ns_b", parent_id=parent_a.pk, depth=1,
+            name="child_b",
+            namespace="ns_b",
+            parent_id=parent_a.pk,
+            depth=1,
         )
         # Both share the same parent_id — they are siblings by parent link
         sibs = await child_a.siblings().all()
@@ -580,22 +661,34 @@ class TestGraphNodeNamespaceScoping:
     async def test_deep_namespace_tree_isolation(self) -> None:
         """A 3-level deep tree in one namespace never leaks into another."""
         ns1_root = await ItGraphNode.create(
-            name="ns1_root", namespace="alpha", depth=0, is_root=True,
+            name="ns1_root",
+            namespace="alpha",
+            depth=0,
+            is_root=True,
         )
         ns1_mid = await ItGraphNode.create(
-            name="ns1_mid", namespace="alpha",
-            parent_id=ns1_root.pk, depth=1,
+            name="ns1_mid",
+            namespace="alpha",
+            parent_id=ns1_root.pk,
+            depth=1,
         )
         await ItGraphNode.create(
-            name="ns1_leaf", namespace="alpha",
-            parent_id=ns1_mid.pk, depth=2,
+            name="ns1_leaf",
+            namespace="alpha",
+            parent_id=ns1_mid.pk,
+            depth=2,
         )
         ns2_root = await ItGraphNode.create(
-            name="ns2_root", namespace="beta", depth=0, is_root=True,
+            name="ns2_root",
+            namespace="beta",
+            depth=0,
+            is_root=True,
         )
         await ItGraphNode.create(
-            name="ns2_child", namespace="beta",
-            parent_id=ns2_root.pk, depth=1,
+            name="ns2_child",
+            namespace="beta",
+            parent_id=ns2_root.pk,
+            depth=1,
         )
         desc = {n.name for n in await ns1_root.descendants().all()}
         assert desc == {"ns1_mid", "ns1_leaf"}

@@ -69,6 +69,8 @@ Usage::
     await Event.in_range(now - timedelta(hours=1), now, stream_ids=[1]).all()
 """
 
+import warnings
+
 from tortoise_extended.models.sample import BaseSample
 
 
@@ -78,8 +80,9 @@ class BaseEventStreamModel(BaseSample):
     .. deprecated::
         Subclass :class:`~tortoise_extended.models.sample.BaseSample` (BigInt
         identity + stream helpers) or :class:`~tortoise_extended.models.sample.SampleMixin`
-        (pk-free) instead.  This alias stays for backwards compatibility and
-        emits no runtime warning.
+        (pk-free) instead.  This alias stays for backwards compatibility, but
+        subclassing it emits a :class:`DeprecationWarning` at class-creation
+        time.
 
     Abstract base for multi-stream time-series tables.
 
@@ -104,3 +107,31 @@ class BaseEventStreamModel(BaseSample):
 
     class Meta:
         abstract = True
+
+    def __init_subclass__(cls, **kwargs: str | int | float | bool | None) -> None:
+        """Warn that this compatibility alias is deprecated.
+
+        Emitted from subclass creation — never at class-definition time — so
+        importing :mod:`tortoise_extended` warns nobody who does not subclass
+        the alias.  The warning is a plain :func:`warnings.warn` call, so
+        :func:`warnings.simplefilter` applies as usual: a test suite running
+        under ``filterwarnings = ["error"]`` must handle it where the subclass
+        is declared.
+
+        Args:
+            **kwargs: Class keyword arguments forwarded to the base
+                ``__init_subclass__``.
+        """
+        super().__init_subclass__(**kwargs)
+        warnings.warn(
+            "BaseEventStreamModel is deprecated: subclass "
+            "tortoise_extended.models.sample.BaseSample (BigInt identity + "
+            "stream helpers) or compose "
+            "tortoise_extended.models.sample.SampleMixin (pk-free) instead. "
+            "This alias will be removed in a future release.",
+            DeprecationWarning,
+            # Frames: 1 = this method, 2 = tortoise's ``ModelMeta.__new__``
+            # (which calls ``super().__new__``), 3 = the module declaring the
+            # subclass — the frame the warning must point at.
+            stacklevel=3,
+        )

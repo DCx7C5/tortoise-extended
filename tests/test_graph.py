@@ -4,7 +4,7 @@ Tests model definitions, helper methods, classmethod queries, properties,
 str/repr, and abstract status. No database connection required.
 
 The ``TestSaveAtomicity`` class at the end is the one exception: it exercises
-the transactional write path of :class:`BaseGraphNodeModel.save()` against an
+the transactional write path of :class:`BaseNode.save()` against an
 in-memory SQLite DB (no PostgreSQL/Docker needed) to prove the atomicity
 guarantee — a failure in the denormalized ``child_count`` maintenance must
 roll back the node row write.
@@ -14,7 +14,7 @@ import pytest
 from tortoise import Tortoise
 
 import tortoise_extended  # noqa: F401 — apply patches
-from tortoise_extended.models import BaseGraphEdgeModel, BaseGraphNodeModel
+from tortoise_extended.models import BaseGraphEdgeModel, BaseGraphNodeModel, BaseNode
 from tortoise_extended.models import BaseHierarchyModel
 
 
@@ -265,12 +265,14 @@ class TestHierarchyModelDunder:
         assert "id=1" in result
 
 
-class RollbackNode(BaseGraphNodeModel):
-    """BaseGraphNodeModel subclass used by the SQLite atomicity test.
+class RollbackNode(BaseNode):
+    """BaseNode subclass used by the SQLite atomicity test.
 
-    Concrete child of :class:`BaseGraphNodeModel`; ``Meta.indexes`` is
-    redeclared because Tortoise does not propagate the abstract base's indexes
-    (see the ``__init_subclass__`` guard in ``graph_node.py``).
+    Concrete child of :class:`BaseNode` — the atomic write path under test
+    lives on :class:`NodeMixin`, so the deprecated ``BaseGraphNodeModel``
+    alias (UUID4 identity) is not involved.  ``Meta.indexes`` is redeclared
+    because Tortoise does not propagate the abstract base's indexes (see the
+    ``NodeMixin.__init_subclass__`` guard in ``node.py``).
     """
 
     class Meta:
@@ -302,7 +304,7 @@ class _CounterFailure(Exception):
 class TestSaveAtomicity:
     """Q4-TEST — a failing child_count write rolls back the node INSERT.
 
-    ``BaseGraphNodeModel.save()`` runs the node write and the denormalized
+    ``BaseNode.save()`` runs the node write and the denormalized
     ``child_count`` maintenance inside a single ``in_transaction()`` block
     when ``using_db is None`` (see ``save()``). This proves the atomicity
     guarantee: if the parent's ``child_count`` UPDATE fails after the node row

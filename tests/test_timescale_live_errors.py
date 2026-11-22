@@ -25,7 +25,7 @@ from tortoise.models import Model
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.exceptions import TimescaleError
 from tortoise_extended.fields import CharField
-from tortoise_extended.models import BaseEventStreamModel
+from tortoise_extended.models import BaseSample
 from tortoise_extended.timescale import (
     CompressionManager,
     ContinuousAggregateManager,
@@ -167,7 +167,9 @@ class TestContinuousAggregateManagerErrors:
     @pytest.mark.asyncio
     async def test_refresh_nonexistent_view(self) -> None:
         """Lines 272-274: refresh → TimescaleError."""
-        with pytest.raises(TimescaleError, match="Failed to refresh continuous aggregate"):
+        with pytest.raises(
+            TimescaleError, match="Failed to refresh continuous aggregate"
+        ):
             await ContinuousAggregateManager.refresh(BOGUS_VIEW)
 
     @pytest.mark.asyncio
@@ -185,7 +187,9 @@ class TestContinuousAggregateManagerErrors:
     @pytest.mark.asyncio
     async def test_add_realtime_aggregate_nonexistent_view(self) -> None:
         """Lines 373-375: add_realtime_aggregate → TimescaleError."""
-        with pytest.raises(TimescaleError, match="Failed to enable realtime aggregation"):
+        with pytest.raises(
+            TimescaleError, match="Failed to enable realtime aggregation"
+        ):
             await ContinuousAggregateManager.add_realtime_aggregate(BOGUS_VIEW)
 
 
@@ -240,7 +244,9 @@ class TestHypertableManagerErrors:
         """Lines 458-463: add_dimension → TimescaleError."""
         with pytest.raises(TimescaleError, match="Failed to add dimension"):
             await HypertableManager.add_dimension(
-                BOGUS_TABLE, "col", number_partitions=4,
+                BOGUS_TABLE,
+                "col",
+                number_partitions=4,
             )
 
     @pytest.mark.asyncio
@@ -282,7 +288,7 @@ class TestStreamErrors:
 
 
 # ===========================================================================
-# 6. BaseEventStreamModel branch coverage
+# 6. BaseSample branch coverage
 # ===========================================================================
 
 STREAM_COV_DDL = """
@@ -296,7 +302,7 @@ STREAM_COV_DDL = """
 """
 
 
-class _CovStreamEvent(BaseEventStreamModel):
+class _CovStreamEvent(BaseSample):
     """Stream model with compression and retention policies configured."""
 
     created_at = fields.DatetimeField(use_tz=True)
@@ -310,7 +316,7 @@ class _CovStreamEvent(BaseEventStreamModel):
 
 
 class TestEventStreamBranchCoverage:
-    """Close uncovered branches in BaseEventStreamModel (live TimescaleDB)."""
+    """Close uncovered branches in BaseSample (live TimescaleDB)."""
 
     @pytest.fixture(autouse=True)
     async def _fresh(self) -> AsyncGenerator[None, None]:
@@ -347,9 +353,7 @@ class TestEventStreamBranchCoverage:
         await _CovStreamEvent.setup()
         # RetentionPolicy.list_policies lists jobs referencing the table.
         policies = await RetentionPolicy.list_policies()
-        matched = [
-            p for p in policies if "test_stream_cov" in str(p).lower()
-        ]
+        matched = [p for p in policies if "test_stream_cov" in str(p).lower()]
         assert matched
 
     @pytest.mark.asyncio

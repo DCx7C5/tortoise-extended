@@ -10,7 +10,7 @@ import pytest
 from tortoise import Tortoise
 
 import tortoise_extended  # noqa: F401 — apply patches
-from tortoise_extended.models import BaseGraphEdgeModel, BaseGraphNodeModel
+from tortoise_extended.models import BaseGraphEdgeModel, BaseNode
 
 
 class QueryEdge(BaseGraphEdgeModel):
@@ -26,16 +26,16 @@ class QueryEdge(BaseGraphEdgeModel):
         )
 
 
-class QueryNode(BaseGraphNodeModel):
-    """Concrete BaseGraphNodeModel subclass used by the SQLite test."""
+class QueryNode(BaseNode):
+    """Concrete BaseNode subclass used by the SQLite test."""
 
     class Meta:
         table = "query_nodes"
         indexes = (("namespace", "depth"),)
 
 
-class GuardNode(BaseGraphNodeModel):
-    """BaseGraphNodeModel subclass with the orphan-delete guard enabled."""
+class GuardNode(BaseNode):
+    """BaseNode subclass with the orphan-delete guard enabled."""
 
     _block_orphan_delete = True
 
@@ -155,7 +155,7 @@ class TestIncoming:
 
 
 class TestPathToRootCycleGuard:
-    """BaseGraphNodeModel.path_to_root() defensive cycle guard."""
+    """BaseNode.path_to_root() defensive cycle guard."""
 
     @pytest.mark.asyncio
     async def test_cycle_terminates(self) -> None:
@@ -172,7 +172,7 @@ class TestPathToRootCycleGuard:
 
 
 class TestOrphanDeleteGuard:
-    """BaseGraphNodeModel._block_orphan_delete orphan policy guard."""
+    """BaseNode._block_orphan_delete orphan policy guard."""
 
     @pytest.mark.asyncio
     async def test_delete_blocked_with_children(self) -> None:

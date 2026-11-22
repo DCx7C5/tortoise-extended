@@ -32,15 +32,23 @@ class UnitSample(BaseSample):
         table = "sample_mixin_unit_events"
 
 
-class UnitAliasEvent(BaseEventStreamModel):
-    """Same shape through the deprecated BaseEventStreamModel alias."""
+# The alias warns from ``__init_subclass__``, so under
+# ``filterwarnings = ["error"]`` the class body itself must handle the
+# warning — a ``pytest.warns`` around an individual test is too late.
+with pytest.warns(
+    DeprecationWarning,
+    match=r"subclass tortoise_extended\.models\.sample\.BaseSample",
+):
 
-    created_at = fields.DatetimeField(auto_now_add=True, use_tz=True)
-    stream_id = fields.IntField()
-    value = fields.FloatField()
+    class UnitAliasEvent(BaseEventStreamModel):
+        """Same shape through the deprecated BaseEventStreamModel alias."""
 
-    class Meta:
-        table = "sample_mixin_unit_alias_events"
+        created_at = fields.DatetimeField(auto_now_add=True, use_tz=True)
+        stream_id = fields.IntField()
+        value = fields.FloatField()
+
+        class Meta:
+            table = "sample_mixin_unit_alias_events"
 
 
 class CustomUnitSample(BaseSample):
@@ -84,6 +92,26 @@ class TestIdentityBases:
         assert isinstance(
             BaseEventStreamModel._meta.fields_map["id"], fields.BigIntField
         )
+
+    def test_subclassing_the_alias_emits_a_deprecation_warning(self) -> None:
+        """Subclassing warns once and names BaseSample as the replacement."""
+        with pytest.warns(
+            DeprecationWarning,
+            match=r"subclass tortoise_extended\.models\.sample\.BaseSample",
+        ) as record:
+
+            class LegacyAliasEvent(BaseEventStreamModel):
+                created_at = fields.DatetimeField(auto_now_add=True, use_tz=True)
+                stream_id = fields.IntField()
+                value = fields.FloatField()
+
+                class Meta:
+                    table = "sample_mixin_unit_legacy_alias"
+
+        assert len(record) == 1
+        # The warning does not stop the subclass from being created.
+        assert issubclass(LegacyAliasEvent, BaseSample)
+        assert isinstance(LegacyAliasEvent._meta.fields_map["id"], fields.BigIntField)
 
 
 class TestClassVarDefaults:

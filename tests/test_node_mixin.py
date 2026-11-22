@@ -155,7 +155,7 @@ class TestInitSubclassGuard:
 
 
 class TestGraphNodeCompatibilityAlias:
-    """BaseGraphNodeModel stays on UUID4 identity."""
+    """BaseGraphNodeModel stays on UUID4 identity and warns on subclassing."""
 
     def test_ids_are_still_uuid4(self) -> None:
         id_field = BaseGraphNodeModel._meta.fields_map["id"]
@@ -172,6 +172,23 @@ class TestGraphNodeCompatibilityAlias:
             for name, field in BaseGraphNodeModel._meta.fields_map.items()
             if field.pk
         ] == ["id"]
+
+    def test_subclassing_emits_exactly_one_deprecation_warning(self) -> None:
+        """Subclassing the alias warns once and names BaseNode as replacement."""
+        with pytest.warns(
+            DeprecationWarning,
+            match=r"subclass tortoise_extended\.models\.node\.BaseNode",
+        ) as record:
+
+            class LegacyAliasNode(BaseGraphNodeModel):
+                class Meta:
+                    table = "node_mixin_unit_legacy_alias"
+                    indexes = ()
+
+        assert len(record) == 1
+        # The warning does not stop the subclass from being created.
+        assert issubclass(LegacyAliasNode, BaseNode)
+        assert isinstance(LegacyAliasNode._meta.fields_map["id"], UUID4Field)
 
 
 class TestNodeTree:

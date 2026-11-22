@@ -18,7 +18,7 @@ from tortoise.models import Model
 
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.fields import CharField
-from tortoise_extended.models import BaseEventStreamModel
+from tortoise_extended.models import BaseSample
 from tortoise_extended.timescale import (
     CompressionManager,
     ContinuousAggregateManager,
@@ -102,8 +102,8 @@ class TimescaleProbe(Model):
         table = "test_timescale_probe"
 
 
-class StreamEvent(BaseEventStreamModel):
-    """Multi-stream event model exercising the BaseEventStreamModel."""
+class StreamEvent(BaseSample):
+    """Multi-stream event model exercising the BaseSample."""
 
     created_at = fields.DatetimeField(use_tz=True)
     stream_id = fields.IntField()
@@ -115,7 +115,7 @@ class StreamEvent(BaseEventStreamModel):
         table = "test_stream_events"
 
 
-class AutoStreamEvent(BaseEventStreamModel):
+class AutoStreamEvent(BaseSample):
     """G9 — stream model with ``auto_now_add`` and a ``db_default``-only field."""
 
     created_at = fields.DatetimeField(auto_now_add=True, use_tz=True)
@@ -211,9 +211,7 @@ class TestHypertableManager:
         hypertables = await HypertableManager.list_hypertables()
         names = {ht.table_name for ht in hypertables}
         assert "public.test_events" in names
-        event = next(
-            ht for ht in hypertables if ht.table_name == "public.test_events"
-        )
+        event = next(ht for ht in hypertables if ht.table_name == "public.test_events")
         assert event.num_chunks == 35
         assert event.compression_enabled is False
 
@@ -476,7 +474,7 @@ class TestContinuousAggregateManager:
 
 
 # ---------------------------------------------------------------------------
-# 5. BaseEventStreamModel
+# 5. BaseSample
 # ---------------------------------------------------------------------------
 
 

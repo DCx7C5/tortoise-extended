@@ -1,6 +1,6 @@
 """Tests for tortoise_extended.models.event_stream.
 
-Covers ``BaseEventStreamModel`` ClassVar wiring, ``_assert_pk_present``,
+Covers ``BaseSample`` ClassVar wiring, ``_assert_pk_present``,
 ``_copy_db_fields``, ``_omit_db_default_fields``, and ``_copy_records`` —
 all pure/static tests that do not need a live DB connection.
 """
@@ -12,13 +12,13 @@ from tortoise import fields
 from tortoise.exceptions import OperationalError
 from tortoise.fields.base import DatabaseDefault
 
-from tortoise_extended.models import BaseEventStreamModel
+from tortoise_extended.models import BaseSample
 
 
 # --- Test models -----------------------------------------------------------
 
 
-class SensorEvent(BaseEventStreamModel):
+class SensorEvent(BaseSample):
     """Standard event stream model for testing."""
 
     created_at = fields.DatetimeField(auto_now_add=True, use_tz=True)
@@ -30,7 +30,7 @@ class SensorEvent(BaseEventStreamModel):
         table = "sensor_events"
 
 
-class CustomEvent(BaseEventStreamModel):
+class CustomEvent(BaseSample):
     """Override ClassVars for testing."""
 
     time_field = "ts"
@@ -48,7 +48,7 @@ class CustomEvent(BaseEventStreamModel):
         table = "custom_events"
 
 
-class MinimalEvent(BaseEventStreamModel):
+class MinimalEvent(BaseSample):
     """Minimal — no space dimension (number_partitions=None)."""
 
     number_partitions = None
@@ -60,20 +60,18 @@ class MinimalEvent(BaseEventStreamModel):
         table = "minimal_events"
 
 
-class EventWithFK(BaseEventStreamModel):
+class EventWithFK(BaseSample):
     """Model with a foreign key to test _copy_db_fields exclusion."""
 
     created_at = fields.DatetimeField(auto_now_add=True, use_tz=True)
     stream_id = fields.IntField()
-    sensor = fields.ForeignKeyField(
-        "models.Sensor", related_name="events", null=True
-    )
+    sensor = fields.ForeignKeyField("models.Sensor", related_name="events", null=True)
 
     class Meta:
         table = "events_with_fk"
 
 
-class EventWithDBDefault(BaseEventStreamModel):
+class EventWithDBDefault(BaseSample):
     """Model with a db_default field for testing _omit_db_default_fields."""
 
     created_at = fields.DatetimeField(auto_now_add=True, use_tz=True)
@@ -88,7 +86,7 @@ class EventWithDBDefault(BaseEventStreamModel):
 
 
 class TestClassVarDefaults:
-    """Default ClassVar values inherited from BaseEventStreamModel."""
+    """Default ClassVar values inherited from BaseSample."""
 
     def test_default_time_field(self) -> None:
         assert SensorEvent.time_field == "created_at"
@@ -113,7 +111,7 @@ class TestClassVarDefaults:
 
 
 class TestClassVarOverrides:
-    """Subclass overrides of BaseEventStreamModel ClassVar defaults."""
+    """Subclass overrides of BaseSample ClassVar defaults."""
 
     def test_custom_time_field(self) -> None:
         assert CustomEvent.time_field == "ts"
@@ -235,12 +233,8 @@ class TestCopyRecords:
 
     def test_copy_records_calls_to_db_value(self) -> None:
         instances = [
-            SensorEvent.construct(
-                id=1, stream_id=10, temperature=20.0, humidity=50.0
-            ),
-            SensorEvent.construct(
-                id=2, stream_id=20, temperature=21.0, humidity=51.0
-            ),
+            SensorEvent.construct(id=1, stream_id=10, temperature=20.0, humidity=50.0),
+            SensorEvent.construct(id=2, stream_id=20, temperature=21.0, humidity=51.0),
         ]
         db_fields = ["stream_id", "temperature", "humidity"]
         fields_map = SensorEvent._meta.fields_map

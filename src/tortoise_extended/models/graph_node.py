@@ -19,6 +19,7 @@ Usage::
             indexes = (("namespace", "depth"),)
 """
 
+import warnings
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -33,8 +34,9 @@ class BaseGraphNodeModel(BaseNode):
         Subclass :class:`~tortoise_extended.models.node.BaseNode` (UUID7
         identity) or compose :class:`~tortoise_extended.models.node.NodeMixin`
         with your own identity base instead.  This alias stays for backwards
-        compatibility, emits no runtime warning, and keeps the legacy UUID4
-        key generation.
+        compatibility and keeps the legacy UUID4 key generation, but
+        subclassing it emits a :class:`DeprecationWarning` at class-creation
+        time.
 
     Base class for graph nodes with adjacency list pattern.
 
@@ -81,6 +83,39 @@ class BaseGraphNodeModel(BaseNode):
         id = UUID4Field(
             primary_key=True,
             description="Unique identifier for the node",
+        )
+
+    def __init_subclass__(cls, **kwargs: str | int | float | bool | None) -> None:
+        """Warn that this compatibility alias is deprecated.
+
+        Emitted from subclass creation — never at class-definition time — so
+        importing :mod:`tortoise_extended` warns nobody who does not subclass
+        the alias.  The warning is a plain :func:`warnings.warn` call, so
+        :func:`warnings.simplefilter` applies as usual: a test suite running
+        under ``filterwarnings = ["error"]`` must handle it where the subclass
+        is declared.
+
+        Args:
+            **kwargs: Class keyword arguments forwarded to
+                :meth:`NodeMixin.__init_subclass__`, which enforces the
+                ``Meta.indexes`` / ``parent_id`` contract.
+
+        Raises:
+            NotImplementedError: From :meth:`NodeMixin.__init_subclass__` when
+                a concrete subclass omits ``Meta.indexes`` or ``parent_id``.
+        """
+        super().__init_subclass__(**kwargs)
+        warnings.warn(
+            "BaseGraphNodeModel is deprecated: subclass "
+            "tortoise_extended.models.node.BaseNode (UUID7 identity) or "
+            "compose tortoise_extended.models.node.NodeMixin with your own "
+            "identity base instead. This alias keeps the legacy UUID4 primary "
+            "key and will be removed in a future release.",
+            DeprecationWarning,
+            # Frames: 1 = this method, 2 = tortoise's ``ModelMeta.__new__``
+            # (which calls ``super().__new__``), 3 = the module declaring the
+            # subclass — the frame the warning must point at.
+            stacklevel=3,
         )
 
     class Meta:
