@@ -88,6 +88,7 @@ class TestModelsAllCoversReexports:
             "BaseSoftDeleteModel",
             "BaseUserModel",
             "NodeMixin",
+            "NodeTree",
             "SampleMixin",
             "SoftDeleteQuerySet",
             "TimestampEndMixin",

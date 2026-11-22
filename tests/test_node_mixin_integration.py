@@ -13,6 +13,7 @@ import pytest
 from tortoise import Tortoise, fields
 
 import tortoise_extended  # noqa: F401 — apply patches
+from tortoise_extended.exceptions import GraphError
 from tortoise_extended.models import BaseModel, NodeMixin
 
 
@@ -322,3 +323,119 @@ class TestTraversal:
         assert "office_root" not in labels
         assert "office_child" not in labels
         assert await electronics.ancestors().all() == []
+
+
+# ---------------------------------------------------------------------------
+# add_child: INSERT with inherited links, single child_count bump
+# ---------------------------------------------------------------------------
+
+
+class TestAddChild:
+    """add_child() links a new child and bumps child_count exactly once."""
+
+    async def test_links_the_child_and_inherits_parent_fields(self) -> None:
+        parent = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        child = await parent.add_child(metadata_json={"label": "kid"})
+        assert child.pk is not None
+        assert child.parent_id == parent.pk
+        assert child.depth == 1
+        assert child.is_root is False
+        assert child.namespace == "shop"
+        assert child.metadata_json == {"label": "kid"}
+        stored = await HybridNode.get(pk=child.pk)
+        assert stored.parent_id == parent.pk
+        assert stored.depth == 1
+
+    async def test_bumps_child_count_exactly_once(self) -> None:
+        parent = await HybridNode.create(namespace="shop", depth=0)
+        assert parent.child_count == 0
+        await parent.add_child()
+        # In-memory sync plus exactly one DB increment (save() does that one).
+        assert parent.child_count == 1
+        assert (await HybridNode.get(pk=parent.pk)).child_count == 1
+        await parent.add_child()
+        assert parent.child_count == 2
+        assert (await HybridNode.get(pk=parent.pk)).child_count == 2
+
+    async def test_allows_field_overrides(self) -> None:
+        parent = await HybridNode.create(namespace="shop", depth=0)
+        child = await parent.add_child(namespace="office", depth=5, is_root=True)
+        assert child.namespace == "office"
+        assert child.depth == 5
+        assert child.is_root is True
+        assert child.parent_id == parent.pk
+
+    async def test_requires_a_persisted_parent(self) -> None:
+        unsaved = HybridNode(namespace="shop", depth=0)
+        assert unsaved.pk is None
+        with pytest.raises(GraphError, match="unpersisted"):
+            await unsaved.add_child()
+
+    async def test_turns_a_leaf_into_a_branch(self) -> None:
+        parent = await HybridNode.create(namespace="shop", depth=0)
+        assert parent.is_leaf is True
+        await parent.add_child()
+        assert parent.is_leaf is False
+
+
+# ---------------------------------------------------------------------------
+# root() and strict ancestry
+# ---------------------------------------------------------------------------
+
+
+class TestRootAndAncestry:
+    """root()/is_ancestor_of()/is_descendant_of() walk parent_id links."""
+
+    async def test_root_of_a_leaf_is_the_top_node_not_itself(self) -> None:
+        electronics, laptops, macbook, _ = await _make_shop_tree()
+        assert (await macbook.root()).pk == electronics.pk
+        assert (await macbook.root()).pk != macbook.pk
+        assert (await laptops.root()).pk == electronics.pk
+
+    async def test_root_of_a_root_is_itself(self) -> None:
+        electronics, _, _, _ = await _make_shop_tree()
+        assert (await electronics.root()).pk == electronics.pk
+
+    async def test_is_ancestor_of_walks_the_parent_chain(self) -> None:
+        electronics, laptops, macbook, _ = await _make_shop_tree()
+        assert await electronics.is_ancestor_of(macbook) is True
+        assert await laptops.is_ancestor_of(macbook) is True
+        assert await macbook.is_ancestor_of(electronics) is False
+
+    async def test_is_descendant_of_walks_the_parent_chain(self) -> None:
+        electronics, laptops, macbook, _ = await _make_shop_tree()
+        assert await macbook.is_descendant_of(electronics) is True
+        assert await macbook.is_descendant_of(laptops) is True
+        assert await electronics.is_descendant_of(macbook) is False
+
+    async def test_a_node_is_not_its_own_ancestor_or_descendant(self) -> None:
+        _, _, macbook, _ = await _make_shop_tree()
+        assert await macbook.is_ancestor_of(macbook) is False
+        assert await macbook.is_descendant_of(macbook) is False
+
+    async def test_siblings_are_not_ancestors_of_each_other(self) -> None:
+        _, laptops, _, phones = await _make_shop_tree()
+        assert await laptops.is_ancestor_of(phones) is False
+        assert await phones.is_descendant_of(laptops) is False
+
+    async def test_ancestry_does_not_cross_namespaces(self) -> None:
+        electronics, _, _, _ = await _make_shop_tree()
+        office_child = await HybridNode.get(namespace="office", depth=1)
+        assert await electronics.is_ancestor_of(office_child) is False
+
+
+# ---------------------------------------------------------------------------
+# to_tree over a real descendants() slice
+# ---------------------------------------------------------------------------
+
+
+class TestToTreeIntegration:
+    """to_tree() promotes a descendants() slice whose root is outside it."""
+
+    async def test_promotes_a_descendants_slice(self) -> None:
+        electronics, laptops, macbook, phones = await _make_shop_tree()
+        slice_ = await electronics.descendants().all()
+        forest = HybridNode.to_tree(slice_)
+        assert [tree.node.pk for tree in forest] == [laptops.pk, phones.pk]
+        assert [tree.node.pk for tree in forest[0].children] == [macbook.pk]
+        assert forest[1].children == []

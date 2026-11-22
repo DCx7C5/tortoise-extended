@@ -9,6 +9,8 @@ Splits the former ``BaseGraphNodeModel`` into two reusable layers:
   identity base (a BigInt ``BaseModel``, a custom UUID table, ...).
 * :class:`BaseNode` — identity base combining :class:`NodeMixin` with a
   time-ordered ``UUID7Field`` primary key and the timestamp mixin.
+* :class:`NodeTree` — :class:`msgspec.Struct` pairing a node with its nested
+  children, built from a flat node slice by :meth:`NodeMixin.to_tree`.
 
 ``BaseGraphNodeModel`` (``tortoise_extended.models.graph_node``) remains as a
 deprecated compatibility alias pinned to UUID4 identity.
@@ -29,15 +31,17 @@ Usage::
 """
 
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, ClassVar, Self, override
 from uuid import UUID
 
+import msgspec
 from tortoise import fields
 from tortoise.expressions import F
 from tortoise.models import Model
 from tortoise.transactions import in_transaction
 
+from tortoise_extended._types import RowValue
 from tortoise_extended.exceptions import GraphError
 from tortoise_extended.fields import CharField
 from tortoise_extended.fields.uuid import UUID7Field
@@ -46,6 +50,23 @@ from tortoise_extended.models.mixins import TimestampMixin
 if TYPE_CHECKING:
     from tortoise.backends.base.client import BaseDBAsyncClient
     from tortoise.queryset import QuerySet
+
+
+class NodeTree[ModelT: Model](msgspec.Struct):
+    """A node and its nested children — one element of a materialized forest.
+
+    Built by :meth:`NodeMixin.to_tree` from a flat node slice.  The struct
+    wraps the hydrated model instance instead of copying its fields, so ORM
+    identity (``pk``, ``parent_id``) and the queryset helpers stay available
+    on every element.
+
+    Attributes:
+        node: The hydrated node model instance.
+        children: Nested child trees, in input order; empty for a leaf.
+    """
+
+    node: ModelT
+    children: list[NodeTree[ModelT]] = msgspec.field(default_factory=list)
 
 
 class NodeMixin(Model):
@@ -335,6 +356,49 @@ class NodeMixin(Model):
             parent_id=self.id,
         ).order_by(self.ordering_field)
 
+    async def add_child(self, **kwargs: RowValue) -> Self:
+        """Create and persist a direct child of this node.
+
+        The child gets ``parent_id=self.pk``, ``depth=self.depth + 1``,
+        ``is_root=False`` and this node's ``namespace``; any of those can be
+        overridden by passing the field explicitly in *kwargs*.
+
+        ``child_count`` is maintained by :meth:`save` on create, so this
+        method never issues a second ``child_count`` UPDATE — it only syncs
+        the in-memory counter on this instance so it does not read stale.
+
+        Args:
+            **kwargs: Additional field values for the new child node.
+
+        Returns:
+            The persisted child node.
+
+        Raises:
+            GraphError: If this node has not been saved yet (``pk`` is
+                ``None``), so the child would have no parent link.
+        """
+        if self.pk is None:
+            msg = (
+                f"Cannot add a child to unpersisted {self.__class__.__name__}: "
+                "save the parent node first."
+            )
+            raise GraphError(msg)
+        child_fields: dict[str, RowValue] = {
+            "parent_id": self.pk,
+            "depth": self.depth + 1,
+            "is_root": False,
+            "namespace": self.namespace,
+        }
+        child_fields.update(kwargs)
+        # ``using_db`` is bound explicitly: the helper takes field values only
+        # (no connection parameter), and it keeps the ``RowValue`` splat from
+        # being matched against ``create()``'s connection argument.
+        child = await self.__class__.create(using_db=None, **child_fields)
+        # save() already bumped the parent's DB counter on create; bumping it
+        # here too would double-count. Keep only the local copy in sync.
+        self.child_count += 1
+        return child
+
     def descendants(self, max_depth: int | None = None) -> QuerySet[Self]:
         """Get descendants of this node by depth range in the same namespace.
 
@@ -421,6 +485,59 @@ class NodeMixin(Model):
             current = parent
         return sorted(path, key=lambda n: n.depth)
 
+    async def root(self) -> Self:
+        """Return the root of this node's parent chain.
+
+        :meth:`path_to_root` returns the chain sorted by ascending ``depth``,
+        so index ``0`` is the root and index ``-1`` is this node itself.
+
+        Returns:
+            The topmost node reachable through ``parent_id`` links.
+
+        Raises:
+            GraphError: If a parent link points at a row that no longer
+                exists (see :meth:`path_to_root`).
+        """
+        return (await self.path_to_root())[0]
+
+    async def is_ancestor_of(self, other: Self) -> bool:
+        """Return whether this node is a strict ancestor of *other*.
+
+        Walks *other*'s ``parent_id`` chain (link-exact, unlike the
+        depth-range approximation in :meth:`ancestors`) and checks whether
+        this node appears in it.  A node is not its own ancestor.
+
+        Args:
+            other: The node whose ancestry to test.
+
+        Returns:
+            ``True`` when this node is on *other*'s parent chain.
+
+        Raises:
+            GraphError: If a parent link on *other*'s chain is dangling.
+        """
+        if self.pk is None or self.pk == other.pk:
+            return False
+        return any(node.pk == self.pk for node in await other.path_to_root())
+
+    async def is_descendant_of(self, other: Self) -> bool:
+        """Return whether this node is a strict descendant of *other*.
+
+        The mirror of :meth:`is_ancestor_of`: this node's own parent chain is
+        walked and *other* must appear in it.  A node is not its own
+        descendant.
+
+        Args:
+            other: The node whose descendant to test.
+
+        Returns:
+            ``True`` when *other* is on this node's parent chain.
+
+        Raises:
+            GraphError: If a parent link on this node's chain is dangling.
+        """
+        return await other.is_ancestor_of(self)
+
     async def subtree(self, max_depth: int | None = None) -> list[Self]:
         """Get entire subtree rooted at this node.
 
@@ -457,6 +574,62 @@ class NodeMixin(Model):
                         queue.append(child)
 
         return result
+
+    @classmethod
+    def to_tree(cls, nodes: Sequence[Self]) -> list[NodeTree[Self]]:
+        """Build a nested forest from a flat slice of nodes.
+
+        Every node is wrapped in a :class:`NodeTree` and attached to its
+        parent in one O(n) pass keyed by ``parent_id`` — no per-node query and
+        no recursion.
+
+        A node whose ``parent_id`` is ``None`` **or** points outside *nodes*
+        becomes a root of the returned forest.  Promotion is the normal case
+        for a slice such as ``descendants()``, whose parents live outside the
+        slice.  A node without a primary key (an unsaved instance) has no
+        identity to link against and also surfaces as a root.
+
+        Args:
+            nodes: The nodes of one forest slice, each appearing once.
+
+        Returns:
+            Root :class:`NodeTree` instances in input order, with children
+            nested under their parents in input order.
+
+        Raises:
+            GraphError: If the input contains a ``parent_id`` cycle, leaving
+                nodes unreachable from any root.
+        """
+        entries: list[tuple[Self, NodeTree[Self]]] = [
+            (node, NodeTree(node=node)) for node in nodes
+        ]
+        trees: dict[UUID | int, NodeTree[Self]] = {
+            node.pk: tree for node, tree in entries if node.pk is not None
+        }
+        roots: list[NodeTree[Self]] = []
+        for node, tree in entries:
+            parent_id = node.parent_id
+            if node.pk is None or parent_id is None or parent_id not in trees:
+                roots.append(tree)
+            else:
+                trees[parent_id].children.append(tree)
+
+        # Walk down from the roots: anything still unvisited is part of a
+        # parent_id cycle (every cycle member's parent is inside the input, so
+        # none of them was promoted to a root).
+        reachable = 0
+        pending = list(roots)
+        while pending:
+            current = pending.pop()
+            reachable += 1
+            pending.extend(current.children)
+        if reachable != len(entries):
+            msg = (
+                f"{len(entries) - reachable} {cls.__name__} node(s) are not "
+                "reachable from any root — the input contains a parent_id cycle."
+            )
+            raise GraphError(msg)
+        return roots
 
 
 class BaseNode(NodeMixin, TimestampMixin):

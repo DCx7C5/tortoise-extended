@@ -278,3 +278,84 @@ await Account.with_deleted().hard_delete()  # physical delete
   matches; `hard_delete()` physically removes them.
 - Tortoise does **not** inherit `Meta.indexes` from abstract bases — redeclare
   indexes on every concrete subclass.
+
+---
+
+## NodeMixin traversal helpers
+
+`NodeMixin` (and every `BaseNode` subclass) carries write/ancestry helpers on
+top of the adjacency-list fields. The field tables and the query helpers
+(`children()`, `descendants()`, `subtree()`, `path_to_root()`, ...) are in
+[Graph](graph.md); this section covers the helpers added on top of them.
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `add_child(**fields)` | `Self` | Insert a child linked to this node |
+| `root()` | `Self` | Topmost node on this node's parent chain |
+| `is_ancestor_of(other)` | `bool` | `True` when this node is a strict ancestor of `other` |
+| `is_descendant_of(other)` | `bool` | `True` when this node is a strict descendant of `other` |
+| `to_tree(nodes)` | `list[NodeTree[Self]]` | Build a forest from a flat node slice (classmethod) |
+
+### add_child
+
+Creates and persists a child with `parent_id`, `depth + 1`, `is_root=False`
+and this node's `namespace` pre-filled; pass any of those explicitly to
+override the inherited value. Raises `GraphError` when this node has not been
+saved yet.
+
+`child_count` is maintained by `save()` itself, so `add_child` issues **no**
+second counter update — it only syncs the in-memory counter, keeping the
+database at exactly +1 per child.
+
+```python
+root = await Category.create(name="Electronics")
+laptops = await root.add_child(name="Laptops")
+
+assert laptops.parent_id == root.pk
+assert laptops.depth == root.depth + 1
+assert root.child_count == 1  # in-memory copy matches the single DB bump
+```
+
+### root / is_ancestor_of / is_descendant_of
+
+`root()` is `(await node.path_to_root())[0]`: `path_to_root()` returns the
+chain sorted by ascending `depth`, so index `0` is the root and `-1` is the
+node itself.
+
+The two ancestry predicates walk the `parent_id` chain of the other node
+(link-exact, unlike the depth-range `ancestors()`), so they are correct even
+when `depth` values are inconsistent or a namespace is shared. A node is
+neither its own ancestor nor its own descendant.
+
+```python
+assert await electronics.is_ancestor_of(macbook) is True
+assert await macbook.is_descendant_of(electronics) is True
+assert await macbook.is_ancestor_of(macbook) is False
+assert (await macbook.root()).pk == electronics.pk
+```
+
+### NodeTree
+
+`NodeTree` is a `msgspec.Struct` pairing a hydrated node with its nested
+children (`node`, `children` — empty list for a leaf). `NodeMixin.to_tree(nodes)`
+(the classmethod is inherited by every node model) builds a whole forest in one
+O(n) pass keyed by `parent_id` — no per-node query and no recursion.
+
+A node whose `parent_id` is `None` **or** points outside the input slice
+becomes a root of the returned forest: promotion is the normal case for a
+`descendants()` slice, whose parent lives outside it. A genuine `parent_id`
+cycle leaves nodes unreachable from every root and raises `GraphError`.
+
+```python
+from tortoise_extended import NodeTree
+
+forest = Category.to_tree(await electronics.descendants().all())
+
+
+def walk(tree: NodeTree[Category], level: int = 0) -> None:
+    print("  " * level, tree.node.name)
+    for child in tree.children:
+        walk(child, level + 1)
+```

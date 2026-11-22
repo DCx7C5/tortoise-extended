@@ -1,18 +1,27 @@
 """Unit tests for the graph node primitives in ``tortoise_extended.models.node``.
 
 Covers the split between the pk-free :class:`NodeMixin` and the UUID7
-identity base :class:`BaseNode`, the ``__init_subclass__`` guards, and the
-UUID4 ``BaseGraphNodeModel`` compatibility alias.  No database is used.
+identity base :class:`BaseNode`, the ``__init_subclass__`` guards, the
+UUID4 ``BaseGraphNodeModel`` compatibility alias, and the
+:class:`NodeTree` forest builder.  No database is used.
 """
 
 from typing import get_args
 from uuid import UUID, uuid4
 
+import msgspec
 import pytest
 from tortoise import fields
 
+from tortoise_extended.exceptions import GraphError
 from tortoise_extended.fields.uuid import UUID4Field, UUID7Field
-from tortoise_extended.models import BaseGraphNodeModel, BaseModel, BaseNode, NodeMixin
+from tortoise_extended.models import (
+    BaseGraphNodeModel,
+    BaseModel,
+    BaseNode,
+    NodeMixin,
+    NodeTree,
+)
 from tortoise_extended.models.mixins import TimestampMixin
 
 
@@ -163,3 +172,86 @@ class TestGraphNodeCompatibilityAlias:
             for name, field in BaseGraphNodeModel._meta.fields_map.items()
             if field.pk
         ] == ["id"]
+
+
+class TestNodeTree:
+    """NodeTree.to_tree: O(n) forest build with promotion and cycle detection."""
+
+    def test_is_a_msgspec_struct_with_an_empty_children_default(self) -> None:
+        assert issubclass(NodeTree, msgspec.Struct)
+        assert NodeTree.__struct_fields__ == ("node", "children")
+        node = UnitHybridNode(id=1, parent_id=None, depth=0)
+        tree = NodeTree(node=node)
+        assert tree.node is node
+        assert tree.children == []
+
+    def test_nests_children_by_parent_id(self) -> None:
+        root = UnitHybridNode(id=1, parent_id=None, depth=0)
+        kid = UnitHybridNode(id=2, parent_id=1, depth=1)
+        grandchild = UnitHybridNode(id=3, parent_id=2, depth=2)
+        forest = UnitHybridNode.to_tree([root, kid, grandchild])
+        assert [tree.node.pk for tree in forest] == [1]
+        assert [tree.node.pk for tree in forest[0].children] == [2]
+        assert [tree.node.pk for tree in forest[0].children[0].children] == [3]
+
+    def test_promotes_a_slice_whose_parent_is_absent(self) -> None:
+        # A descendants() slice starts below its root: the parent is not in it.
+        kid = UnitHybridNode(id=2, parent_id=1, depth=1)
+        grandchild = UnitHybridNode(id=3, parent_id=2, depth=2)
+        forest = UnitHybridNode.to_tree([kid, grandchild])
+        assert [tree.node.pk for tree in forest] == [2]
+        assert [tree.node.pk for tree in forest[0].children] == [3]
+
+    def test_promotes_every_disjoint_root_in_input_order(self) -> None:
+        later_root = UnitHybridNode(id=10, parent_id=None, depth=0)
+        first_root = UnitHybridNode(id=1, parent_id=None, depth=0)
+        child = UnitHybridNode(id=2, parent_id=1, depth=1)
+        forest = UnitHybridNode.to_tree([later_root, first_root, child])
+        assert [tree.node.pk for tree in forest] == [10, 1]
+        assert [tree.node.pk for tree in forest[1].children] == [2]
+
+    def test_preserves_child_input_order(self) -> None:
+        parent = UnitHybridNode(id=1, parent_id=None, depth=0)
+        zeta = UnitHybridNode(id=3, parent_id=1, depth=1)
+        alpha = UnitHybridNode(id=2, parent_id=1, depth=1)
+        forest = UnitHybridNode.to_tree([parent, zeta, alpha])
+        assert [tree.node.pk for tree in forest[0].children] == [3, 2]
+
+    def test_promotes_unpersisted_nodes(self) -> None:
+        unsaved = UnitHybridNode(parent_id=1, depth=1)
+        assert unsaved.pk is None
+        forest = UnitHybridNode.to_tree([unsaved])
+        assert [tree.node for tree in forest] == [unsaved]
+
+    def test_empty_input_yields_an_empty_forest(self) -> None:
+        assert UnitHybridNode.to_tree([]) == []
+
+    def test_raises_on_parent_id_cycle(self) -> None:
+        first = UnitHybridNode(id=1, parent_id=2, depth=0)
+        second = UnitHybridNode(id=2, parent_id=1, depth=1)
+        with pytest.raises(GraphError, match="cycle"):
+            UnitHybridNode.to_tree([first, second])
+
+    def test_raises_on_self_parent_cycle(self) -> None:
+        node = UnitHybridNode(id=1, parent_id=1, depth=0)
+        with pytest.raises(GraphError, match="cycle"):
+            UnitHybridNode.to_tree([node])
+
+    def test_handles_a_deep_chain_without_recursion(self) -> None:
+        length = 5000
+        nodes = [
+            UnitHybridNode(
+                id=index + 1,
+                parent_id=index if index else None,
+                depth=index,
+            )
+            for index in range(length)
+        ]
+        forest = UnitHybridNode.to_tree(nodes)
+        assert [tree.node.pk for tree in forest] == [1]
+        current = forest[0]
+        walked = 0
+        while current.children:
+            current = current.children[0]
+            walked += 1
+        assert walked == length - 1

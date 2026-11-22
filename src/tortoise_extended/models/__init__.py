@@ -12,7 +12,9 @@ convention and lives under ``tortoise_extended.models``:
   delete with an auto-filtering queryset.
 * :class:`~tortoise_extended.models.node.NodeMixin` +
   :class:`~tortoise_extended.models.node.BaseNode` — pk-free adjacency-list
-  mixin and UUID7-identity graph node base.
+  mixin and UUID7-identity graph node base, plus
+  :class:`~tortoise_extended.models.node.NodeTree` — a
+  :class:`msgspec.Struct` forest element built by ``NodeMixin.to_tree``.
 * :class:`~tortoise_extended.models.graph_node.BaseGraphNodeModel` —
   deprecated compatibility alias for ``BaseNode`` (UUID4 pk).
 * :class:`~tortoise_extended.models.graph_edge.BaseGraphEdgeModel` — typed
@@ -40,7 +42,7 @@ from .graph_edge import BaseGraphEdgeModel
 from .graph_node import BaseGraphNodeModel
 from .hierarchy_model import BaseHierarchyModel
 from .mixins import TimestampEndMixin, TimestampMixin
-from .node import BaseNode, NodeMixin
+from .node import BaseNode, NodeMixin, NodeTree
 from .sample import BaseSample, SampleMixin
 from .soft_delete import BaseSoftDeleteModel, SoftDeleteQuerySet
 from .unified import UnifiedIdModel
@@ -58,6 +60,7 @@ __all__ = [
     "BaseSoftDeleteModel",
     "BaseUserModel",
     "NodeMixin",
+    "NodeTree",
     "SampleMixin",
     "SoftDeleteQuerySet",
     "TimestampEndMixin",
