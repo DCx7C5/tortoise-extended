@@ -31,6 +31,7 @@ from typing import ClassVar
 
 import pytest
 from tortoise import Tortoise
+from tortoise.exceptions import OperationalError
 
 from tortoise_extended._types import CacheValue
 from tortoise_extended.cache._coerce import coerce_cache_value
@@ -206,9 +207,7 @@ class TestQuerySetSingleFlight:
         sf._futures[key] = pending
 
         backend = MockRedisBackend(default_ttl=300)
-        qs = CachedQuerySet(CacheLiveThing).cache(
-            ttl=300, backend=backend, key=key
-        )
+        qs = CachedQuerySet(CacheLiveThing).cache(ttl=300, backend=backend, key=key)
 
         # Execute in a task — it will find the existing future and await it.
         task = asyncio.create_task(qs._execute())
@@ -223,9 +222,17 @@ class TestQuerySetSingleFlight:
 
     @pytest.mark.asyncio
     async def test_error_propagation_via_single_flight(self) -> None:
-        """Lines 244-249: ``BaseException`` in the claimed coroutine propagates
-        to all waiting coroutines via the shared future."""
-        # Drop the table so ``super()._execute()`` raises.
+        """Lines 244-249: a failure in the claimed coroutine reaches every
+        waiter as the same exception object.
+
+        ``await qs`` is the production path: ``QuerySet.__await__`` binds
+        ``self._db`` and runs ``_make_query()`` before dispatching to
+        ``CachedQuerySet._execute``. Calling ``_execute()`` directly skips
+        that binding, raises ``AttributeError`` from the unbound ``_db``
+        before any suspension, and never exercises the shared future.
+        """
+        # Drop the table so the claimed coroutine's real SELECT fails; the
+        # driver error is what the waiter must receive.
         conn = Tortoise.get_connection("default")
         await conn.execute_script("DROP TABLE IF EXISTS cache_live_things")
 
@@ -237,20 +244,33 @@ class TestQuerySetSingleFlight:
                 ttl=300, backend=backend, key="sf-error-prop"
             )
             try:
-                await qs._execute()
+                await qs
             except BaseException as exc:
                 errors.append(exc)
 
         try:
             # Two concurrent executions: one claims and fails, the other
             # awaits the shared future and receives the same exception.
-            await asyncio.gather(_run_query(), _run_query())
+            # The timeout turns a lost propagation — a waiter left awaiting
+            # an unresolved future — into a failure instead of a hung suite.
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(_run_query(), _run_query()), timeout=10
+                )
+            except TimeoutError:
+                pytest.fail(
+                    "single-flight waiter never received the claimed "
+                    "coroutine's failure (shared future left unresolved)"
+                )
 
             assert len(errors) == 2
-            # The error is an exception from Tortoise's query pipeline;
-            # the exact type depends on internal Tortoise state, so just
-            # verify both received the same error type.
-            assert type(errors[0]) is type(errors[1])
+            # Both waiters receive the very same exception object from the
+            # shared future — not merely the same type.
+            assert errors[0] is errors[1]
+            # asyncpg raises UndefinedTableError (SQLSTATE 42P01), which
+            # Tortoise's asyncpg client translates to OperationalError.
+            assert type(errors[0]) is OperationalError
+            assert 'relation "cache_live_things" does not exist' in str(errors[0])
         finally:
             # Recreate the table for subsequent tests.
             await Tortoise.generate_schemas()
