@@ -42,6 +42,16 @@
    `Meta.indexes` has no partial/expression support; `indexes/` already
    extends index DDL (HNSW/GiST) so this slots in naturally. DDL e.g.
    `CREATE INDEX ... ON t (col) WHERE active` / `(LOWER(name))`.
+   **Measured 2026-11-23: already upstream — nothing to build.** tortoise-orm 1.1.7 ships
+   `tortoise.indexes.PartialIndex` (`condition={col: value}`, equality-only, AND-joined) and
+   `Index(*expressions)` over pypika terms; both reach DDL through the ordinary schema
+   generator. Verified against the Docker PostgreSQL by reading `pg_indexes` back:
+   `CREATE INDEX ... USING btree (name) WHERE (active = true)` and
+   `... USING btree (lower((name)::text))`. Two caveats worth knowing, both measured: a bare
+   string expression becomes a *literal* (`lower('name'::text)`), so the column must be a
+   `pypika_tortoise.terms.Field`; and two expression indexes resolving to the same column are
+   de-duplicated into one (`dict.fromkeys` in `_get_field_indexes_sqls`), while distinct columns
+   both survive. Documented in `docs/api/indexes.md` § "Partial and expression indexes (upstream)".
 5. **PG type fields** — `InetField`, `MacAddrField`, `CitextField`
    (verified absent from `tortoise.fields`). Mirror `LTreeField`: codec +
    `to_db_value`/`to_python_value` + filter registration.

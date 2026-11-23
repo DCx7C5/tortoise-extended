@@ -275,6 +275,58 @@ abstract `Meta` — subclass it instead of re-declaring the index.
 
 ---
 
+## Partial and expression indexes (upstream)
+
+Neither needs anything from this package — tortoise-orm 1.1.x ships both, and `Meta.indexes`
+accepts them next to `HNSWIndex` / `IVFFlatIndex` / `GiSTIndex`.
+
+```python
+from pypika_tortoise import functions
+from pypika_tortoise.terms import Field
+from tortoise.indexes import Index, PartialIndex
+
+
+class Chunk(models.Model):
+    name = fields.CharField(max_length=100)
+    code = fields.CharField(max_length=10)
+    active = fields.BooleanField(default=True)
+
+    class Meta:
+        table = "chunks"
+        indexes = (
+            PartialIndex(fields=["name"], condition={"active": True}, name="chunks_active_name"),
+            Index(functions.Lower(Field("name")), name="chunks_lower_name"),
+            Index(functions.Upper(Field("code")), name="chunks_upper_code"),
+        )
+```
+
+Measured DDL (`Tortoise.generate_schemas()`, read back from `pg_indexes`):
+
+```sql
+CREATE INDEX chunks_active_name ON chunks USING btree (name) WHERE (active = true);
+CREATE INDEX chunks_lower_name  ON chunks USING btree (lower((name)::text));
+CREATE INDEX chunks_upper_code  ON chunks USING btree (upper((code)::text));
+```
+
+Three caveats, each measured rather than inferred:
+
+- **`condition` is a dict of equalities, AND-joined.** `{"active": True, "kind": "x"}` becomes
+  `WHERE active = true AND kind = 'x'`. There is no `Q` support, values are rendered as literals
+  (`ValueWrapper`), and the keys are emitted as-is — a column needing quoting will not survive.
+- **Expressions must be pypika terms, not strings.** `functions.Lower("name")` renders
+  `lower('name'::text)` — a constant index, silently useless. Wrap the column:
+  `functions.Lower(Field("name"))`.
+- **Two expression indexes that resolve to the same column collapse into one.** The schema
+  generator de-duplicates the generated index SQL, so `Lower(name)` + `Upper(name)` produces a
+  single index (the last one wins) while `Lower(name)` + `Upper(code)` produces both. Check
+  `pg_indexes` after generating a schema with several expression indexes on one column.
+
+These compose with the index types above by position in `Meta.indexes`, not by inheritance:
+`PartialIndex` and `HNSWIndex` both write the trailing `extra` clause, so one object cannot be
+both.
+
+---
+
 ## Comparison
 
 | Feature | HNSW | IVFFlat |
