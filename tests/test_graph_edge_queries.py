@@ -262,12 +262,13 @@ class TestReparentChildCountSync:
         child = await QueryNode.create(name="child", depth=1, parent_id=p1.id)
         assert (await QueryNode.get(pk=p1.id)).child_count == 1
 
-        # Reparent child from p1 to p2.
-        child.parent_id = p2.id
-        await child.save()
+        # Reparent child from p1 to p2 — move_to() is the only reparent path
+        # (save() refuses a persisted parent_id change).
+        await child.move_to(p2)
 
         assert (await QueryNode.get(pk=p1.id)).child_count == 0
         assert (await QueryNode.get(pk=p2.id)).child_count == 1
+        assert (await QueryNode.get(pk=child.id)).depth == 1
 
 
 class TestMetaIndexesGuard:

@@ -387,6 +387,9 @@ phones = await Category.create(
 await macbook.move_to(phones)
 # macbook.path = "electronics.phones.macbook"
 
+# Reparent only through move_to(): save() refuses a parent_id change
+# (HierarchyError), because one row cannot rewrite a subtree's paths.
+
 # Validate integrity
 errors = await root.validate_hierarchy()
 ```
@@ -396,5 +399,5 @@ errors = await root.validate_hierarchy()
 - `BaseNode` and `BaseGraphEdgeModel` are abstract — subclass them for concrete models
   (`BaseGraphNodeModel` is the deprecated alias of `BaseNode`)
 - QuerySet-returning methods on `BaseGraphEdgeModel` are sync (not async) — they return lazy QuerySets
-- `BaseHierarchyModel.move_to()` updates all descendant paths atomically
+- `BaseHierarchyModel.move_to()` updates all descendant paths atomically; `save()` refuses a persisted `parent_id` change
 - Use `namespace` field for multi-tenant graph isolation

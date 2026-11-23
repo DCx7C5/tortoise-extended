@@ -669,3 +669,50 @@ class TestBulkAddChildren:
         electronics, _laptops, _macbook, _phones = await _make_tree()
         with pytest.raises(HierarchyError, match="bulk_update\\(\\) is not supported"):
             Category.bulk_update([electronics], fields=["depth"])
+
+
+# ---------------------------------------------------------------------------
+# save() — reparenting is move_to()'s job only
+# ---------------------------------------------------------------------------
+
+
+class TestSaveGuard:
+    """A single-row save cannot rewrite a subtree's paths."""
+
+    @pytest.mark.asyncio
+    async def test_save_refuses_to_reparent(self) -> None:
+        _electronics, laptops, macbook, phones = await _make_tree()
+
+        macbook.parent_id = phones.pk
+        with pytest.raises(HierarchyError, match=r"Use move_to\(\) to reparent"):
+            await macbook.save()
+
+        # Nothing was written: path, depth and parent_id are unchanged.
+        stored = await Category.get(pk=macbook.pk)
+        assert stored.parent_id == laptops.pk
+        assert stored.path_str == "electronics.laptops.macbook"
+        assert stored.depth == 2
+
+    @pytest.mark.asyncio
+    async def test_move_to_still_reparents(self) -> None:
+        _electronics, _laptops, macbook, phones = await _make_tree()
+
+        await macbook.move_to(phones)
+
+        stored = await Category.get(pk=macbook.pk)
+        assert stored.parent_id == phones.pk
+        assert stored.path_str == "electronics.phones.macbook"
+        assert stored.depth == 2
+        assert await stored.validate_hierarchy() == []
+
+    @pytest.mark.asyncio
+    async def test_partial_update_omitting_parent_id_is_not_refused(self) -> None:
+        _electronics, laptops, macbook, phones = await _make_tree()
+
+        macbook.parent_id = phones.pk  # in memory only: this update omits it
+        macbook.path = "electronics.phones.macbook"
+        await macbook.save(update_fields=["path"])
+
+        stored = await Category.get(pk=macbook.pk)
+        assert stored.parent_id == laptops.pk
+        assert stored.path_str == "electronics.phones.macbook"

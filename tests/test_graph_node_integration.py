@@ -555,9 +555,9 @@ class TestGraphNodeChildCount:
         p1 = await ItGraphNode.get(pk=p1.pk)
         assert p1.child_count == 1
 
-        # Reparent: child now belongs to p2
-        child.parent_id = p2.pk
-        await child.save()
+        # Reparent: child now belongs to p2 — move_to() is the only reparent
+        # path (save() refuses a persisted parent_id change).
+        await child.move_to(p2)
 
         p1 = await ItGraphNode.get(pk=p1.pk)
         p2 = await ItGraphNode.get(pk=p2.pk)
@@ -604,8 +604,7 @@ class TestGraphNodeChildCount:
             depth=1,
         )
         # Reparent p1 -> p2
-        child.parent_id = p2.pk
-        await child.save()
+        await child.move_to(p2)
         # Delete child
         await child.delete()
         p1 = await ItGraphNode.get(pk=p1.pk)

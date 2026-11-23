@@ -256,26 +256,32 @@ class NodeMixin(Model):
     ) -> None:
         """Persist this node and maintain the denormalized ``child_count``.
 
-        ``child_count`` is a denormalized degree counter on the parent, so it
-        must be kept in sync on every write:
+        On **create** the new parent's ``child_count`` is incremented.  On an
+        update nothing is adjusted, because ``save()`` never reparents:
 
-        * **create** — increment the new parent's ``child_count``;
-        * **reparent** (parent_id changed on an update) — decrement the
-          previous parent's count and increment the new parent's count.
+        a persisted row whose in-memory ``parent_id`` differs from the stored
+        one raises :class:`~tortoise_extended.exceptions.GraphError`.  Saving
+        cannot maintain what a move has to maintain — this node's ``depth`` and
+        ``is_root`` and every descendant's ``depth`` — and the denormalized
+        child counters alone are not a reparent.  A silent save-reparent would
+        leave a tree that only :meth:`validate_node` ever notices, so use
+        :meth:`move_to`, which locks both rows, guards against cycles and
+        shifts the whole subtree in one transaction.
 
-        The previous ``parent_id`` is read from the database before the write
-        because the in-memory instance may already hold the new value.
-
-        A partial update via ``update_fields`` that omits ``parent_id`` does
-        **not** persist an in-memory reparent, so the counters are only
-        adjusted when ``update_fields`` is ``None`` or explicitly contains
-        ``"parent_id"``.
+        The persisted parent is read on the same connection before the write
+        (with ``SELECT ... FOR UPDATE``) because the in-memory instance may
+        already hold the new value.  A partial update via ``update_fields``
+        that omits ``parent_id`` persists no parent change, so it is allowed.
 
         Args:
             using_db: Specific DB connection to use instead of the default.
             update_fields: Optional subset of fields to update.
             force_create: Force an INSERT even for a previously saved row.
             force_update: Force an UPDATE even for an unsaved row.
+
+        Raises:
+            GraphError: When an update would persist a different
+                ``parent_id`` — reparent with :meth:`move_to` instead.
         """
         # ``_saved_in_db`` is not declared in the tortoise stubs overlay —
         # read it through getattr (the create-vs-update signal tortoise's own
@@ -288,11 +294,19 @@ class NodeMixin(Model):
             not already_saved and update_fields is None and not force_update
         )
 
-        async def _persist_and_sync() -> None:
-            old_parent_id: UUID | int | None = None
-            if not is_create:
-                old_parent_id = await self._previous_parent_id(using_db)
+        if not is_create and (
+            update_fields_list is None or "parent_id" in update_fields_list
+        ):
+            persisted = await self._persisted_row(using_db)
+            if persisted is not None and persisted.parent_id != self.parent_id:
+                raise GraphError(
+                    f"Cannot reparent {type(self).__name__} {self.pk} by saving: "
+                    f"parent_id {persisted.parent_id!r} -> {self.parent_id!r} "
+                    "would leave depth, is_root and every descendant's depth "
+                    "stale. Use move_to() to reparent."
+                )
 
+        async def _persist_and_sync() -> None:
             await super(NodeMixin, self).save(
                 using_db=using_db,
                 update_fields=update_fields,
@@ -300,26 +314,12 @@ class NodeMixin(Model):
                 force_update=force_update,
             )
 
-            if is_create:
-                if self.parent_id is not None:
-                    _ = await (
-                        self.__class__.filter(pk=self.parent_id)
-                        .using_db(using_db)
-                        .update(child_count=F("child_count") + 1)
-                    )
-            elif update_fields_list is None or "parent_id" in update_fields_list:
-                if old_parent_id is not None:
-                    _ = await (
-                        self.__class__.filter(pk=old_parent_id)
-                        .using_db(using_db)
-                        .update(child_count=F("child_count") - 1)
-                    )
-                if self.parent_id is not None:
-                    _ = await (
-                        self.__class__.filter(pk=self.parent_id)
-                        .using_db(using_db)
-                        .update(child_count=F("child_count") + 1)
-                    )
+            if is_create and self.parent_id is not None:
+                _ = await (
+                    self.__class__.filter(pk=self.parent_id)
+                    .using_db(using_db)
+                    .update(child_count=F("child_count") + 1)
+                )
 
         # The node write and the denormalized counter maintenance must be a
         # single atomic unit. When no connection was supplied, run both on the
@@ -328,35 +328,31 @@ class NodeMixin(Model):
         # caller already scopes the connection (possibly an outer transaction)
         # — never open a nested transaction on a different connection.
         #
-        # ``_previous_parent_id`` reads the persisted parent on this same
-        # connection and (where the backend supports it) locks the node's row
-        # via ``select_for_update``, so a concurrent reparent cannot interleave
-        # between the read and the ``child_count`` decrement and drift the
-        # counter.
+        # The reparent guard above reads the persisted row on this same
+        # connection and locks it via ``select_for_update``, so it cannot race
+        # a concurrent move between the read and the write.
         if using_db is None:
             async with in_transaction():
                 await _persist_and_sync()
         else:
             await _persist_and_sync()
 
-    async def _previous_parent_id(
+    async def _persisted_row(
         self, using_db: BaseDBAsyncClient | None = None
-    ) -> UUID | int | None:
-        """Return this node's persisted ``parent_id`` from the database.
+    ) -> Self | None:
+        """Return this node's persisted row (``parent_id`` only), or ``None``.
 
         The read runs on the same connection that persists the node
         (``using_db`` when supplied, otherwise the default/transactional
-        connection) and uses ``select_for_update`` so concurrent reparents of
-        this node serialize on the node's row before any ``child_count``
-        adjustment.
+        connection) and uses ``select_for_update`` so a concurrent write of
+        this row serializes before the reparent guard reads it.
         """
-        row = (
-            await self.__class__.select_for_update(using_db=using_db)
+        return await (
+            self.__class__.select_for_update(using_db=using_db)
             .filter(pk=self.pk)
             .only("parent_id")
             .first()
         )
-        return row.parent_id if row is not None else None
 
     @override
     async def delete(self, using_db: BaseDBAsyncClient | None = None) -> None:
@@ -865,6 +861,10 @@ class NodeMixin(Model):
         it.  The previous parent's ``child_count`` is decremented and the new
         parent's incremented; a move to the node's current parent (or a
         detach that changes nothing) leaves both counters untouched.
+
+        This is the **only** supported reparent path: :meth:`save` refuses a
+        persisted ``parent_id`` change, because a save cannot shift descendant
+        depths or update ``is_root``.
 
         The source and target rows are re-read with ``SELECT ... FOR UPDATE``
         in a deterministic, sorted-primary-key order at the start of the

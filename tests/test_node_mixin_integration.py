@@ -260,19 +260,55 @@ class TestChildCount:
         assert (await HybridNode.get(pk=parent.pk)).child_count == 1
 
     async def test_reparent_moves_the_child_and_adjusts_both_counts(self) -> None:
-        first = await HybridNode.create(namespace="ns", depth=0)
-        second = await HybridNode.create(namespace="ns", depth=0)
+        first = await HybridNode.create(namespace="ns", depth=0, is_root=True)
+        second = await HybridNode.create(namespace="ns", depth=0, is_root=True)
         child = await HybridNode.create(
             namespace="ns",
             depth=1,
             parent_id=first.pk,
         )
-        child.parent_id = second.pk
-        await child.save()
+        await child.move_to(second)
         stored = await HybridNode.get(pk=child.pk)
         assert stored.parent_id == second.pk
+        assert stored.depth == 1
         assert (await HybridNode.get(pk=first.pk)).child_count == 0
         assert (await HybridNode.get(pk=second.pk)).child_count == 1
+        assert await stored.validate_node() == []
+
+    async def test_save_refuses_to_reparent(self) -> None:
+        first = await HybridNode.create(namespace="ns", depth=0, is_root=True)
+        second = await HybridNode.create(namespace="ns", depth=0, is_root=True)
+        child = await HybridNode.create(
+            namespace="ns",
+            depth=1,
+            parent_id=first.pk,
+        )
+
+        child.parent_id = second.pk
+        with pytest.raises(GraphError, match=r"Use move_to\(\) to reparent"):
+            await child.save()
+
+        # Nothing was written — not the row, not either counter.
+        assert (await HybridNode.get(pk=child.pk)).parent_id == first.pk
+        assert (await HybridNode.get(pk=first.pk)).child_count == 1
+        assert (await HybridNode.get(pk=second.pk)).child_count == 0
+
+    async def test_partial_update_omitting_parent_id_is_not_refused(self) -> None:
+        first = await HybridNode.create(namespace="ns", depth=0, is_root=True)
+        second = await HybridNode.create(namespace="ns", depth=0, is_root=True)
+        child = await HybridNode.create(
+            namespace="ns",
+            depth=1,
+            parent_id=first.pk,
+        )
+
+        child.parent_id = second.pk  # in memory only: this update omits it
+        child.depth = 5
+        await child.save(update_fields=["depth"])
+
+        stored = await HybridNode.get(pk=child.pk)
+        assert stored.parent_id == first.pk
+        assert stored.depth == 5
 
     async def test_delete_decrements_parent_child_count(self) -> None:
         parent = await HybridNode.create(namespace="ns", depth=0)

@@ -630,6 +630,23 @@ window documented in the method docstring and `docs/api/models.md`. `NODE-EDGE-H
 `models/node.py`) plus `connect` / `disconnect` / `neighbours`, with
 `NodeMixin`'s remaining file contention now free for `NODE-SOFTDELETE` (2968).
 
+**Bulk and save invariants (3011 + 3012, 2026-11-23).** `bulk_create` /
+`bulk_update` now raise on both hierarchy bases. Measured before the fix:
+`bulk_create`ing two children of a node left `depth=0` (want 1) and the
+parent's `child_count=0` (want 2), with no exception. `NodeMixin` and
+`BaseHierarchyModel` each gained a `bulk_add_children(parent, rows)` that
+derives `parent_id`/`depth`/`is_root`/`child_count` (and `path` for ltree),
+inserts the level in one transaction and bumps the parent counter once; the
+rows go in one at a time because tortoise's `bulk_create` returns no
+database-generated keys and the next level needs them. 3012 took option
+**(b)**, extended to `NodeMixin`: `save()` refuses a *persisted* `parent_id`
+change (`GraphError` / `HierarchyError`, naming `move_to()`), because a
+single-row save cannot shift descendant depths or update `is_root` — the same
+drift class on both bases. Option (a) was rejected: recomputing the path in
+`save()` duplicates `move_to`'s cycle guard outside a transaction, which is
+exactly the TOCTOU shape 2977 documents. A partial `save(update_fields=[...])`
+that omits `parent_id` still writes through.
+
 **TODO positions:** NODE-ERGO 2964 · NODE-EDGE-HYBRID 2965 · LIFECYCLE-EXTENSIONS 2966 ·
 UNIFIED-NODE 2967 · NODE-SOFTDELETE 2968 · GRAPH-FACADE 2969 · SAMPLE-RECORD-LATEST 2970 ·
 SAMPLE-GAPFILL 2971 · TIMESCALE-META-SPIKE 2972 · TIMESCALE-META-IMPL 2973 · DOCS-ERGO 2974 ·

@@ -434,8 +434,75 @@ class BaseHierarchyModel(Model):
 
     # ── Mutations ────────────────────────────────────────────────────────
 
+    @override
+    async def save(
+        self,
+        using_db: BaseDBAsyncClient | None = None,
+        update_fields: Iterable[str] | None = None,
+        force_create: bool = False,
+        force_update: bool = False,
+    ) -> None:
+        """Persist this node; refuse to reparent it.
+
+        ``path`` and ``depth`` are a materialized path: a new parent means a
+        new path for this row **and** for every descendant, which a single-row
+        save cannot write.  A persisted row whose in-memory ``parent_id``
+        differs from the stored one therefore raises
+        :class:`~tortoise_extended.exceptions.HierarchyError`; :meth:`move_to`
+        is the only supported reparent path.
+
+        The persisted parent is read on the same connection before the write
+        (with ``SELECT ... FOR UPDATE``) because the in-memory instance may
+        already hold the new value.  A partial update via ``update_fields``
+        that omits ``parent_id`` writes no parent change, so it is allowed.
+
+        Args:
+            using_db: Specific DB connection to use instead of the default.
+            update_fields: Optional subset of fields to update.
+            force_create: Force an INSERT even for a previously saved row.
+            force_update: Force an UPDATE even for an unsaved row.
+
+        Raises:
+            HierarchyError: When an update would persist a different
+                ``parent_id`` — reparent with :meth:`move_to` instead.
+        """
+        already_saved = bool(getattr(self, "_saved_in_db", False))
+        update_fields_list = list(update_fields) if update_fields is not None else None
+        is_create = force_create or (
+            not already_saved and update_fields is None and not force_update
+        )
+
+        if not is_create and (
+            update_fields_list is None or "parent_id" in update_fields_list
+        ):
+            persisted = await (
+                type(self)
+                .select_for_update(using_db=using_db)
+                .filter(pk=self.pk)
+                .only("parent_id")
+                .first()
+            )
+            if persisted is not None and persisted.parent_id != self.parent_id:
+                raise HierarchyError(
+                    f"Cannot reparent {type(self).__name__} {self.pk} by saving: "
+                    f"parent_id {persisted.parent_id!r} -> {self.parent_id!r} "
+                    "would leave path, depth and every descendant's path stale. "
+                    "Use move_to() to reparent."
+                )
+
+        await super().save(
+            using_db=using_db,
+            update_fields=update_fields,
+            force_create=force_create,
+            force_update=force_update,
+        )
+
     async def move_to(self, new_parent: Self) -> None:
         """Move this node and all its descendants under *new_parent*.
+
+        This is the **only** supported reparent path — :meth:`save` refuses a
+        persisted ``parent_id`` change, because one row cannot rewrite a
+        subtree's paths.
 
         Validates that the move does not create a cycle, then updates this
         node and cascades path/depth changes to every descendant.  The whole

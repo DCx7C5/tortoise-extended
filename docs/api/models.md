@@ -396,6 +396,13 @@ assert laptops.depth == kitchen.depth + 1
 await laptops.move_to(None)  # detach: depth == 0, is_root is True
 ```
 
+`move_to()` is the **only** reparent path. `save()` raises `GraphError` when an
+update would persist a different `parent_id`: a single-row save cannot shift
+each descendant's `depth` or update `is_root`, so it would leave a tree that
+only `validate_node()` ever notices. A partial
+`save(update_fields=[...])` that omits `parent_id` writes no parent change and
+is still allowed.
+
 ### connect / disconnect / neighbours
 
 `NodeMixin` also carries node → edge sugar. Point a concrete class at an edge
