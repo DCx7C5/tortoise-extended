@@ -114,6 +114,9 @@ src/tortoise_extended/
 │   ├── vector.py          # VectorField (pgvector vector type)
 │   ├── ltree.py           # LTreeField (PostgreSQL ltree type)
 │   ├── ipv4.py            # IPv4Field (PostgreSQL inet type)
+│   ├── inet.py            # InetField (PostgreSQL inet type, v4 + v6)
+│   ├── macaddr.py         # MacAddrField / MacAddr8Field (macaddr / macaddr8)
+│   ├── citext.py          # CitextField (citext, case-insensitive text)
 │   ├── path.py            # PathField (text path column)
 │   ├── url.py             # URLField (validated URL column)
 │   ├── uuid.py            # UUID4Field / UUID7Field

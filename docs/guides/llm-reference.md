@@ -103,6 +103,10 @@ Pick the base per model — each is opt-in and independent:
 | `GiSTIndex` | `from tortoise_extended import GiSTIndex` | ltree column index |
 | `LTreeField` | `from tortoise_extended import LTreeField` | Materialized paths (`a.b.c`) |
 | `IPv4Field` | `from tortoise_extended import IPv4Field` | IPv4 addresses (PostgreSQL `inet`) |
+| `InetField` | `from tortoise_extended import InetField` | IPv4 + IPv6 addresses (PostgreSQL `inet`) |
+| `MacAddrField` | `from tortoise_extended import MacAddrField` | 48-bit MAC addresses (PostgreSQL `macaddr`) |
+| `MacAddr8Field` | `from tortoise_extended import MacAddr8Field` | 64-bit EUI-64 addresses (PostgreSQL `macaddr8`) |
+| `CitextField` | `from tortoise_extended import CitextField` | Case-insensitive text (PostgreSQL `citext`, needs the extension) |
 | `PathField` | `from tortoise_extended import PathField` | Filesystem paths (text) |
 | `URLField` | `from tortoise_extended import URLField` | Validated URLs (text) |
 | `UUID4Field` | `from tortoise_extended import UUID4Field` | Auto-generated random UUIDs |

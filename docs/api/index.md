@@ -6,7 +6,7 @@ API documentation for the public modules.
 
 - **[VectorField](vector-field.md)** — pgvector column type for vector similarity search
 - **[LTreeField](ltree-field.md)** — PostgreSQL ltree type for hierarchical paths
-- **[Fields](fields.md)** — IPv4Field, PathField, URLField, UUID4Field, UUID7Field, CharField
+- **[Fields](fields.md)** — InetField, IPv4Field, MacAddrField, MacAddr8Field, CitextField, PathField, URLField, UUID4Field, UUID7Field, CharField
 - **[Indexes](indexes.md)** — HNSW, IVFFlat, and GiST index types
 - **[Graph Filters](graph-filters.md)** — pgvector distance operators (L2, cosine, inner product)
 - **[Recursive CTE](recursive-cte.md)** — Recursive Common Table Expressions
@@ -30,7 +30,8 @@ API documentation for the public modules.
 ### Fields
 ```python
 from tortoise_extended import VectorField, LTreeField, CharField
-from tortoise_extended import IPv4Field, PathField, URLField, UUID4Field, UUID7Field
+from tortoise_extended import InetField, IPv4Field, MacAddrField, MacAddr8Field, CitextField
+from tortoise_extended import PathField, URLField, UUID4Field, UUID7Field
 ```
 
 ### Indexes

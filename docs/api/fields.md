@@ -123,6 +123,239 @@ server = await Server.create(name="db-01", ip=IPv4Address("10.0.0.5"))
 
 ---
 
+## InetField
+
+PostgreSQL `inet` column for IPv4 **and** IPv6 host addresses.
+
+`InetField` is the general-purpose companion to `IPv4Field`: same column
+type, but either address family is accepted and returned. Use `IPv4Field`
+when the schema should refuse IPv6 values.
+
+### Import
+
+```python
+from tortoise_extended import InetField
+```
+
+### Constructor
+
+```python
+InetField(
+    null: bool = False,
+    default: Any = None,
+    description: str | None = None,
+)
+```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `null` | `bool` | `False` | Allow NULL values |
+| `default` | `Any` | `None` | Default address value |
+| `description` | `str \| None` | `None` | Column comment |
+
+### Python Type
+
+```python
+ipaddress.IPv4Address | ipaddress.IPv6Address | None
+```
+
+### SQL Type
+
+- **PostgreSQL:** `inet`
+
+### Usage
+
+```python
+from tortoise import models
+from tortoise_extended import InetField
+
+
+class Server(models.Model):
+    name = models.CharField(max_length=100)
+    ip = InetField()
+
+    class Meta:
+        table = "servers"
+
+
+# Either family is accepted and normalised by the field
+v4 = await Server.create(name="web-01", ip="192.168.1.10")
+v6 = await Server.create(name="web-02", ip="2001:db8::1")
+```
+
+### Notes
+
+- Accepts `str`, `ipaddress.IPv4Address` or `ipaddress.IPv6Address` on write;
+  always returns an address object on read
+- Invalid strings raise `ValueError` at save time and at load time
+- Interface/prefix notation (`192.168.1.0/24`) is **not** accepted — this
+  field stores plain host addresses only
+- The `inet` type supports native indexing on PostgreSQL
+
+---
+
+## MacAddrField / MacAddr8Field
+
+PostgreSQL `macaddr` (48-bit) and `macaddr8` (64-bit EUI-64) columns for
+hardware addresses.
+
+### Import
+
+```python
+from tortoise_extended import MacAddr8Field, MacAddrField
+```
+
+### Constructor
+
+```python
+MacAddrField(
+    null: bool = False,
+    default: Any = None,
+    description: str | None = None,
+)
+
+MacAddr8Field(
+    null: bool = False,
+    default: Any = None,
+    description: str | None = None,
+)
+```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `null` | `bool` | `False` | Allow NULL values |
+| `default` | `Any` | `None` | Default address value |
+| `description` | `str \| None` | `None` | Column comment |
+
+### Python Type
+
+```python
+str | None
+```
+
+### SQL Type
+
+- **`MacAddrField` — PostgreSQL:** `macaddr` (six octets)
+- **`MacAddr8Field` — PostgreSQL:** `macaddr8` (eight octets)
+
+### Usage
+
+```python
+from tortoise import models
+from tortoise_extended import MacAddr8Field, MacAddrField
+
+
+class Interface(models.Model):
+    name = models.CharField(max_length=100)
+    hw = MacAddrField()        # aa:bb:cc:dd:ee:ff
+    eui = MacAddr8Field()      # aa:bb:cc:dd:ee:ff:00:11
+
+    class Meta:
+        table = "interfaces"
+
+
+# Colon, dash and dotted-Cisco spellings are all accepted
+iface = await Interface.create(name="eth0", hw="AA-BB-CC-DD-EE-FF")
+```
+
+### Notes
+
+- Accepted input: colon-separated (`aa:bb:cc:dd:ee:ff`), dash-separated
+  (`aa-bb-cc-dd-ee-ff`) and dotted-Cisco (`aabb.ccdd.eeff`, or
+  `aabb.ccdd.eeff.0011` for `macaddr8`)
+- Every form is normalised to lowercase, colon-separated on write **and** on
+  read
+- A wrong octet count or non-hex text raises `ValueError` naming the received
+  value and the expected form
+- `MacAddrField` expects six octets; `MacAddr8Field` expects eight
+
+---
+
+## CitextField
+
+PostgreSQL `citext` column for case-insensitive text.
+
+Comparisons, `UNIQUE` constraints and `ORDER BY` are case-insensitive because
+the database type handles them; the original spelling is preserved on read.
+
+**:warning: Prerequisite:** the `citext` extension must exist in the database:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS citext;
+```
+
+### Import
+
+```python
+from tortoise_extended import CitextField
+```
+
+### Constructor
+
+```python
+CitextField(
+    max_length: int = 256,
+    *,
+    null: bool = False,
+    default: Any = None,
+    description: str | None = None,
+)
+```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `max_length` | `int` | `256` | Python-side length guard (see notes) |
+| `null` | `bool` | `False` | Allow NULL values |
+| `default` | `Any` | `None` | Default text value |
+| `description` | `str \| None` | `None` | Column comment |
+
+### Python Type
+
+```python
+str | None
+```
+
+### SQL Type
+
+- **PostgreSQL:** `citext`
+
+### Usage
+
+```python
+from tortoise import models
+from tortoise_extended import CitextField
+
+
+class Account(models.Model):
+    email = CitextField(max_length=320)
+
+    class Meta:
+        table = "accounts"
+
+
+account = await Account.create(email="Mixed@Example.COM")
+
+# Case-insensitive lookup — matches the row above
+found = await Account.get(email="mixed@example.com")
+```
+
+### Notes
+
+- `citext` has no column length modifier, so `max_length` is enforced as a
+  Python-side guard in `to_db_value`; a longer value raises `ValueError`
+  naming the limit
+- The stored value keeps its original case (unlike a lowercase-normalising
+  field)
+- `LIKE` / `icontains` queries inherit the type's case-insensitivity
+
+---
+
 ## PathField
 
 Text column for storing filesystem-style paths.

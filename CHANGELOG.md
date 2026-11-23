@@ -8,6 +8,13 @@ the versions below are the `pyproject.toml` version at the time of the change.
 
 ### Added
 
+- Four PostgreSQL field types: `InetField` (`inet`, IPv4 **and** IPv6 host addresses, returned as
+  `ipaddress` address objects; interface/prefix notation is rejected), `MacAddrField` (`macaddr`,
+  48-bit) and `MacAddr8Field` (`macaddr8`, 64-bit) — both accept colon, dash and dotted-Cisco
+  spellings and normalise to lowercase colon form on write and on read — and `CitextField`
+  (`citext`, case-insensitive text that keeps its original spelling; PostgreSQL has no length
+  modifier for `citext`, so `max_length` is a Python-side guard). `IPv4Field` is unchanged and
+  still refuses IPv6 values; `CitextField` needs `CREATE EXTENSION IF NOT EXISTS citext`.
 - `QuerySet.paginate(page, page_size)` and the `PageInfo` it returns — offset pagination with the
   metadata a page widget needs (`items`, `total`, `total_pages`, `has_next`, `has_prev`). Two
   queries (a `COUNT(*)` over the same filters, then the slice), a `ValueError` naming the argument
