@@ -564,6 +564,31 @@ class TestSqlHardening:
         assert "'events'" in sql and "'tenant_id'" in sql
 
     @pytest.mark.asyncio
+    async def test_add_dimension_coerces_partition_count(self, monkeypatch) -> None:
+        """An untyped caller's string is coerced to an int, not interpolated."""
+        conn = self._recording_conn(monkeypatch)
+        await HypertableManager.add_dimension(
+            "events",
+            "tenant_id",
+            number_partitions="4",
+        )
+        assert "number_partitions => 4" in conn.sqls[0]
+
+    @pytest.mark.asyncio
+    async def test_add_dimension_rejects_non_numeric_partition_count(
+        self, monkeypatch
+    ) -> None:
+        """A non-numeric count raises before any SQL reaches the server."""
+        conn = self._recording_conn(monkeypatch)
+        with pytest.raises(ValueError):
+            await HypertableManager.add_dimension(
+                "events",
+                "tenant_id",
+                number_partitions="4); DROP TABLE x",
+            )
+        assert conn.sqls == []
+
+    @pytest.mark.asyncio
     async def test_show_chunks_quotes(self, monkeypatch) -> None:
         conn = self._recording_conn(monkeypatch)
         await HypertableManager.show_chunks(

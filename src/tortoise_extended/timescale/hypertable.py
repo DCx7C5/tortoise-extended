@@ -439,11 +439,16 @@ class HypertableManager:
                 ")"
             )
         elif number_partitions is not None:
+            # ``int`` validates as well as coerces: the annotation alone does
+            # not stop an untyped caller from passing a string straight into
+            # the SQL text. A non-numeric value raises ValueError before any
+            # statement runs.
+            partitions = int(number_partitions)
             sql = (
                 "SELECT add_dimension("
                 f"{quote_literal(table_name)}, "
                 f"{quote_literal(column_name)}, "
-                f"number_partitions => {number_partitions}"
+                f"number_partitions => {partitions}"
                 ")"
             )
         else:
