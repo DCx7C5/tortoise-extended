@@ -401,3 +401,77 @@ errors = await root.validate_hierarchy()
 - QuerySet-returning methods on `BaseGraphEdgeModel` are sync (not async) — they return lazy QuerySets
 - `BaseHierarchyModel.move_to()` updates all descendant paths atomically; `save()` refuses a persisted `parent_id` change
 - Use `namespace` field for multi-tenant graph isolation
+
+---
+
+## Graph facade
+
+`Graph` binds a node model and an edge model once and exposes the graph
+operations against **model instances** instead of raw table/column names. It
+is a composition facade over `GraphTraversal`, the pathfinding helpers
+(`shortest_path` / `find_cycles`) and `GraphVectorSearch` — it adds no SQL of
+its own.
+
+The node model must declare `id`, `name` and `depth` (the recursive-CTE
+contract of the traversal builders); the edge model must declare
+`source_id` / `target_id` (customizable). `namespace`, `edge_type` and
+`weight` are written only when the edge model declares them.
+
+### Constructor
+
+```python
+from tortoise_extended import Graph
+
+graph = Graph(
+    node_model,                      # type[Model] — id / name / depth columns
+    edge_model,                      # type[Model] — source_id / target_id
+    *,
+    namespace: str = "default",      # written to edges; required of every node
+    source_field: str = "source_id",
+    target_field: str = "target_id",
+    edge_type_field: str = "edge_type",
+)
+```
+
+Raises `GraphError` when the edge model does not declare the configured
+source/target/edge-type fields.
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `link(source, target, *, edge_type?, weight?, **attrs)` | `Model` | Create an edge through the owned edge model (unconditional `edge_model.create(...)`) |
+| `unlink(source, target, *, edge_type?)` | `int` | Delete directed edges; returns the row count |
+| `neighbours(node, *, edge_type?, direction="both")` | `list[Model]` | Direct neighbours, hydrated; `direction` is `"outgoing"`, `"incoming"` or `"both"` |
+| `shortest_path(source, target, *, max_depth?)` | `list[Model]` | Shortest path nodes in order (empty when unreachable) |
+| `find_cycles()` | `list[list[Model]]` | Every simple cycle, hydrated (builder defaults: depth 10, 100 cycles) |
+| `search(vector, *, seed, k=10, max_hops=2, metric="cosine", min_distance?)` | `list[GraphVectorHit]` | Vector-similar nodes reachable from `seed` within `max_hops`, ordered by distance |
+
+`search` requires `seed` (a node instance): `GraphVectorSearch` is a
+graph-scoped search — its constructor takes `seed_id` / `max_hops` — and the
+facade does not invent a vector-only mode.
+
+### Errors
+
+`GraphError` is raised for:
+
+- a node whose class is not the facade `node_model`;
+- a node outside the facade `namespace`;
+- an edge model missing the configured `source_field` / `target_field`.
+
+### Usage
+
+```python
+from tortoise_extended import Graph
+
+graph = Graph(Entity, Relationship, namespace="shop")
+
+a = await Entity.create(name="a", depth=0, namespace="shop")
+b = await Entity.create(name="b", depth=1, namespace="shop")
+
+edge = await graph.link(a, b, edge_type="cites", weight=0.5)
+peers = await graph.neighbours(a, direction="outgoing")   # [b]
+path = await graph.shortest_path(a, b, max_depth=4)      # [a, b]
+cycles = await graph.find_cycles()                       # []
+hits = await graph.search([0.1, 0.2, 0.3], seed=a, k=5)  # GraphVectorHit list
+```

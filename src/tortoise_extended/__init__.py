@@ -85,6 +85,7 @@ from tortoise_extended.expressions.fusion import (
     scores_from_hybrid_rows,
     weighted_score_fusion,
 )
+from tortoise_extended.expressions.graph import Graph
 from tortoise_extended.expressions.graph_filters import (
     CosineDistance,
     HammingDistance,
@@ -560,6 +561,7 @@ __all__ = [
     "DigestHex",
     "FieldDefinitionError",
     "GiSTIndex",
+    "Graph",
     "GraphError",
     "GraphTraversal",
     "GraphTraversalError",

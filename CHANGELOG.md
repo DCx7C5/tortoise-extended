@@ -74,6 +74,13 @@ the versions below are the `pyproject.toml` version at the time of the change.
   cannot be inferred from the data. An unknown or non-numeric `field` raises `TimescaleError`
   before any SQL is sent. Raw SQL, as the `expressions/` carve-out allows — Tortoise cannot
   express gapfill — with quoted identifiers and bound parameters.
+- `Graph` (`expressions/graph.py`) — a facade that binds a node model and an edge model once and
+  exposes the graph operations against model instances: `link`, `unlink`, `neighbours`,
+  `shortest_path`, `find_cycles`, `search`. It adds no SQL of its own — every call is one of the
+  existing builders, or an ordinary queryset used to hydrate rows into models. `search` takes a
+  required `seed` node, because a graph+vector search has no meaning without one; the constructor
+  rejects an edge model lacking the source / target / edge-type column, and every node argument is
+  checked for class, namespace and persistence before a query runs.
 
 ### Changed
 
