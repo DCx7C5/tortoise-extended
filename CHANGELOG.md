@@ -25,6 +25,9 @@ the versions below are the `pyproject.toml` version at the time of the change.
 - `validate_cagg_query` parses the query with PostgreSQL's grammar instead of a regular
   expression. A single trailing `;` is accepted and stripped from the returned text.
 - `add_child` accepts arbitrary column values as keyword arguments.
+- `GraphTraversal`, the pathfinding helpers, and `GraphVectorSearch` now exclude soft-deleted
+  nodes and edges when the model declares a `deleted_at` column, matching `SoftDeleteQuerySet`.
+  Models without the column generate identical SQL.
 
 ### Fixed
 

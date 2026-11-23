@@ -6,6 +6,13 @@ number of graph hops. Executes one parameterized SQL statement (recursive CTE
 + pgvector distance predicate) and hydrates the results into typed Tortoise
 model instances.
 
+## Soft-delete awareness
+
+When the node model (or the edge model) declares a `deleted_at` column, the
+CTE anchor, the recursive step and the edge join additionally require
+`deleted_at IS NULL`, so soft-deleted nodes and edges are neither returned nor
+walked through. Models without the column are unaffected (identical SQL).
+
 ## Import
 
 ```python

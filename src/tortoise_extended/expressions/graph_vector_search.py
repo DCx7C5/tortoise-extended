@@ -46,6 +46,7 @@ from tortoise_extended._quote import quote_ident
 from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import GraphTraversalError
 from tortoise_extended.expressions._edge_filter import et_clause as _et_clause
+from tortoise_extended.expressions._edge_filter import live_predicate as _live_predicate
 from tortoise_extended.expressions.graph_filters import vector_encoder
 
 if TYPE_CHECKING:
@@ -100,6 +101,12 @@ class GraphVectorSearch:
     :param target_field: Edge field holding the target node id (default ``"target_id"``).
     :raises GraphTraversalError: If *distance_metric* or *direction* is
         unsupported, or a referenced field is not declared on the model.
+
+    Soft-delete aware: when the node model (or the edge model) declares a
+    ``deleted_at`` column, the CTE anchor, the recursive step and the edge join
+    additionally require ``deleted_at IS NULL``, so soft-deleted nodes and
+    edges are neither returned nor walked through. Models without the column
+    generate unchanged SQL.
     """
 
     _METRICS: tuple[str, ...] = ("l2", "cosine", "inner_product")
@@ -160,6 +167,11 @@ class GraphVectorSearch:
         self._source_field = quote_ident(source_field)
         self._target_field = quote_ident(target_field)
         self._has_bidirectional = "is_bidirectional" in edge_model._meta.fields_map
+        # Soft-delete awareness: a model that declares ``deleted_at`` gets the
+        # live-row predicate in every CTE term; a model without the column
+        # keeps the exact SQL it generated before this flag existed.
+        self._node_soft_delete = "deleted_at" in node_model._meta.fields_map
+        self._edge_soft_delete = "deleted_at" in edge_model._meta.fields_map
         self._seed_id: int | str | UUID = seed_id
         self._max_hops = max_hops
         self._direction = direction
@@ -272,7 +284,18 @@ class GraphVectorSearch:
 
         # Parameter layout: $1 seed, $2 max_hops, $3 max_results, $4 vector,
         # then optionally $5 edge_type and/or $6 min_distance (sequential).
-        et_clause, et_params = _et_clause(self._edge_type, 5)
+        et_clause, et_params = _et_clause(self._edge_type, 5, self._edge_soft_delete)
+        node_anchor = f" AND {_live_predicate('n')}" if self._node_soft_delete else ""
+        # The recursive step has no node join today; a soft-delete-aware node
+        # model gets one so the walk cannot enter a tombstoned node (and the
+        # reached id is guaranteed to exist in the node table).
+        node_join = ""
+        node_live = ""
+        if self._node_soft_delete:
+            node_join = (
+                f"\n                JOIN {self._node_table} nn ON nn.{pk} = {nxt}"
+            )
+            node_live = f"\n                  AND {_live_predicate('nn')}"
         threshold_index = 5 + len(et_params)
         if self._min_distance is not None:
             threshold_clause = f"AND {dist} {threshold_op} ${threshold_index}"
@@ -284,16 +307,16 @@ class GraphVectorSearch:
                 SELECT n.{pk} AS node_id, 0 AS hops,
                        ARRAY[n.{pk}] AS path_ids
                 FROM {self._node_table} n
-                WHERE n.{pk} = $1
+                WHERE n.{pk} = $1{node_anchor}
 
                 UNION
 
                 SELECT {nxt} AS node_id, b.hops + 1,
                        b.path_ids || {nxt}
                 FROM reach b
-                JOIN {self._edge_table} e ON ({join})
+                JOIN {self._edge_table} e ON ({join}){node_join}
                 WHERE b.hops < $2
-                  AND NOT ({nxt} = ANY(b.path_ids))
+                  AND NOT ({nxt} = ANY(b.path_ids)){node_live}
                   {et_clause}
             )
             SELECT

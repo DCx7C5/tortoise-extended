@@ -3,6 +3,11 @@
 Provides shortest path, all paths, and cycle detection for graphs
 stored in separate node and edge tables.
 
+Soft-delete aware: when the node model (or the edge model) declares a
+``deleted_at`` column, every walk term requires ``deleted_at IS NULL`` on that
+alias, so soft-deleted nodes and edges are never walked through. Models
+without the column generate unchanged SQL.
+
 Usage (illustrative; needs async context + configured DB)::
 
     from tortoise_extended.expressions.pathfinding import shortest_path, all_paths
@@ -20,6 +25,7 @@ from tortoise_extended._quote import quote_ident
 from tortoise_extended._types import RowMapping
 from tortoise_extended.exceptions import GraphTraversalError
 from tortoise_extended.expressions._edge_filter import et_clause as _et_clause
+from tortoise_extended.expressions._edge_filter import live_predicate as _live_predicate
 
 if TYPE_CHECKING:
     from tortoise.models import Model
@@ -74,6 +80,7 @@ def _walk_cte(
     source_field: str,
     target_field: str,
     et_clause: str,
+    node_soft_delete: bool = False,
 ) -> str:
     """Build the shared recursive-CTE walk used by pathfinding queries.
 
@@ -87,10 +94,14 @@ def _walk_cte(
     :param source_field: Edge field holding the source node id.
     :param target_field: Edge field holding the target node id.
     :param et_clause: Optional edge-type filter fragment (empty when unused).
+    :param node_soft_delete: Add the node live-row predicate
+        (``n.deleted_at IS NULL``) to both the anchor and the recursive term
+        — set when the node model declares a ``deleted_at`` column.
     :returns: The ``WITH RECURSIVE paths AS (...)`` statement body.
     """
     src = quote_ident(source_field)
     tgt = quote_ident(target_field)
+    node_live = f" AND {_live_predicate('n')}" if node_soft_delete else ""
     return f"""
         WITH RECURSIVE paths AS (
             SELECT
@@ -99,7 +110,7 @@ def _walk_cte(
                 ARRAY[n.name::text] AS path_names,
                 0 AS hops
             FROM {quote_ident(node_table)} n
-            WHERE n.id = $1
+            WHERE n.id = $1{node_live}
 
             UNION
 
@@ -117,7 +128,7 @@ def _walk_cte(
                 (e.{src} = p.id AND n.id = e.{tgt})
                 OR (e.is_bidirectional AND e.{tgt} = p.id AND n.id = e.{src})
             )
-            WHERE p.hops < $2
+            WHERE p.hops < $2{node_live}
             AND NOT (n.id = ANY(p.path_ids))
             {et_clause}
         )
@@ -182,10 +193,20 @@ async def shortest_path(
     _validate_edge_fields(edge_model, source_field, target_field)
     node_table = node_model._meta.db_table
     edge_table = edge_model._meta.db_table
-    et_clause, et_params = _et_clause(edge_type, 4)
+    node_soft_delete = "deleted_at" in node_model._meta.fields_map
+    edge_soft_delete = "deleted_at" in edge_model._meta.fields_map
+    et_clause, et_params = _et_clause(edge_type, 4, edge_soft_delete)
 
+    walk_sql = _walk_cte(
+        node_table,
+        edge_table,
+        source_field,
+        target_field,
+        et_clause,
+        node_soft_delete,
+    )
     sql = f"""
-        {_walk_cte(node_table, edge_table, source_field, target_field, et_clause)}
+        {walk_sql}
         SELECT path_ids, path_names, hops
         FROM paths
         WHERE id = $3
@@ -245,10 +266,20 @@ async def all_paths(
     _validate_edge_fields(edge_model, source_field, target_field)
     node_table = node_model._meta.db_table
     edge_table = edge_model._meta.db_table
-    et_clause, et_params = _et_clause(edge_type, 5)
+    node_soft_delete = "deleted_at" in node_model._meta.fields_map
+    edge_soft_delete = "deleted_at" in edge_model._meta.fields_map
+    et_clause, et_params = _et_clause(edge_type, 5, edge_soft_delete)
 
+    walk_sql = _walk_cte(
+        node_table,
+        edge_table,
+        source_field,
+        target_field,
+        et_clause,
+        node_soft_delete,
+    )
     sql = f"""
-        {_walk_cte(node_table, edge_table, source_field, target_field, et_clause)}
+        {walk_sql}
         SELECT DISTINCT path_ids, path_names, hops
         FROM paths
         WHERE id = $3
@@ -300,7 +331,15 @@ async def find_cycles(
     _validate_edge_fields(edge_model, source_field, target_field)
     node_table = node_model._meta.db_table
     edge_table = edge_model._meta.db_table
-    et_clause, et_params = _et_clause(edge_type, 2)
+    node_soft_delete = "deleted_at" in node_model._meta.fields_map
+    edge_soft_delete = "deleted_at" in edge_model._meta.fields_map
+    et_clause, et_params = _et_clause(edge_type, 2, edge_soft_delete)
+    # The anchor term selects every node (no WHERE today); the live-row
+    # predicate adds one only when the node model is soft-delete aware.
+    node_anchor = (
+        f"\n            WHERE {_live_predicate('n')}" if node_soft_delete else ""
+    )
+    node_live = f" AND {_live_predicate('n')}" if node_soft_delete else ""
 
     if max_cycles is None:
         limit_clause = ""
@@ -317,7 +356,7 @@ async def find_cycles(
                 ARRAY[n.id] AS path_ids,
                 ARRAY[n.name::text] AS path_names,
                 0 AS depth
-            FROM {quote_ident(node_table)} n
+            FROM {quote_ident(node_table)} n{node_anchor}
 
             UNION
 
@@ -340,7 +379,7 @@ async def find_cycles(
                     AND n.id = e.{quote_ident(source_field)}
                 )
             )
-            WHERE w.depth < $1 {et_clause}
+            WHERE w.depth < $1 {et_clause}{node_live}
             -- Allow the anchor (depth 0) to take its first hop, but never
             -- extend a walk that has already closed (curr_id = start_id).
             AND (w.depth = 0 OR w.curr_id <> w.start_id)

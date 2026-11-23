@@ -2,6 +2,13 @@
 
 BFS-based shortest path, all paths, and cycle detection via recursive CTE.
 
+## Soft-delete awareness
+
+When the node model (or the edge model) declares a `deleted_at` column, every
+walk term additionally requires `deleted_at IS NULL` on that alias, so
+soft-deleted nodes and edges are never walked through. Models without the
+column are unaffected (identical SQL).
+
 ## Import
 
 ```python
