@@ -41,6 +41,8 @@ from tortoise_extended.exceptions import (
     RedisCacheError,
 )
 
+from tests._redis_env import redis_skip_reason, redis_url
+
 
 # ---------------------------------------------------------------------------
 # CacheKey edge cases
@@ -1555,28 +1557,10 @@ class TestCacheDefaultBackend:
 # ---------------------------------------------------------------------------
 
 
-def _redis_available() -> bool:
-    """Quick probe — can we reach the docker redis-ext container?"""
-    try:
-        sock = socket.create_connection(("localhost", 6381), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_REDIS_SKIP_REASON = redis_skip_reason()
 _live_redis = pytest.mark.skipif(
-    not _redis_available(),
-    reason="Redis not available on localhost:6381 (docker compose up -d)",
+    _REDIS_SKIP_REASON is not None, reason=_REDIS_SKIP_REASON or ""
 )
-
-
-def _redis_url() -> str:
-    """Build a Redis URL, honouring REDIS_PASSWORD when set."""
-    password = os.environ.get("REDIS_PASSWORD", "")
-    if password:
-        return f"redis://:{password}@localhost:6381/0"
-    return "redis://localhost:6381/0"
 
 
 class TestLiveRedis:
@@ -1594,7 +1578,7 @@ class TestLiveRedis:
     @pytest.mark.asyncio
     async def test_real_redis_round_trip(self) -> None:
         """init → set/get/delete → close via real driver aclose()."""
-        await RedisCache.init(url=_redis_url())
+        await RedisCache.init(url=redis_url())
         backend = RedisCacheBackend(RedisCache.get_pool())
         await backend.set("te:g24:key", "value-1", ttl=60)
         assert await backend.get("te:g24:key") == "value-1"

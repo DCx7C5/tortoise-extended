@@ -32,13 +32,18 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      # Mandatory. An unauthenticated Redis is a file-write pivot
+      # (CONFIG SET dir + SAVE), and a disabled control must not be the
+      # committed default. Compose interpolates this from the project .env and
+      # refuses to configure the stack when it is missing or empty.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in the project .env (see .env.example)}
     ports:
       - "127.0.0.1:6381:6379"
     volumes:
       - redis-data:/data
       - ./docker/redis-ext/redis.conf:/usr/local/etc/redis/redis.conf:ro
       - /var/run/redis:/var/run/redis
-
 
 
 volumes:

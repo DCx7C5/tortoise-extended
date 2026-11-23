@@ -7,7 +7,9 @@ set -o nounset
 GREEN='\033[0;32m'
 NC='\033[0m'
 
-INIT_DIR="/docker-entrypoint-initdb.d"
+# Overridable so the generator can be exercised without touching the real
+# init directory (the official entrypoint only reads the default path).
+INIT_DIR="${INIT_DIR:-/docker-entrypoint-initdb.d}"
 
 DB_USER_1="${DB_USER_1:-}"
 DB_PASS_1="${DB_PASS_1:-}"
@@ -21,6 +23,15 @@ DB_USER_3="${DB_USER_3:-postgres}"
 DB_PASS_3="${DB_PASS_3:-postgres}"
 DB_NAME_3="${DB_NAME_3:-postgres}"
 
+# psql reads these with ``\getenv``, i.e. from the process environment — so the
+# effective values, including the group-3 defaults above, must be exported.
+# Without this line the ``\getenv user_3 DB_USER_3`` lines fail silently when the
+# variable is unset in the container environment and the literal ``:'user_3'``
+# reaches the server ("syntax error at or near \":\"").
+export DB_USER_1 DB_PASS_1 DB_NAME_1 \
+       DB_USER_2 DB_PASS_2 DB_NAME_2 \
+       DB_USER_3 DB_PASS_3 DB_NAME_3
+
 # ---------------------------------------------------------------------------
 # Generate idempotent init SQL from the DB_USER_N / DB_PASS_N / DB_NAME_N env
 # groups. The official postgres entrypoint executes every *.sql in
@@ -29,6 +40,14 @@ DB_NAME_3="${DB_NAME_3:-postgres}"
 #
 # 01-create-roles.sql     → CREATE ROLE ... LOGIN PASSWORD (only when DB_USER_N set)
 # 02-create-databases.sql → CREATE DATABASE ... OWNER      (only when DB_NAME_N set)
+#
+# The values never enter the SQL text.  psql reads each one from the
+# environment with ``\getenv`` and the statement is built server-side with
+# ``format(%I, ...)`` / ``format(%L, ...)`` — PostgreSQL's own identifier and
+# literal quoters — then executed with ``\gexec``.  Hand-quoting them in bash
+# was wrong twice over: ``CREATE ROLE "name"`` never doubled an embedded
+# double quote, and ``rolname = 'name'`` never doubled an embedded single
+# quote.  Here neither character needs any bash-level escaping.
 # ---------------------------------------------------------------------------
 
 generate_init_sql() {
@@ -43,23 +62,24 @@ generate_init_sql() {
     local -n _name="DB_NAME_${i}"
 
     if [ -n "${_user}" ]; then
-      local sql_pass
-      sql_pass="'${_pass//\'/\'\'}'"
-      local sql_stmt
-      sql_stmt="CREATE ROLE \"${_user}\" LOGIN PASSWORD ${sql_pass}"
-      local escaped_stmt
-      escaped_stmt="${sql_stmt//\'/\'\'}"
-      roles_sql+="SELECT '${escaped_stmt}' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${_user}')\gexec"$'\n'
-      wrote=true
+      roles_sql+="\\getenv user_${i} DB_USER_${i}"$'\n'
+      roles_sql+="\\getenv pass_${i} DB_PASS_${i}"$'\n'
+      roles_sql+="SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'user_${i}', :'pass_${i}')"$'\n'
+      roles_sql+="WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'user_${i}')"$'\n'
+      roles_sql+="\\gexec"$'\n'
       wrote=true
     fi
 
     if [ -n "${_name}" ]; then
+      dbs_sql+="\\getenv db_${i} DB_NAME_${i}"$'\n'
       if [ -n "${_user}" ]; then
-        dbs_sql+="SELECT 'CREATE DATABASE \"${_name}\" OWNER \"${_user}\"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${_name}')\gexec"$'\n'
+        dbs_sql+="\\getenv user_${i} DB_USER_${i}"$'\n'
+        dbs_sql+="SELECT format('CREATE DATABASE %I OWNER %I', :'db_${i}', :'user_${i}')"$'\n'
       else
-        dbs_sql+="SELECT 'CREATE DATABASE \"${_name}\"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${_name}')\gexec"$'\n'
+        dbs_sql+="SELECT format('CREATE DATABASE %I', :'db_${i}')"$'\n'
       fi
+      dbs_sql+="WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'db_${i}')"$'\n'
+      dbs_sql+="\\gexec"$'\n'
       wrote=true
     fi
   done

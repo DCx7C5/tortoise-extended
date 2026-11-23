@@ -49,7 +49,9 @@ For local development with the full PostgreSQL + pgvector + TimescaleDB
 database (plus Redis), use the provided Compose file:
 
 ```bash
-cp .env.example .env   # configure POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+cp .env.example .env   # set POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+                       # and REDIS_PASSWORD (mandatory; the stack fails to
+                       # configure without it)
 docker compose -f docker-compose.dev.yml up -d
 ```
 

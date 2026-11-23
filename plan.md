@@ -796,9 +796,18 @@ Ordered by value/cost. None of these is in the shared list.
     This is the largest item by an order of magnitude and is arguably a **separate library**;
     it should not be smuggled into an ergonomics release. (Deferred, deliberately.)
 11. **Contribution guide + public roadmap**. (Deferred.)
+12. **HNSW knob picker** (`hnsw_tuning`) — pure computation beside `HNSWIndex`, no UI: inputs are
+    row count / dimensions / metric / recall bias; outputs `m` (pgvector's 2–100, shrinking as the
+    table grows so the graph does not balloon), `ef_construction` (≥ 2×`m`, clamped 4–1000),
+    `ef_search` (a **session** setting on the querying connection, not part of the index, ≥ k), a
+    storage split (float32 vectors vs graph overhead ≈ `n × m × 8` bytes), the `CREATE INDEX`
+    DDL and the equivalent `HNSWIndex(...)` snippet, and an explicit "a sequential scan is
+    probably faster" verdict below a row threshold. Overlaps item 6 (documentation of the same
+    three knobs) but is executable. **Parked 2026-11-23 by user choice — no TODO filed.**
 
 **Scope ruling 2026-11-23 (user):** items 1–3 filed; item 4 closed as already-solved; items
-5–11 deferred until the §H ergonomics build-out ships.
+5–11 deferred until the §H ergonomics build-out ships. Item 12 was described by the user later
+the same day and parked under the same ruling (plan-only, not filed).
 
 ### I.5 Reconciliation with the v0.2.0 task prompt (2026-11-23)
 

@@ -43,6 +43,7 @@ from tortoise_extended.fields import CharField
 from tortoise_extended.models.cacheable_model import BaseCacheableModel
 
 from tests.test_cache import MockRedisBackend
+from tests._redis_env import redis_skip_reason, redis_url
 
 
 # ---------------------------------------------------------------------------
@@ -50,19 +51,9 @@ from tests.test_cache import MockRedisBackend
 # ---------------------------------------------------------------------------
 
 
-def _redis_available() -> bool:
-    """Quick probe — can we reach the docker redis-ext container?"""
-    try:
-        sock = socket.create_connection(("localhost", 6381), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_REDIS_SKIP_REASON = redis_skip_reason()
 _live_redis = pytest.mark.skipif(
-    not _redis_available(),
-    reason="Redis not available on localhost:6381 (docker compose up -d)",
+    _REDIS_SKIP_REASON is not None, reason=_REDIS_SKIP_REASON or ""
 )
 
 
@@ -400,10 +391,10 @@ class TestRedisCacheReinitAclose:
     @pytest.mark.asyncio
     async def test_reinit_closes_old_pool_via_aclose(self) -> None:
         """Two successive inits — the first pool is closed via ``aclose``."""
-        await RedisCache.init(url="redis://localhost:6381/0")
+        await RedisCache.init(url=redis_url())
         old_pool = RedisCache.get_pool()
 
-        await RedisCache.init(url="redis://localhost:6381/0")
+        await RedisCache.init(url=redis_url())
         new_pool = RedisCache.get_pool()
 
         assert new_pool is not old_pool
@@ -433,7 +424,7 @@ class TestRedisCacheBackendGetManyDeser:
     async def test_get_many_invalid_data_raises(self) -> None:
         """Storing raw bytes that are not valid JSON triggers a
         ``CacheSerializationError`` inside ``get_many``."""
-        await RedisCache.init(url="redis://localhost:6381/0")
+        await RedisCache.init(url=redis_url())
         pool = RedisCache.get_pool()
         backend = RedisCacheBackend(pool=pool, namespace="test-gm-deser")
 
@@ -535,7 +526,7 @@ class TestCachedMethodErrorPropagation:
     async def test_single_flight_dedup(self) -> None:
         """Line 276: the second concurrent caller awaits the shared future
         and receives the same result without re-executing the function."""
-        await RedisCache.init(url="redis://localhost:6381/0")
+        await RedisCache.init(url=redis_url())
         pool = RedisCache.get_pool()
         # Flush so stale keys from a prior run don't short-circuit the test.
         _ = await pool.flushdb()
@@ -565,7 +556,7 @@ class TestCachedMethodErrorPropagation:
     async def test_error_propagation(self) -> None:
         """Lines 291-294: a ``BaseException`` raised by the claimed coroutine
         is forwarded to all waiting coroutines via ``future.set_exception``."""
-        await RedisCache.init(url="redis://localhost:6381/0")
+        await RedisCache.init(url=redis_url())
         pool = RedisCache.get_pool()
         _ = await pool.flushdb()
 

@@ -151,6 +151,7 @@ All `pycharm_*` tools are read-only inspection or IDE actions — when the PyCha
 uv sync                            # install/lock from pyproject.toml
 uv add <pkg>                       # add dependency (pyproject + lock)
 uv run pytest                      # full suite — real Postgres test DBs (see §7)
+uv run --env-file .env --extra redis pytest   # + live Redis cache tests (AUTH, see §7)
 uv run pytest tests/test_x.py -k name
 
 ```
@@ -363,6 +364,12 @@ bootstrap when the MCP server is unreachable. Never rewrite the whole list with 
   `pytestmark = pytest.mark.skipif(not _pg_available(), ...)` so the pure unit tests still run on
   a machine without Docker. Anything that only works on SQLite is **deleted, never skipped**.
   `test_pg_integration.py` and the `*_integration.py` modules require the Docker database.
+- **Live Redis tests are AUTH-gated.** `redis-ext` requires `REDIS_PASSWORD` (`protected-mode`
+  is not disabled and unauthenticated commands are refused), so `test_cache_live.py`,
+  `test_cacheable_live.py` and the G24 smoke test skip when the variable is absent — run
+  `uv run --env-file .env --extra redis pytest` to include them. The probe in
+  `tests/_redis_env.py` authenticates and pings instead of only opening a socket, and
+  percent-encodes the password before it goes in a URL.
 
 ## Docker
 
@@ -375,14 +382,16 @@ docker compose -f docker-compose.dev.yml down        # stop
 | Service       | Image / Build                                   | Host port | Purpose            |
 |---------------|-------------------------------------------------|-----------|--------------------|
 | `postgres-ext`| `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.5, TimescaleDB) | `127.0.0.1:5434` | Graph/vector DB |
-| `redis-ext`   | `redis:7-alpine`                                | `127.0.0.1:6381` | Cache backend      |
+| `redis-ext`   | `docker/redis-ext/Dockerfile` (Redis 7-alpine, digest-pinned, **mandatory AUTH**) | `127.0.0.1:6381` | Cache backend      |
 
 - Init scripts run from `docker/postgres-ext/scripts/` on first start:
   `00-extensions.sql` (creates `vector`, `ltree`, `timescaledb`, `pg_trgm`, `uuid-ossp`).
 - The Postgres base image is **digest-pinned** (`postgres:18@sha256:...`); pgvector and TimescaleDB
   are **commit-pinned** via ARG. Bump version + pin together, deliberately, when upgrading.
 - `docker-compose.dev.yml` uses `env_file: .env` — the `.env` file must exist locally with
-  `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` (and `REDIS_*` if used).
+  `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`; `REDIS_PASSWORD` is **mandatory**
+  (the Redis entrypoint refuses to start without it and compose fails configuration when it is
+  empty — an unauthenticated Redis accepts `CONFIG SET dir` + `SAVE`, i.e. arbitrary file writes).
 - Postgres listens on the host only at `127.0.0.1:5434` (never exposed publicly).
 
 ## Dependencies

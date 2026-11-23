@@ -17,7 +17,8 @@ optional cache backend (`redis-ext`). Both are managed with
 ```bash
 # 1. Create .env (required by docker-compose.dev.yml)
 cp .env.example .env
-#    set POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB (and REDIS_* if used)
+#    set POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB and a
+#    REDIS_PASSWORD (mandatory — redis-ext will not start without it)
 
 # 2. Start the stack
 docker compose -f docker-compose.dev.yml up -d
@@ -36,11 +37,11 @@ docker compose -f docker-compose.dev.yml down
 psql -h 127.0.0.1 -p 5434 -U <POSTGRES_USER> -d <POSTGRES_DB>
 
 # Redis
-redis-cli -h 127.0.0.1 -p 6381 ping
-
-# Redis with password (when REDIS_PASSWORD is set)
-redis-cli -h 127.0.0.1 -p 6381 -a <REDIS_PASSWORD> ping
+redis-cli -h 127.0.0.1 -p 6381 -a "$REDIS_PASSWORD" --no-auth-warning ping
 ```
+
+AUTH is mandatory: the container refuses to start without `REDIS_PASSWORD`, so
+an unauthenticated `PING` answers `NOAUTH Authentication required.`
 
 ## From Python
 

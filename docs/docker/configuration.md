@@ -21,8 +21,11 @@ POSTGRES_DB=tortoise_extended
 ```
 
 `REDIS_*` variables are used if you override the Redis service settings.
-Set `REDIS_PASSWORD` in `.env` to enable Redis authentication — when set,
-clients must authenticate with `--requirepass`.
+`REDIS_PASSWORD` is **mandatory**: `redis-ext` refuses to start without it and
+`docker-compose.dev.yml` fails configuration when it is empty. An
+unauthenticated Redis accepts `CONFIG SET dir` + `SAVE`, i.e. it is a
+file-write pivot; the loopback bind narrows who can reach it, not what an
+unauthenticated client can do once it has. Use a throwaway dev value.
 
 ## Starting / Stopping
 

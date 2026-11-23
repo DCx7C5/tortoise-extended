@@ -33,21 +33,12 @@ from tortoise_extended.cache.base import CacheBackend
 from tortoise_extended.cache.redis import RedisCache
 from tortoise_extended.fields import CharField
 from tortoise_extended.models.cacheable_model import BaseCacheableModel
+from tests._redis_env import redis_skip_reason, redis_url
 
 
 # ---------------------------------------------------------------------------
 # Availability probes
 # ---------------------------------------------------------------------------
-
-
-def _redis_available() -> bool:
-    """Quick probe — can we reach the docker redis-ext container?"""
-    try:
-        sock = socket.create_connection(("localhost", 6381), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
 
 
 def _pg_available() -> bool:
@@ -60,9 +51,9 @@ def _pg_available() -> bool:
         return False
 
 
+_REDIS_SKIP_REASON = redis_skip_reason()
 _live_redis = pytest.mark.skipif(
-    not _redis_available(),
-    reason="Redis not available on localhost:6381 (docker compose up -d)",
+    _REDIS_SKIP_REASON is not None, reason=_REDIS_SKIP_REASON or ""
 )
 
 pytestmark = pytest.mark.skipif(
@@ -127,7 +118,7 @@ async def _live_redis_backend() -> AsyncGenerator[None, None]:
     """Init a live Redis singleton for the test, clean it, then close it."""
     RedisCache._instance = None
     RedisCache._pool = None
-    await RedisCache.init(url="redis://localhost:6381/0")
+    await RedisCache.init(url=redis_url())
     await RedisCache.get_pool().flushdb()
     yield
     await RedisCache.close()

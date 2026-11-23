@@ -1,8 +1,14 @@
 FROM postgres:18.7@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a AS builder
 
-ARG PGVECTOR_VERSION=0.8.6
+# Both dependencies are pinned to a full 40-character commit sha — the source
+# tree's equivalent of the digest pin on the base image.  The build fails on
+# anything that is not a sha (a branch or tag would compile unreviewed code)
+# and on a checkout that does not resolve to it.  The human-readable version
+# is a comment beside the pin, not a separate ARG: an unused ARG reads like a
+# version pin and is not one.
+# pgvector 0.8.6
 ARG PGVECTOR_COMMIT=159b79aaad5983fb7459c1e3df2897fbb2d11788
-ARG TIMESCALEDB_VERSION=2.29.2
+# TimescaleDB 2.29.2
 ARG TIMESCALEDB_COMMIT=4a77ff5cf1bf4348c4f0527e042434a289f06e39
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -21,18 +27,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # -- pgvector ----------------------------------------------------------------
+RUN echo "${PGVECTOR_COMMIT}" | grep -Eq '^[0-9a-f]{40}$' \
+    || { echo "PGVECTOR_COMMIT must be a 40-character lowercase hex sha" >&2; exit 1; }
+
 WORKDIR /build/pgvector
 RUN git clone https://github.com/pgvector/pgvector.git . \
-    && git checkout ${PGVECTOR_COMMIT}
+    && git checkout "${PGVECTOR_COMMIT}" \
+    && test "$(git rev-parse HEAD)" = "${PGVECTOR_COMMIT}"
 
-ENV OPTFLAGS=""
 RUN make PG_CONFIG=/usr/bin/pg_config \
     && make install PG_CONFIG=/usr/bin/pg_config
 
 # -- TimescaleDB -------------------------------------------------------------
+RUN echo "${TIMESCALEDB_COMMIT}" | grep -Eq '^[0-9a-f]{40}$' \
+    || { echo "TIMESCALEDB_COMMIT must be a 40-character lowercase hex sha" >&2; exit 1; }
+
 WORKDIR /build/timescaledb
 RUN git clone https://github.com/timescale/timescaledb.git . \
-    && git checkout ${TIMESCALEDB_COMMIT}
+    && git checkout "${TIMESCALEDB_COMMIT}" \
+    && test "$(git rev-parse HEAD)" = "${TIMESCALEDB_COMMIT}"
 
 RUN ./bootstrap -DAPPLY_LIBRARY_TWEAKS=ON -DREGRESS_CHECKS=OFF -DCMAKE_BUILD_TYPE=Release \
     && cd build && make -j$(nproc) && make install
