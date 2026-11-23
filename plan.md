@@ -1251,3 +1251,35 @@ cluster (3 modules + 1 deleted test); 3017 models cluster (4 modules + 1 deleted
 produces three spurious `cache/redis.py` errors). AGENTS.md §Testing, `docs/docker/setup.md`,
 `docs/guides/llm-reference.md`, `docs/api/fields.md` and the affected docstrings were corrected
 in the same pass.
+
+**Round-2 review (2026-11-23) — verdict and what survived verification.** A `css-reviewer` pass over
+`versioned.py` and `distinct_on.py` produced 18 findings; three did not survive measurement and are
+recorded here so nobody re-files them:
+- *"`distinct_on` hydrates with column names `_init_from_db` rejects"* — the opposite is true.
+  `MetaInfo.db_native_fields` is `(db_column, model_field, field)` and `_init_from_db` does
+  `_setattr(self, model_field, kwargs[db_column])`, so the helper's `SELECT "col" AS "col"` is the
+  exact shape it wants. Measured with a `source_field` model (`sensor = CharField(source_field=
+  "sensor_col")`): both fields populated, no stray attributes, the instance saves. The citation of
+  `timescale/stream.py:_row_to_model_kwargs` was inverted — that helper maps column → field name and
+  its own comment about "mirroring `_init_from_db`" is the questionable one.
+- *"a transposed `order_by` reaches PostgreSQL and errors"* — PostgreSQL 18.7 accepts it:
+  `DISTINCT ON (a,b) … ORDER BY b, a` returns rows. Measured what the server actually enforces: it
+  rejects only when the DISTINCT ON expressions are absent from the ORDER BY list
+  (`DISTINCT ON (a) … ORDER BY b` → "must match initial ORDER BY expressions"), and it also accepts
+  a strict subset (`DISTINCT ON (a,b) … ORDER BY a`) and no ORDER BY at all. The helper's set
+  comparison is therefore correct and actually stricter than the server.
+- *"a partial instance without the pk raises `AttributeError` before `IncompleteInstanceError`"* —
+  it raises the documented `IncompleteInstanceError`, because `self.pk` is `None` for such an
+  instance and the insert branch delegates to upstream's own check. Measured.
+
+What did survive, one TODO each (3066-3079): an unsaved-but-pk'd instance taking the guarded UPDATE
+with a defaulted version 0 (measured: the write goes through, other columns untouched — the review's
+"every projected field" claim was wrong, but the lock is honest only by luck); `_pre_save` mutating
+`auto_now` on the instance before a refused save, contradicting `VersionMismatchError`'s docstring;
+`update_fields` accepting an unknown name (`KeyError`) and `[]` (a version-only bump, measured);
+`distinct_on(Model.all())` refused on soft-delete models although the docs name that form; the
+quote-blind placeholder scan (`where="title <> '$1'"` is refused, measured); `_QUERYSET_CARRIED`
+missing `select_for_update`/`distinct`/`prefetch_related`/`only`; `limit=True` reaching the server as
+`LIMIT true` (measured `OperationalError`); plus five LOW items (FK payload path, target-type check,
+generator `update_fields`, transaction/rollback doc, `use_tz`, `deleted_at` by column, psycopg
+backend).
