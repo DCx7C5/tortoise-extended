@@ -17,6 +17,7 @@ API documentation for the public modules.
 - **[Full-Text Search](full-text-search.md)** — upstream `TSVectorField`, `SearchQuery`, `SearchRank`, `SearchHeadline`, `Lexeme` — and the four traps
 - **[Fusion](fusion.md)** — RRF, weighted score fusion, MMR diversity re-ranking (pure Python)
 - **[Pagination](pagination.md)** — `QuerySet.paginate(page, page_size)` and the `PageInfo` metadata
+- **[QuerySet helpers](queryset.md)** — `QuerySet.random()` (random ordering), starting here
 - **[pgcrypto](pgcrypto.md)** — pgcrypto query helpers (Digest, DigestHex, HMACDigest)
 - **[Graph (Node/Edge/Hierarchy)](graph.md)** — BaseNode, BaseGraphEdgeModel, BaseHierarchyModel base classes (BaseGraphNodeModel is the deprecated alias)
 - **[Model Bases](models.md)** — BaseModel, UnifiedIdModel, BaseUserModel, BaseSoftDeleteModel + SoftDeleteQuerySet, TimestampMixin

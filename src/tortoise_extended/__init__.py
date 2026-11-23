@@ -158,6 +158,7 @@ from tortoise_extended.models import (
     UnifiedIdModel,
 )
 from tortoise_extended.pagination import PageInfo, paginate
+from tortoise_extended.queryset import random_ordering
 from tortoise_extended.timescale import TimeBucketRow
 
 # ---------------------------------------------------------------------------
@@ -440,6 +441,10 @@ def _apply_patches() -> None:
        the same identity contract as sites 1-2: absent installs, our own
        ``paginate`` is a no-op, anything else raises
        :class:`PatchConflictError`.
+    6. **QuerySet random ordering** (``tortoise.queryset.QuerySet.random``) —
+       the same identity contract as site 5: absent installs, our own
+       ``random_ordering`` is a no-op, anything else raises
+       :class:`PatchConflictError`.
 
     ``MigrationWriter._format_operation`` is patched separately, at import
     time, by :mod:`tortoise_extended.migrations.operations` — not by this
@@ -559,6 +564,21 @@ def _apply_patches() -> None:
             f"tortoise-extended the only package patching this attribute."
         )
 
+    # 6. Register QuerySet.random (idempotent identity guard)
+    _existing_random = getattr(_QuerySet, "random", None)
+    if _existing_random is None:
+        setattr(_QuerySet, "random", random_ordering)
+    elif _existing_random is not random_ordering:
+        raise PatchConflictError(
+            f"tortoise.queryset.QuerySet.random already holds a foreign "
+            f"object ({_existing_random!r}), so tortoise-extended cannot "
+            f"install its own `random`: the patch would silently no-op "
+            f"while `tortoise_extended.random_ordering` still exports this "
+            f"package's function. Uninstall the conflicting extension or "
+            f"make tortoise-extended the only package patching this "
+            f"attribute."
+        )
+
 
 __all__ = [
     "BaseCacheableModel",
@@ -652,6 +672,7 @@ __all__ = [
     "invalidate",
     "paginate",
     "patch",
+    "random_ordering",
     "ranking_from_hits",
     "reciprocal_rank_fusion",
     "scores_from_hybrid_rows",

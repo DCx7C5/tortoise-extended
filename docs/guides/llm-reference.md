@@ -127,6 +127,7 @@ Pick the base per model — each is opt-in and independent:
 | `TSVectorField` | `from tortoise.contrib.postgres.fields import TSVectorField` | Generated `tsvector` column (**upstream**; `config=` is mandatory) |
 | `SearchQuery` / `SearchRank` | `from tortoise.contrib.postgres.search import ...` | `tsquery` builder, `ts_rank` / `ts_rank_cd` annotation (**upstream**) |
 | `paginate` | `from tortoise_extended import paginate` | Offset pagination over a QuerySet → `PageInfo` |
+| `random_ordering` | `from tortoise_extended import random_ordering` | `QuerySet.random()` — random row order (`ORDER BY RANDOM()`) |
 | `PageInfo` | `from tortoise_extended import PageInfo` | `items`, `total`, `total_pages`, `has_next`, `has_prev` |
 | `BaseNode` | `from tortoise_extended import BaseNode` | Primary graph-node base (`NodeMixin` + UUID7 identity, no FK on edges) |
 | `NodeMixin` | `from tortoise_extended import NodeMixin` | pk-free adjacency-list mixin, stackable with any identity base |

@@ -93,6 +93,7 @@ src/tortoise_extended/
 ├── exceptions.py            # exception hierarchy
 ├── lifecycle.py             # ensure_extensions / setup — extension, schema and hypertable fan-out
 ├── pagination.py            # QuerySet.paginate + PageInfo
+├── queryset.py              # QuerySet.random + random_ordering
 ├── py.typed                 # PEP 561 typed-package marker
 ├── models/
 │   ├── base.py                # BaseModel (BigInt pk)

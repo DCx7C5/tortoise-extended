@@ -8,6 +8,13 @@ the versions below are the `pyproject.toml` version at the time of the change.
 
 ### Added
 
+- `QuerySet.random()` and the free `random_ordering(queryset)` it is installed from — a clone of the
+  queryset annotated with `RANDOM()` and ordered by it, so it composes with `filter` / `values` /
+  `limit` / `paginate` and leaves `count()` untouched. Installed at import time as **patch site 6**
+  under the same identity guard as site 5; a queryset that already annotates the internal alias
+  raises `ValueError` instead of being silently overwritten. The docstring states the cost
+  (`O(n log n)`, one `RANDOM()` per matching row) and points at `TABLESAMPLE` for huge tables
+  rather than sampling for the caller.
 - Four PostgreSQL field types: `InetField` (`inet`, IPv4 **and** IPv6 host addresses, returned as
   `ipaddress` address objects; interface/prefix notation is rejected), `MacAddrField` (`macaddr`,
   48-bit) and `MacAddr8Field` (`macaddr8`, 64-bit) — both accept colon, dash and dotted-Cisco

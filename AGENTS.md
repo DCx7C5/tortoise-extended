@@ -170,6 +170,7 @@ src/tortoise_extended/
 ├── exceptions.py            # exception hierarchy (VectorFieldError, GraphTraversalError, ...)
 ├── lifecycle.py             # ensure_extensions / setup — extension, schema and hypertable fan-out
 ├── pagination.py            # QuerySet.paginate + PageInfo (offset pagination with page metadata)
+├── queryset.py              # QuerySet.random + random_ordering (ORDER BY RANDOM())
 ├── py.typed                 # PEP 561 typed-package marker
 ├── models/
 │   ├── base.py                # BaseModel (BigInt pk)
