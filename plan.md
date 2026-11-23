@@ -64,9 +64,10 @@
    sampling/ab-tests.
 10. **`.paginate(page, page_size)` → `PageInfo`** — Tortoise has only
     `offset`/`limit`; return items + total + total_pages.
-11. **`bulk_copy(rows)`** — generalized COPY-based bulk insert; infra
-    already exists in `models/event_stream.py` (`BaseEventStreamModel.bulk_insert`);
-    expose for any model (PG only).
+11. **`bulk_insert(instances)`** — COPY-based bulk insert; shipped as a public
+    classmethod on `SampleMixin` / `BaseSample` (`models/sample.py`; requires an
+    explicit primary key on every instance). Remaining gap: generalise it to any
+    model, not only TimescaleDB streams (PG only).
 
 ### Tier 4 — model behavior — `todo`
 > **Status (2026-08-14):** item 12 (`BaseUserModel`, Django-style email/password
