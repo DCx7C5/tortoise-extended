@@ -820,6 +820,83 @@ class NodeMixin(Model):
             # node's new tree position.
             await self.refresh_from_db(using_db=db)
 
+    async def validate_node(self) -> list[str]:
+        """Check this node's own invariants and return any error strings.
+
+        Reads the persisted row (not the in-memory copy) and validates:
+
+        * ``is_root`` agrees with ``parent_id is None``;
+        * ``depth`` equals the parent's ``depth + 1`` (``0`` for a root);
+        * ``child_count`` equals the number of live children;
+        * the parent exists in the same namespace;
+        * walking ``parent_id`` from here terminates — no cycle.
+
+        This is deliberately **one node**, not a whole-subtree audit: call it
+        in a loop to survey a tree, or use :meth:`rebuild_derived` to repair
+        rows written outside the library.
+
+        Returns:
+            List of human-readable error descriptions — empty when the node
+            is valid.
+        """
+        errors: list[str] = []
+        if self.pk is None:
+            return [f"Unpersisted {type(self).__name__}: nothing to validate"]
+
+        pk = cast(UUID | int, self.pk)
+        stored = await type(self).get_or_none(pk=pk)
+        if stored is None:
+            return [f"Node {pk} does not exist"]
+
+        if (stored.parent_id is None) != bool(stored.is_root):
+            errors.append(
+                f"is_root mismatch: is_root={stored.is_root!r} but "
+                f"parent_id={stored.parent_id!r}"
+            )
+
+        if stored.parent_id is None:
+            if stored.depth != 0:
+                errors.append(
+                    f"Depth mismatch: root node has depth {stored.depth}, expected 0"
+                )
+        else:
+            parent = await type(self).get_or_none(
+                pk=stored.parent_id, namespace=stored.namespace
+            )
+            if parent is None:
+                errors.append(f"Parent {stored.parent_id} does not exist")
+            else:
+                expected_depth = parent.depth + 1
+                if stored.depth != expected_depth:
+                    errors.append(
+                        f"Depth mismatch: expected {expected_depth} "
+                        f"(parent depth {parent.depth} + 1) but got {stored.depth}"
+                    )
+
+        child_count = await type(self).filter(
+            parent_id=pk, namespace=stored.namespace
+        ).count()
+        if stored.child_count != child_count:
+            errors.append(
+                f"child_count mismatch: stored {stored.child_count} but "
+                f"{child_count} child row(s) exist"
+            )
+
+        # Cycle detection: follow parent_id upwards and stop on a repeat.
+        seen: set[UUID | int] = {pk}
+        cursor = stored.parent_id
+        while cursor is not None:
+            if cursor in seen:
+                errors.append(f"Parent chain contains a cycle at {cursor}")
+                break
+            seen.add(cursor)
+            step = await type(self).get_or_none(pk=cursor)
+            if step is None:
+                break
+            cursor = step.parent_id
+
+        return errors
+
     def descendants(self, max_depth: int | None = None) -> QuerySet[Self]:
         """Get descendants of this node by depth range in the same namespace.
 

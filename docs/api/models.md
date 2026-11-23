@@ -299,6 +299,7 @@ top of the adjacency-list fields. The field tables and the query helpers
 | `connect(other, *, edge_type?, weight?, **attrs)` | `Model` | Create an edge to `other` through the configured `edge_model` |
 | `disconnect(other, *, edge_type?)` | `int` | Delete edges to `other`; returns the count |
 | `neighbours(*, edge_type?, direction="both", namespace?)` | `list[Self]` | Peer nodes reached through `edge_model` |
+| `validate_node()` | `list[str]` | Check this node's own invariants; empty list when valid |
 | `root()` | `Self` | Topmost node on this node's parent chain |
 | `is_ancestor_of(other)` | `bool` | `True` when this node is a strict ancestor of `other` |
 | `is_descendant_of(other)` | `bool` | `True` when this node is a strict descendant of `other` |
@@ -377,6 +378,23 @@ Writes are directed; `neighbours()` defaults to `direction="both"` and
 deduplicates peers. Cross-namespace links and self-links raise `GraphError`
 (a self-link is allowed only when the edge model declares
 `allow_self_loops = True`). Full details: [graph](graph.md).
+
+### validate_node
+
+`validate_node()` audits **one** node against its persisted row and returns a
+list of human-readable errors (empty when valid): `is_root` vs `parent_id`,
+`depth` vs the parent's depth + 1, `child_count` vs the live child count, a
+missing parent (or one in another namespace), and a cycle in the parent
+chain. It is the adjacency-list counterpart of
+`BaseHierarchyModel.validate_hierarchy()`.
+
+```python
+assert await laptops.validate_node() == []
+```
+
+`bulk_create` / `bulk_update` do not run `save()`, so a bulk-seeded tree can
+fail these checks — that is what the method is for. It validates a single
+node; call it in a loop to survey a whole tree.
 
 ### root / is_ancestor_of / is_descendant_of
 

@@ -767,6 +767,73 @@ class TestEdgeHelpers:
 
 
 # ---------------------------------------------------------------------------
+# validate_node — per-node invariant audit
+# ---------------------------------------------------------------------------
+
+
+class TestValidateNode:
+    """validate_node() reports each broken invariant separately."""
+
+    async def test_valid_chain_returns_no_errors(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        child = await root.add_child()
+        grandchild = await child.add_child()
+
+        assert await root.validate_node() == []
+        assert await child.validate_node() == []
+        assert await grandchild.validate_node() == []
+
+    async def test_corrupted_row_reports_each_invariant(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        child = await root.add_child()
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query(
+            "UPDATE node_mixin_it_hybrid "
+            "SET depth = 99, is_root = true, child_count = 7 WHERE id = $1",
+            [child.pk],
+        )
+
+        errors = await child.validate_node()
+        joined = "\n".join(errors)
+        assert "is_root mismatch" in joined
+        assert "Depth mismatch" in joined
+        assert "child_count mismatch" in joined
+
+    async def test_missing_parent_reported(self) -> None:
+        node = await HybridNode.create(namespace="shop", depth=3, parent_id=999_999)
+
+        errors = await node.validate_node()
+        assert any("does not exist" in error for error in errors)
+
+    async def test_cycle_reported(self) -> None:
+        a = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        b = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query(
+            "UPDATE node_mixin_it_hybrid SET parent_id = $1 WHERE id = $2",
+            [b.pk, a.pk],
+        )
+        await conn.execute_query(
+            "UPDATE node_mixin_it_hybrid SET parent_id = $1 WHERE id = $2",
+            [a.pk, b.pk],
+        )
+
+        errors = await a.validate_node()
+        assert any("cycle" in error for error in errors)
+
+    async def test_unpersisted_and_missing_nodes(self) -> None:
+        unsaved = HybridNode(namespace="shop", depth=0)
+        assert any("Unpersisted" in error for error in await unsaved.validate_node())
+
+        saved = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query(
+            "DELETE FROM node_mixin_it_hybrid WHERE id = $1", [saved.pk]
+        )
+        assert any("does not exist" in error for error in await saved.validate_node())
+
+
+# ---------------------------------------------------------------------------
 # root() and strict ancestry
 # ---------------------------------------------------------------------------
 
