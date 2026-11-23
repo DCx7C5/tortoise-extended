@@ -159,6 +159,33 @@ for agg in aggregates:
     print(f"{agg.view_name}: {agg.view_definition}")
 ```
 
+## Stream helpers (`SampleMixin`)
+
+`SampleMixin` (and its identity base `BaseSample`) carries four ergonomic
+classmethods for the single-row / single-stream cases. They are documented in
+full on [Models → SampleMixin](models.md#samplemixin); the signatures:
+
+| Method | Returns | Purpose |
+|---|---|---|
+| `record(*, stream=None, at=None, **fields)` | `Self` | Create one row, mapping the `stream` / `at` shorthands onto the partition columns |
+| `latest_for_stream(stream)` | `Self \| None` | Newest row for one stream |
+| `downsample(interval, *, agg="avg", field=None, stream=None, start=None, end=None)` | `list[TimeBucketRow]` | `time_bucket` rollup over the whole series |
+| `gapfill(interval, *, method="locf", field, stream=None, start=None, end=None)` | `list[TimeBucketRow]` | `time_bucket_gapfill` — every bucket in the range, gaps filled or left NULL |
+
+`record()` raises `TimescaleError` when the time column carries no default and
+`at` is omitted; `gapfill()` raises when `start` / `end` are missing, `end <=
+start`, or `field` is not a numeric column. `Model.latest(*orderings)` is still
+the ORM helper — the stream lookup is `latest_for_stream()`.
+
+```python
+from tortoise_extended import BaseSample
+
+buckets = await Event.gapfill(
+    "1 hour", method="locf", field="value",
+    stream=7, start=t0, end=t0 + timedelta(hours=4),
+)
+```
+
 ## Requirements
 
 ```sql

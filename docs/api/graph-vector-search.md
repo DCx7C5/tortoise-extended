@@ -102,3 +102,21 @@ for hit in results:
 - The vector predicate runs over reachable nodes only (the recursive CTE
   bounds the work), so it scales to huge graphs better than fetch-then-filter
   in Python.
+
+## Via the `Graph` facade
+
+`Graph.search()` wraps this builder with models instead of table names and
+returns the same `GraphVectorHit` structs — ordered by distance, `hops` counted
+from the seed:
+
+```python
+from tortoise_extended import Graph, GraphVectorHit
+
+graph = Graph(Entity, Relationship, namespace="shop")
+hits: list[GraphVectorHit[Entity]] = await graph.search(
+    [0.1, 0.2, 0.3], seed=anchor, k=5, metric="cosine", max_hops=2
+)
+```
+
+`seed` is required: the search is graph-scoped by construction, so there is no
+seedless (vector-only) mode on the facade.

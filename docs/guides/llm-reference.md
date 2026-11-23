@@ -77,6 +77,8 @@ Pick the base per model — each is opt-in and independent:
 | Cross-table / external refs | `UnifiedIdModel` | BigInt pk + UUID7 `uid` | use `uid` for graph edges, polymorphic refs, cache keys |
 | Redis row caching | `BaseCacheableModel` | `RedisCache.init()` first | use with `CachedQuerySet`, `@cached` |
 | Stream / time-series tables | `BaseSample` | BigInt identity + `(stream, time)` unique index | `BaseEventStreamModel` is the deprecated alias; use with `HypertableManager`, rollups |
+| Soft-deleting tree | `BaseSoftDeleteNode` | `BaseSoftDeleteModel` + `NodeMixin` | subtree `delete()`/`restore()`; `child_count` counts live children |
+| Integer-keyed tree | `BaseUnifiedNode` | `UnifiedIdModel` + `NodeMixin` | compact `parent_id` FKs, UUID7 `uid` for cross-table refs |
 | User accounts | `BaseUserModel` | extends `BaseModel`; argon2id hashing | stack with `TimestampMixin` |
 
 **Rules:**
@@ -111,6 +113,7 @@ Pick the base per model — each is opt-in and independent:
 | `RecursiveCTE` | `from tortoise_extended import RecursiveCTE` | Custom recursive graph SQL |
 | `GraphTraversal` | `from tortoise_extended import GraphTraversal` | CTE-based edge table traversal |
 | `GraphVectorSearch` | `from tortoise_extended import GraphVectorSearch` | Graph reachability + vector similarity in one query |
+| `Graph` | `from tortoise_extended import Graph` | Model-class facade over traversal, pathfinding and `GraphVectorSearch` |
 | `shortest_path` | `from tortoise_extended import shortest_path` | BFS shortest path |
 | `all_paths` | `from tortoise_extended import all_paths` | Find all paths between nodes |
 | `find_cycles` | `from tortoise_extended import find_cycles` | Detect cycles in graph |
@@ -125,6 +128,9 @@ Pick the base per model — each is opt-in and independent:
 | `TimestampMixin` | `from tortoise_extended import TimestampMixin` | `created_at` / `updated_at` columns |
 | `BaseSoftDeleteModel` | `from tortoise_extended import BaseSoftDeleteModel` | Soft delete (`deleted_at`, auto-filtered) |
 | `SoftDeleteQuerySet` | `from tortoise_extended import SoftDeleteQuerySet` | Auto-filters soft-deleted rows; `.with_deleted()`, `.restore()` |
+| `BaseSoftDeleteNode` | `from tortoise_extended import BaseSoftDeleteNode` | Soft-deleting tree base — instance and queryset deletes hide the live subtree |
+| `SoftDeleteNodeQuerySet` | `from tortoise_extended import SoftDeleteNodeQuerySet` | Subtree-aware `delete()` / `restore()`; `hard_delete()` stays physical |
+| `BaseUnifiedNode` | `from tortoise_extended import BaseUnifiedNode` | `UnifiedIdModel` + `NodeMixin` — integer `parent_id`, UUID7 `uid` |
 | `BaseUserModel` | `from tortoise_extended import BaseUserModel` | Django-style email/password auth (argon2id) |
 | `BaseCacheableModel` | `from tortoise_extended import BaseCacheableModel` | Model-level Redis caching |
 | `CachedQuerySet` | `from tortoise_extended import CachedQuerySet` | QuerySet caching (`CachedQuerySet(Model).filter(...).cache()`) |
@@ -139,6 +145,10 @@ Pick the base per model — each is opt-in and independent:
 | `DigestHex` | `from tortoise_extended.expressions.pgcrypto import DigestHex` | Hex-encoded hash digest |
 | `HMACDigest` | `from tortoise_extended.expressions.pgcrypto import HMACDigest` | Keyed HMAC hash |
 | `CreateHypertable` | `from tortoise_extended.migrations.operations import CreateHypertable` | Hypertable via built-in migration writer |
+| `ensure_extensions` | `from tortoise_extended import ensure_extensions` | `CREATE EXTENSION IF NOT EXISTS` for the six required extensions |
+| `setup` | `from tortoise_extended import setup` | Startup fan-out: extensions → schemas → each stream model's `setup()` |
+| `SetupReport` | `from tortoise_extended import SetupReport` | What `setup()` ensured: extensions, stream tables, whether schemas were generated |
+| `SetupError` | `from tortoise_extended import SetupError` | Extension / startup failure (privilege, uninitialised Tortoise) |
 
 ## Filter Syntax Cheat Sheet
 

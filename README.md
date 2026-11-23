@@ -82,13 +82,16 @@ src/tortoise_extended/
 ├── _quote.py                # shared SQL identifier/literal quoting
 ├── _types.py                # concrete type aliases + duck-typed protocols
 ├── exceptions.py            # exception hierarchy
+├── lifecycle.py             # ensure_extensions / setup — extension, schema and hypertable fan-out
 ├── py.typed                 # PEP 561 typed-package marker
 ├── models/
 │   ├── base.py                # BaseModel (BigInt pk)
 │   ├── unified.py             # UnifiedIdModel (BigInt pk + UUID7 uid)
+│   ├── unified_node.py        # BaseUnifiedNode (UnifiedIdModel + NodeMixin)
 │   ├── user.py                # BaseUserModel (Django-style email/password auth)
 │   ├── mixins.py              # TimestampMixin / TimestampEndMixin (created_at/updated_at)
 │   ├── soft_delete.py         # BaseSoftDeleteModel + SoftDeleteQuerySet
+│   ├── soft_delete_node.py    # BaseSoftDeleteNode + SoftDeleteNodeQuerySet (subtree soft delete)
 │   ├── node.py                # NodeMixin + BaseNode (pk-free adjacency list, UUID7 identity)
 │   ├── graph_node.py          # BaseGraphNodeModel (deprecated alias of BaseNode, UUID4 pk)
 │   ├── graph_edge.py          # BaseGraphEdgeModel (typed/weighted edges, UUID pks)
@@ -111,7 +114,9 @@ src/tortoise_extended/
 │   ├── recursive_cte.py     # RecursiveCTE builder
 │   ├── graph_filters.py     # pgvector distance operators
 │   ├── graph_traversal.py   # GraphTraversal (ancestors/descendants/neighbors)
+│   ├── graph.py             # Graph facade over traversal, pathfinding and vector search
 │   ├── graph_vector_search.py  # GraphVectorSearch (graph + vector compositor)
+│   ├── fusion.py            # reciprocal_rank_fusion, weighted_score_fusion, diversity_rerank
 │   ├── pathfinding.py       # shortest_path, all_paths, find_cycles
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)
 │   ├── ltree_filters.py     # ltree query operators

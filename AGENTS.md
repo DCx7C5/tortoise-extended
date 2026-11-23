@@ -168,12 +168,14 @@ src/tortoise_extended/
 ├── _quote.py                # shared SQL identifier/literal quoting (timescale + migrations)
 ├── _types.py                # concrete type aliases + duck-typed protocols
 ├── exceptions.py            # exception hierarchy (VectorFieldError, GraphTraversalError, ...)
+├── lifecycle.py             # ensure_extensions / setup — extension, schema and hypertable fan-out
 ├── py.typed                 # PEP 561 typed-package marker
 ├── models/
 │   ├── base.py                # BaseModel (BigInt pk)
 │   ├── user.py                # BaseUserModel (Django-style email/password auth)
 │   ├── mixins.py              # TimestampMixin / TimestampEndMixin (created_at/updated_at)
 │   ├── soft_delete.py         # BaseSoftDeleteModel + SoftDeleteQuerySet
+│   ├── soft_delete_node.py    # BaseSoftDeleteNode + SoftDeleteNodeQuerySet (subtree soft delete)
 │   ├── node.py                # NodeMixin + BaseNode (adjacency-list, pk-free mixin, UUID7 identity)
 │   ├── graph_node.py          # BaseGraphNodeModel (deprecated alias of BaseNode, UUID4 pk)
 │   ├── graph_edge.py          # BaseGraphEdgeModel (typed/weighted edges, UUID pks)
@@ -181,6 +183,7 @@ src/tortoise_extended/
 │   ├── cacheable_model.py     # BaseCacheableModel (model-level Redis caching)
 │   ├── sample.py              # SampleMixin + BaseSample (TimescaleDB multi-stream, pk-free mixin, BigInt identity)
 │   ├── unified.py             # UnifiedIdModel (BigInt pk + UUID7 uid)
+│   ├── unified_node.py        # BaseUnifiedNode (UnifiedIdModel + NodeMixin, integer parent_id)
 │   └── event_stream.py        # BaseEventStreamModel (deprecated alias of BaseSample)
 ├── fields/
 │   ├── char.py            # CharField (validated varchar column)
@@ -198,6 +201,7 @@ src/tortoise_extended/
 │   ├── recursive_cte.py     # RecursiveCTE builder
 │   ├── graph_filters.py     # L2/Cosine/InnerProduct/Hamming/Jaccard distance operators
 │   ├── graph_traversal.py   # GraphTraversal (ancestors / descendants / neighbors)
+│   ├── graph.py             # Graph — model-class facade over traversal, pathfinding, vector search
 │   ├── graph_vector_search.py  # GraphVectorSearch (graph + vector compositor)
 │   ├── pathfinding.py       # shortest_path, all_paths, find_cycles
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)

@@ -41,7 +41,7 @@ from tortoise_extended import HNSWIndex, IVFFlatIndex, GiSTIndex
 ```python
 from tortoise_extended import RecursiveCTE
 from tortoise_extended import L2Distance, CosineDistance, InnerProduct
-from tortoise_extended import GraphTraversal, GraphVectorSearch, HybridSearch
+from tortoise_extended import GraphTraversal, GraphVectorSearch, HybridSearch, Graph
 from tortoise_extended import shortest_path, all_paths, find_cycles
 from tortoise_extended import (
     reciprocal_rank_fusion,
@@ -61,6 +61,9 @@ from tortoise_extended import (
     BaseGraphEdgeModel,
     BaseHierarchyModel,
     BaseGraphNodeModel,  # deprecated alias of BaseNode
+    BaseUnifiedNode,     # UnifiedIdModel + NodeMixin (integer parent_id)
+    BaseSoftDeleteNode,  # BaseSoftDeleteModel + NodeMixin (subtree soft delete)
+    SoftDeleteNodeQuerySet,
 )
 ```
 
@@ -87,6 +90,16 @@ from tortoise_extended.timescale import (
 )
 from tortoise_extended import BaseSample, BaseEventStreamModel, TimeBucketRow  # BaseEventStreamModel is the deprecated alias
 ```
+
+### Lifecycle
+
+```python
+from tortoise_extended import ensure_extensions, setup, SetupReport
+```
+
+`setup(models=None, *, generate_schemas=False)` is the startup fan-out:
+extensions → schemas (when requested) → each stream model's `setup()`. See
+[Getting started → Initialize](../getting-started/quickstart.md).
 
 ### Cache
 ```python
@@ -134,6 +147,7 @@ from tortoise_extended import (
     HybridSearchError,
     TimescaleError,
     MigrationOperationError,
+    SetupError,
     TortoiseExtendedError,
 )
 ```

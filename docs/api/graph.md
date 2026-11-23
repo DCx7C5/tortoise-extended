@@ -44,6 +44,24 @@ traversal helpers) layered over a time-ordered `UUID7Field` primary key and
 Traversal methods (`children()`, `descendants()`, `ancestors()`, `siblings()`,
 `path_to_root()`, `subtree()`, `is_leaf`) are the same as listed below.
 
+### Ergonomics methods
+
+| Method | Result | Description |
+|--------|--------|-------------|
+| `add_child(**values)` | `Self` | Create a child with `parent_id` / `depth` / `namespace` derived (async) |
+| `bulk_add_children(rows, *, using_db=None)` | `list` | Seed one level in one transaction |
+| `root()` | `Self` | Walk to the root node (async) |
+| `is_ancestor_of(other)` / `is_descendant_of(other)` | `bool` | Ancestry checks (async) |
+| `to_tree()` | `NodeTree` | Materialise the subtree as nested dicts |
+| `move_to(new_parent)` | `None` | Re-parent a persisted node and shift the subtree (async) |
+| `connect` / `disconnect` / `neighbours` | edge row / `int` / `list` | Node↔edge sugar over a duck-typed `edge_model` |
+| `rebuild_derived(*, namespace=None)` | `int` | Recompute derived columns after out-of-band writes |
+| `validate_node()` | `list[str]` | Invariant audit for one node; empty when clean |
+
+`save()` refuses a **persisted** `parent_id` change (`GraphError`, naming
+`move_to()`), and `bulk_create` / `bulk_update` raise — both bypass the derived
+columns. Full contracts: [Models → NodeMixin](models.md).
+
 ### Usage
 
 ```python
