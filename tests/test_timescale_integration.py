@@ -366,11 +366,18 @@ class TestRetentionPolicy:
     async def test_set_and_list_policies(self) -> None:
         await _make_hypertable()
         await RetentionPolicy.set_retention("test_events", drop_after="90 days")
-        policies = await RetentionPolicy.list_policies()
-        tables = {p.table_name for p in policies}
-        assert "test_events" in tables
-        event = next(p for p in policies if p.table_name == "test_events")
-        assert "90 days" in str(event.drop_after)
+        try:
+            policies = await RetentionPolicy.list_policies()
+            tables = {p.table_name for p in policies}
+            assert "test_events" in tables
+            event = next(p for p in policies if p.table_name == "test_events")
+            assert "90 days" in str(event.drop_after)
+        finally:
+            # A retention policy is a TimescaleDB background JOB, not a table
+            # constraint: dropping the hypertable leaves the job scheduled
+            # forever, and it then fails on every run ("hypertable with id N
+            # does not exist"). Remove it here, and on assertion failure too.
+            await RetentionPolicy.remove_retention("test_events")
 
     @pytest.mark.asyncio
     async def test_get_chunks_to_drop(self) -> None:
