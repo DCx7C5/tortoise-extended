@@ -69,7 +69,7 @@
    `to_tsvector(tsvector)`; `SearchVector(weight=...)` → asyncpg binds `'A'` as `tsvector`;
    `ts_rank` is not a match indicator under `~`). `HybridSearch` keeps its raw `ts_rank_cd`.
 
-### Tier 3 — QuerySet/API gaps — `wip`
+### Tier 3 — QuerySet/API gaps — `done`
 7. **Window functions** (`row_number()`, `rank()`, `dense_rank()`) —
    verified no window support in `QuerySet`; pypika supports it; home in
    `expressions/`. **Shipped 2026-11-23** (`4a96a1b` implementation, `8c514ec`
@@ -96,10 +96,15 @@
     `offset`/`limit`; return items + total + total_pages. **Shipped 2026-11-23**
     (`1fd2e95` implementation, `5446be1` tests): `pagination.py`, `QuerySet.paginate`
     as patch site 5, `docs/api/pagination.md`.
-11. **`bulk_insert(instances)`** — COPY-based bulk insert; shipped as a public
-    classmethod on `SampleMixin` / `BaseSample` (`models/sample.py`; requires an
-    explicit primary key on every instance). Remaining gap: generalise it to any
-    model, not only TimescaleDB streams (PG only).
+11. **`bulk_insert(instances)`** — **shipped 2026-11-23, generalised.** The COPY
+    implementation moved to `bulk.py` and is installed on every model as
+    `Model.bulk_insert` (patch site 7, identity-guarded through
+    `classmethod.__func__`); `SampleMixin` keeps its methods as thin delegates.
+    Explicit primary keys stay mandatory (COPY cannot use identity defaults), and a
+    model that declares any relation field is now **refused** — the stream-only
+    version silently dropped FK values, which is data loss a generalised helper must
+    not spread. `db_default` omission, `auto_now` stamping and `source_field`
+    mapping match `bulk_create`. `docs/api/models.md`.
 
 ### Tier 4 — model behavior — `todo`
 > **Status (2026-08-14):** item 12 (`BaseUserModel`, Django-style email/password
