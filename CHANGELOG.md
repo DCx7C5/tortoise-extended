@@ -121,6 +121,12 @@ the versions below are the `pyproject.toml` version at the time of the change.
   (`src/tortoise_extended/stubs/tortoise-stubs/`) shadows the only module that package ships, so
   it was a runtime dependency that changed nothing — measured: the type gate is byte-identical
   with the package uninstalled. The overlay stays dev-only and out of the wheel.
+- The wheel no longer carries the typing overlay: `[tool.hatch.build.targets.wheel]` excludes
+  `src/tortoise_extended/stubs`, so the 12 inert `.pyi` files (and their directories) are gone —
+  measured: 0 `.pyi` entries, no `/stubs/` path, `tortoise_extended/py.typed` still present.
+  A stub package is only auto-discovered at the top level of `site-packages`, so nothing changes
+  for a type checker; it was payload with no effect. The overlay still serves the dev gate through
+  `stubPath`.
 
 ### Fixed
 

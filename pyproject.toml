@@ -148,7 +148,7 @@ strictSetInference = false
 # runtime; the local overlay only corrects specific typing gaps for this library's
 # dev gate and stays out of the published artifact.
 packages = ["src/tortoise_extended"]
-
+exclude = ["src/tortoise_extended/stubs"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 # Share one event loop per module so module-scoped Tortoise connections are
