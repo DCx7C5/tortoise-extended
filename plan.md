@@ -712,6 +712,15 @@ rows rather than folded in: `LIFECYCLE-SETUP-EXPORT` (3021 — `setup` is public
 which needs one `pyproject.toml` line the user has agreed to add (the tool-level edit denial stands;
 do not work around it).
 
+**`GRAPH-FACADE` search signature (2026-11-23, planner decision).** The row specced
+`search(vector, *, k, max_hops, metric, min_distance)` with no seed, but `GraphVectorSearch` is
+graph-scoped by construction — its constructor takes `seed_id` and `max_hops`
+(`expressions/graph_vector_search.py:115-175`) and `search()` takes no arguments — so a seedless
+facade method cannot be composed without new SQL, which the row forbids. The facade therefore takes
+`seed` as a **required** node instance and states in its docstring that it has no vector-only mode;
+`k` maps to the underlying result limit. The worker spun on this gap for several minutes, which is
+why the decision is recorded here rather than left to the next reader.
+
 **TODO positions:** NODE-ERGO 2964 · NODE-EDGE-HYBRID 2965 · LIFECYCLE-EXTENSIONS 2966 ·
 UNIFIED-NODE 2967 · NODE-SOFTDELETE 2968 · GRAPH-FACADE 2969 · SAMPLE-RECORD-LATEST 2970 ·
 SAMPLE-GAPFILL 2971 · TIMESCALE-META-SPIKE 2972 · TIMESCALE-META-IMPL 2973 · DOCS-ERGO 2974 ·
