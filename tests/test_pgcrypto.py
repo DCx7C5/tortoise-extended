@@ -150,7 +150,13 @@ class TestPgcryptoAlgorithmAllowlist:
         with pytest.raises(PgCryptoError, match="Unsupported pgcrypto algorithm"):
             HMACDigest("body", "key", "nope")
 
-    def test_rejects_sql_injection_attempt(self) -> None:
+    def test_algorithm_allowlist_rejects_sql_shaped_payload(self) -> None:
+        """A quote in the *algorithm* never reaches SQL — it fails the allowlist.
+
+        This is the allowlist control, not the escaping control (see
+        ``test_hmac_string_key_escapes_embedded_quote`` and
+        ``test_sql_shaped_key_cannot_break_out`` for that one).
+        """
         payload = "sha256'; DROP TABLE foo; --"
         with pytest.raises(PgCryptoError, match="Unsupported pgcrypto algorithm"):
             Digest("body", payload)
@@ -300,3 +306,45 @@ class TestPgcryptoIntegration:
 
         expected = hmac_mod.new(key.encode(), plaintext.encode(), "sha256").digest()
         assert bytes(result.mac) == expected
+
+    async def test_hmac_string_key_with_quote_roundtrips(self) -> None:
+        """A ``str`` key containing ``'`` is doubled and reaches PostgreSQL intact.
+
+        The rendered literal must double the quote (level 1), and the value the
+        database sees must be the original key — asserted against Python's
+        ``hmac`` rather than against the SQL text alone.
+        """
+        plaintext = "quote-in-key"
+        key = "a'b"
+        sql = _HMACFunction(Field("plain_text"), key, "sha256").get_sql(
+            DEFAULT_SQL_CONTEXT
+        )
+        assert "'a''b'" in sql
+
+        doc = await SimpleDocument.create(plain_text=plaintext)
+        result = await SimpleDocument.annotate(
+            mac=HMACDigest("plain_text", key, "sha256")
+        ).get(id=doc.id)
+
+        expected = hmac_mod.new(key.encode(), plaintext.encode(), "sha256").digest()
+        assert bytes(result.mac) == expected
+
+    async def test_sql_shaped_key_cannot_break_out(self) -> None:
+        """A key shaped like an injection payload is data, never SQL.
+
+        The annotate runs, the table survives, and the MAC equals Python's for
+        the literal payload — so the doubled quote is the only escape level
+        that matters here.
+        """
+        plaintext = "injection-shaped-key"
+        key = "x'); DROP TABLE test_simple_documents; --"
+        doc = await SimpleDocument.create(plain_text=plaintext)
+
+        result = await SimpleDocument.annotate(
+            mac=HMACDigest("plain_text", key, "sha256")
+        ).get(id=doc.id)
+
+        expected = hmac_mod.new(key.encode(), plaintext.encode(), "sha256").digest()
+        assert bytes(result.mac) == expected
+        # The table is still there and still holds the row.
+        assert await SimpleDocument.filter(id=doc.id).count() == 1
