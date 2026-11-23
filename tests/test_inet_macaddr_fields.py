@@ -325,6 +325,39 @@ class TestInetFieldPostgres:
         assert isinstance(fetched.ip, ipaddress.IPv4Address)
         assert str(fetched.ip) == "10.1.2.3"
 
+    async def test_short_prefix_is_refused_on_read(self) -> None:
+        """A network interface on the read path raises, naming the prefix.
+
+        Catches a field that silently accepts the driver's interface object and
+        stores ``192.168.1.0`` as if the caller meant that host address: an ORM
+        write cannot produce this value, so it is written with raw SQL.
+        """
+        host = await InetHost.create(label="short-prefix", ip="192.168.1.10")
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query(
+            f"UPDATE {HOST_TABLE} SET ip = '192.168.1.0/24'::inet WHERE id = {host.id}"
+        )
+
+        with pytest.raises(ValueError, match="24"):
+            await InetHost.get(id=host.id)
+
+    async def test_full_length_prefix_reads_back_as_address(self) -> None:
+        """A ``/32`` is a host address: the guard must not reject it.
+
+        Catches a guard that rejects every prefixed value instead of only a
+        prefix shorter than the address length.
+        """
+        host = await InetHost.create(label="full-prefix", ip="192.168.1.10")
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query(
+            f"UPDATE {HOST_TABLE} SET ip = '192.168.1.10/32'::inet WHERE id = {host.id}"
+        )
+
+        fetched = await InetHost.get(id=host.id)
+        assert isinstance(fetched.ip, ipaddress.IPv4Address)
+        assert not isinstance(fetched.ip, ipaddress.IPv4Interface)
+        assert fetched.ip == ipaddress.IPv4Address("192.168.1.10")
+
 
 # ---------------------------------------------------------------------------
 # MacAddrField / MacAddr8Field — live PostgreSQL round-trip
