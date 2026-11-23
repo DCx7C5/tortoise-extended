@@ -78,6 +78,15 @@ RUN sed -i \
     /usr/share/postgresql/18/postgresql.conf.sample
 
 
-# Healthcheck — wait for accepting connections
+# Healthcheck — probe THIS postmaster, never the host socket and never a
+# database that may not exist. Two measured traps, both fixed by the two flags:
+#   * the container bind-mounts /var/run/postgresql, which the css-mcp stack
+#     also publishes, so a socket-less pg_isready answers for whichever
+#     container owns .s.PGSQL.5432 — it can report "accepting" while this
+#     postmaster is dead. -h 127.0.0.1 forces the loopback TCP listener.
+#   * pg_isready treats an ERROR reply (e.g. "database does not exist") as
+#     "accepting", so -d ${POSTGRES_DB} couples liveness to the application
+#     database and spams a FATAL line every interval when that DB is absent.
+#     -d postgres is the maintenance DB, which always exists.
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
-    CMD pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}
+    CMD pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER:-postgres} -d postgres

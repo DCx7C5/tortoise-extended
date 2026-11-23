@@ -144,6 +144,14 @@ the versions below are the `pyproject.toml` version at the time of the change.
 - `RetentionPolicyInfo` is decodable by msgspec (`drop_after` narrowed to the JSON scalars). It
   advertised a capability it did not have — the `bytes` member of `RowValue` made the union
   undecodable — though nothing in the shipped paths relied on it.
+- The `postgres-ext` healthcheck probes its **own** postmaster. It ran a socket-less
+  `pg_isready -d ${POSTGRES_DB}`; the container bind-mounts `/var/run/postgresql` (shared with the
+  css-mcp stack), so it answered for whichever container owned `.s.PGSQL.5432` — measured: inside
+  `postgres-ext`, `psql` without `-h` listed `core`/`secrets`/`testcore` (the neighbour's cluster)
+  while `-h 127.0.0.1` listed the tortoise databases. It also treated a missing application
+  database as healthy (`pg_isready` returns 0 on an ERROR reply, so `-d tortoise_test` only bought
+  a FATAL line per interval), so liveness was never actually tested. It now runs
+  `pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER:-postgres} -d postgres`.
 
 ### Security
 
