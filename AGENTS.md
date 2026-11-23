@@ -211,10 +211,13 @@ src/tortoise_extended/
 │   ├── graph_vector_search.py  # GraphVectorSearch (graph + vector compositor)
 │   ├── pathfinding.py       # shortest_path, all_paths, find_cycles
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)
+│   ├── fusion.py            # rank/score fusion + MMR diversity re-ranking
+│   ├── distinct_on.py       # PostgreSQL DISTINCT ON as hydrated models
 │   ├── ltree_filters.py     # ltree query operators
 │   ├── pgcrypto.py          # Digest / DigestHex / HMACDigest SQL wrappers
 │   ├── windows.py           # row_number / rank / dense_rank / ntile + windowed aggregates
-│   └── _edge_filter.py      # shared edge-table filter clause (et_clause)
+│   ├── _soft_delete.py      # soft-delete column detection (soft_delete_column)
+│   └── _edge_filter.py      # shared edge-type filter (et_clause) + live-row predicate
 ├── migrations/
 │   └── operations.py        # CreateHypertable, CreateContinuousAggregate
 ├── cache/
