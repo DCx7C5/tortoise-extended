@@ -503,7 +503,7 @@ def walk(tree: NodeTree[Category], level: int = 0) -> None:
 Pk-free mixin behind `BaseSample` for TimescaleDB stream tables. The full
 surface — hypertable DDL (`setup()`), COPY ingestion (`bulk_insert()`) and the
 query helpers (`latest_per_stream()`, `time_series()`, `in_range()`) — lives in
-[Event Streams](event-streams.md); the three ergonomic classmethods below cover
+[Event Streams](event-streams.md); the four ergonomic classmethods below cover
 the common single-row / single-stream cases.
 
 ### Methods
@@ -513,6 +513,7 @@ the common single-row / single-stream cases.
 | `record(*, stream=None, at=None, **fields)` | `Self` | Create one row; maps `stream` → `stream_field`, `at` → `time_field` |
 | `latest_for_stream(stream)` | `Self \| None` | Newest row for one stream (wraps `latest_per_stream()`) |
 | `downsample(interval, *, agg="avg", field=None, stream=None, start=None, end=None)` | `list[TimeBucketRow]` | Per-stream `time_bucket` rollup; open bounds default to the whole series |
+| `gapfill(interval, *, method="locf", field, stream=None, start=None, end=None)` | `list[TimeBucketRow]` | Gap-filled `time_bucket_gapfill` buckets; `method` is `locf`, `interpolate` or `null` (no fill); `start` / `end` are required |
 
 ### Usage
 
@@ -556,6 +557,54 @@ The ORM's `Model.latest(*orderings)` remains available on sample models, and
 `downsample()` validates `field` against the model and raises `TimescaleError`
 for an unknown name; `start` / `end` default to the earliest row and the latest
 row plus one microsecond (the upper bound is exclusive).
+
+### gapfill
+
+`gapfill()` wraps TimescaleDB `time_bucket_gapfill()`: every bucket in the
+`start` .. `end` range comes back, including the buckets that hold no raw rows.
+`method` decides how those gaps are filled — `"locf"` (the default) carries the
+last observation forward, `"interpolate"` linearly interpolates between the
+neighbouring observations, and `"null"` applies no fill function at all, so gap
+buckets keep `NULL` values. The bucket value is the `avg` of `field`; `count`
+is the number of raw rows in the bucket (`0` for a gap bucket).
+
+```python
+base = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+
+await Event.record(stream=7, at=base, value=1.0)
+await Event.record(stream=7, at=base + timedelta(hours=3), value=4.0)
+
+buckets = await Event.gapfill(
+    "1 hour",
+    method="locf",
+    field="value",
+    stream=7,
+    start=base,
+    end=base + timedelta(hours=4),
+)
+# 4 buckets: 1.0, 1.0, 1.0, 4.0 — the middle two carried forward
+
+await Event.gapfill(
+    "1 hour",
+    method="interpolate",
+    field="value",
+    stream=7,
+    start=base,
+    end=base + timedelta(hours=4),
+)
+# 4 buckets: 1.0, 2.0, 3.0, 4.0
+```
+
+`start` and `end` are required — a `TimescaleError` when either is missing or
+`end <= start` — because TimescaleDB derives the synthesised buckets from that
+range, so it cannot be inferred from the data the way `downsample()` infers its
+bounds. `field` must be numeric: `IntField` / `BigIntField` / `SmallIntField` /
+`FloatField` / `DecimalField` (anything whose `field_type` is `int`, `float` or
+`Decimal`); an unknown name or a text / datetime / UUID / JSON column raises
+`TimescaleError`. With `stream=None` every stream is gap-filled independently
+over the same range. The table must be a hypertable (`setup()`), and a range
+holding no rows returns an empty list — TimescaleDB anchors the buckets to real
+series data.
 
 ---
 

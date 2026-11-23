@@ -1000,3 +1000,160 @@ class TestSampleErgonomics:
     @pytest.mark.asyncio
     async def test_downsample_empty_series_returns_empty(self) -> None:
         assert await StreamEvent.downsample("1 hour", agg="count") == []
+
+    # ── gapfill (TODO 2971) ──────────────────────────────────────────────
+
+    @staticmethod
+    async def _two_anchor_rows(base: datetime.datetime) -> None:
+        """Seed stream 1 with a row at *base* and one three hours later."""
+        await StreamEvent.setup()
+        await StreamEvent.record(id=1, stream=1, at=base, value=1.0)
+        await StreamEvent.record(
+            id=2,
+            stream=1,
+            at=base + datetime.timedelta(hours=3),
+            value=4.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_gapfill_locf_fills_missing_buckets(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        await self._two_anchor_rows(base)
+
+        rows = await StreamEvent.gapfill(
+            "1 hour",
+            method="locf",
+            field="value",
+            stream=1,
+            start=base,
+            end=base + datetime.timedelta(hours=4),
+        )
+
+        assert len(rows) == 4
+        assert isinstance(rows[0], TimeBucketRow)
+        assert [r.bucket for r in rows] == [
+            base + datetime.timedelta(hours=i) for i in range(4)
+        ]
+        # Middle buckets carry the last observation (1.0) forward.
+        assert [r.value for r in rows] == [1.0, 1.0, 1.0, 4.0]
+        assert [r.count for r in rows] == [1, 0, 0, 1]
+        assert {r.stream_id for r in rows} == {1}
+
+    @pytest.mark.asyncio
+    async def test_gapfill_interpolate_averages_midpoints(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        await self._two_anchor_rows(base)
+
+        rows = await StreamEvent.gapfill(
+            "1 hour",
+            method="interpolate",
+            field="value",
+            stream=1,
+            start=base,
+            end=base + datetime.timedelta(hours=4),
+        )
+
+        assert len(rows) == 4
+        # 1.0 → 4.0 over three hours: +1.0 per bucket.
+        assert [r.value for r in rows] == [1.0, 2.0, 3.0, 4.0]
+
+    @pytest.mark.asyncio
+    async def test_gapfill_null_method_leaves_gaps_empty(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        await self._two_anchor_rows(base)
+
+        rows = await StreamEvent.gapfill(
+            "1 hour",
+            method="null",
+            field="value",
+            stream=1,
+            start=base,
+            end=base + datetime.timedelta(hours=4),
+        )
+
+        assert len(rows) == 4
+        assert [r.value for r in rows] == [1.0, None, None, 4.0]
+        assert [r.count for r in rows] == [1, 0, 0, 1]
+
+    @pytest.mark.asyncio
+    async def test_gapfill_fills_each_stream_independently(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        await self._two_anchor_rows(base)
+        await StreamEvent.record(
+            id=3,
+            stream=2,
+            at=base + datetime.timedelta(minutes=30),
+            value=10.0,
+        )
+
+        rows = await StreamEvent.gapfill(
+            "1 hour",
+            field="value",
+            start=base,
+            end=base + datetime.timedelta(hours=4),
+        )
+
+        assert len(rows) == 8
+        assert [r.stream_id for r in rows] == [1] * 4 + [2] * 4
+        values = {sid: [r.value for r in rows if r.stream_id == sid] for sid in (1, 2)}
+        assert values[1] == [1.0, 1.0, 1.0, 4.0]
+        assert values[2] == [10.0, 10.0, 10.0, 10.0]
+
+    @pytest.mark.asyncio
+    async def test_gapfill_empty_range_returns_empty(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        await StreamEvent.setup()
+
+        assert (
+            await StreamEvent.gapfill(
+                "1 hour",
+                field="value",
+                stream=1,
+                start=base,
+                end=base + datetime.timedelta(hours=4),
+            )
+            == []
+        )
+
+    @pytest.mark.asyncio
+    async def test_gapfill_requires_start_and_end(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        with pytest.raises(TimescaleError, match="start= and end="):
+            await StreamEvent.gapfill("1 hour", field="value", end=base)
+        with pytest.raises(TimescaleError, match="start= and end="):
+            await StreamEvent.gapfill("1 hour", field="value", start=base)
+
+    @pytest.mark.asyncio
+    async def test_gapfill_rejects_inverted_range(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        with pytest.raises(TimescaleError, match="must be increasing"):
+            await StreamEvent.gapfill(
+                "1 hour",
+                field="value",
+                start=base,
+                end=base - datetime.timedelta(hours=1),
+            )
+        with pytest.raises(TimescaleError, match="must be increasing"):
+            await StreamEvent.gapfill("1 hour", field="value", start=base, end=base)
+
+    @pytest.mark.asyncio
+    async def test_gapfill_rejects_unknown_field(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        with pytest.raises(TimescaleError, match="nope"):
+            await StreamEvent.gapfill(
+                "1 hour",
+                field="nope",
+                start=base,
+                end=base + datetime.timedelta(hours=1),
+            )
+
+    @pytest.mark.asyncio
+    async def test_gapfill_rejects_non_numeric_field(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        with pytest.raises(TimescaleError, match="numeric"):
+            await StreamEvent.gapfill(
+                "1 hour",
+                field="kind",
+                start=base,
+                end=base + datetime.timedelta(hours=1),
+            )

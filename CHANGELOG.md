@@ -67,6 +67,13 @@ the versions below are the `pyproject.toml` version at the time of the change.
   — rollup over the whole series, delegating to `time_series()`; an unknown `field` raises
   `TimescaleError`, and open bounds are widened to the series' own first and last row (the upper
   bound is exclusive, so `end` becomes last + 1 µs).
+- `SampleMixin.gapfill(interval, *, method="locf", field, stream=None, start=None, end=None)` —
+  TimescaleDB `time_bucket_gapfill` with `locf()` / `interpolate()` / no fill, emitting every
+  bucket of the range including the empty ones. `start` / `end` are required and `end <= start`
+  raises: TimescaleDB derives the synthesised buckets from the range, so unlike `downsample()` it
+  cannot be inferred from the data. An unknown or non-numeric `field` raises `TimescaleError`
+  before any SQL is sent. Raw SQL, as the `expressions/` carve-out allows — Tortoise cannot
+  express gapfill — with quoted identifiers and bound parameters.
 
 ### Changed
 

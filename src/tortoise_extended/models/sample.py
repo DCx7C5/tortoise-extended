@@ -17,6 +17,7 @@ Turns any subclass into a multi-stream time-series table:
   - :meth:`SampleMixin.latest_per_stream` — newest event per stream.
   - :meth:`SampleMixin.latest_for_stream` — newest event for one stream.
   - :meth:`SampleMixin.time_series` — typed per-stream rollups.
+  - :meth:`SampleMixin.gapfill` — gap-filled buckets (LOCF / interpolation).
   - :meth:`SampleMixin.downsample` — one-stream rollup over the whole series.
   - :meth:`SampleMixin.in_range` — pure-ORM time/stream filter.
 
@@ -81,6 +82,7 @@ Usage::
 
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast, override
 
 from tortoise import connections
@@ -110,6 +112,21 @@ from tortoise_extended.timescale.stream import (
 
 if TYPE_CHECKING:
     from tortoise.queryset import QuerySet
+
+_NUMERIC_FIELD_TYPES: tuple[type[int] | type[float] | type[Decimal], ...] = (
+    int,
+    float,
+    Decimal,
+)
+"""Python types accepted by :meth:`SampleMixin.gapfill`.
+
+Read from ``Field.field_type`` (tortoise-orm 1.1.x has no ``python_type``),
+so this accepts ``IntField`` / ``BigIntField`` / ``SmallIntField`` /
+``IntEnumField`` (``int``), ``FloatField`` (``float``) and ``DecimalField``
+(``Decimal``). ``BooleanField`` (``bool``), text, datetime, UUID and JSON
+columns are rejected: gapfill aggregates with ``avg``, which those cannot
+express.
+"""
 
 
 class SampleMixin(Model):
@@ -735,6 +752,151 @@ class SampleMixin(Model):
             end=end,
             stream_ids=[stream] if stream is not None else None,
         )
+
+    @classmethod
+    async def gapfill(
+        cls,
+        interval: str,
+        *,
+        method: Literal["locf", "interpolate", "null"] = "locf",
+        field: str,
+        stream: str | int | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[TimeBucketRow]:
+        """Return gap-filled per-stream rollups via ``time_bucket_gapfill``.
+
+        Every bucket of the ``start`` .. ``end`` range is emitted, including
+        the ones without raw rows; *method* decides how their value is filled:
+
+        * ``"locf"`` — last observation carried forward.
+        * ``"interpolate"`` — linear interpolation between the neighbouring
+          observations; buckets before the first / after the last observation
+          stay ``NULL``.
+        * ``"null"`` — no fill function at all: empty buckets carry ``NULL``.
+
+        The bucket value is the ``avg`` of *field*; ``count`` is the number of
+        raw rows in the bucket (``0`` for a synthesised bucket).
+
+        Args:
+            interval: Bucket width (e.g. ``"1 hour"``, ``"30 minutes"``).
+                ``month``/``year`` widths are not supported — they are
+                variable-length and cannot be bound as a fixed interval.
+            method: Gap-filling strategy (see above).
+            field: Numeric value column — one whose ``field_type`` is ``int``,
+                ``float`` or ``Decimal`` (``IntField`` / ``BigIntField`` /
+                ``SmallIntField`` / ``FloatField`` / ``DecimalField``).
+                Unknown or non-numeric names raise.
+            stream: Restrict to one stream (all streams when ``None``; each
+                stream is gap-filled independently over the same range).
+            start: Inclusive lower bound of the gap-filled range — required.
+            end: Exclusive upper bound of the gap-filled range — required.
+
+        Returns:
+            One :class:`TimeBucketRow` per (stream, bucket) across the whole
+            range, ordered by stream then bucket ascending. Empty when the
+            range holds no rows: TimescaleDB anchors the synthesised buckets
+            to real series data, so a series with no row in range yields no
+            buckets at all.
+
+        Raises:
+            TimescaleError: If ``start`` / ``end`` are omitted or ``end <=
+                start``, or if ``field`` is not a declared numeric column.
+
+        Note:
+            ``time_bucket_gapfill`` only runs on hypertables (see
+            :meth:`setup`). On a plain table the driver error surfaces as
+            :class:`TimescaleError` through ``_fetch_rows``.
+        """
+        if start is None or end is None:
+            raise TimescaleError(
+                "gapfill() requires explicit start= and end= bounds; "
+                "TimescaleDB derives the synthesised buckets from that range"
+            )
+        if end <= start:
+            raise TimescaleError(
+                f"gapfill() got end={end.isoformat()} <= "
+                f"start={start.isoformat()}; the range must be increasing"
+            )
+        value_field = cls._meta.fields_map.get(field)
+        if value_field is None:
+            raise TimescaleError(
+                f"gapfill() got unknown field {field!r} for {cls.__name__}; "
+                "available: " + ", ".join(sorted(cls._meta.fields_map))
+            )
+        if value_field.field_type not in _NUMERIC_FIELD_TYPES:
+            raise TimescaleError(
+                f"gapfill() requires a numeric field; {field!r} is "
+                f"{value_field.field_type!r} — only int / float / Decimal "
+                "columns can be aggregated and gap-filled"
+            )
+
+        _ = _table_field(cls, cls.time_field, what="time")
+        _ = _table_field(cls, cls.stream_field, what="stream")
+
+        stream_col = quote_ident(cls.stream_field)
+        time_col = quote_ident(cls.time_field)
+        table = quote_ident(cls._meta.db_table)
+        value_col = quote_ident(_field_db_column(value_field, field))
+
+        placeholders: list[_SQLParam] = [
+            _bucket_to_timedelta(interval),
+            start,
+            end,
+        ]
+        where = [
+            f"s.{time_col} >= $2",
+            f"s.{time_col} < $3",
+        ]
+        if stream is not None:
+            placeholders.append(stream)
+            where.append(f"s.{stream_col} = ${len(placeholders)}")
+
+        # ``locf`` / ``interpolate`` wrap the bucket aggregate; ``null`` leaves
+        # the bare aggregate so gap buckets come back NULL.
+        if method == "null":
+            value_sql = f"avg(s.{value_col}) AS value"
+        else:
+            value_sql = f"{method}(avg(s.{value_col})) AS value"
+
+        # The bucket width is bound as a parameter (verified against
+        # TimescaleDB 2.29: ``time_bucket_gapfill`` accepts a bound interval
+        # and keeps working after the plan goes generic), so no literal
+        # quoting is needed for it.
+        sql = f"""
+            SELECT
+                time_bucket_gapfill(
+                    $1::interval, s.{time_col},
+                    $2::timestamptz, $3::timestamptz
+                ) AS bucket,
+                s.{stream_col} AS stream_id,
+                {value_sql},
+                COUNT(*) AS count
+            FROM {table} s
+            WHERE {" AND ".join(where)}
+            GROUP BY bucket, s.{stream_col}
+            ORDER BY s.{stream_col}, bucket
+        """
+
+        rows = await _fetch_rows(sql, placeholders)
+        result: list[TimeBucketRow] = []
+        for row in rows:
+            bucket_value = row.get("bucket")
+            stream_value = row.get("stream_id")
+            value_value = row.get("value")
+            count_value = row.get("count")
+            result.append(
+                TimeBucketRow(
+                    stream_id=cast(int | str, stream_value),
+                    bucket=_bucket_datetime(bucket_value),
+                    # ``avg`` over an int / numeric column decodes as
+                    # ``Decimal``; the struct declares ``float | None``.
+                    value=None if value_value is None else float(value_value),
+                    # A synthesised bucket has no raw rows — COUNT(*) is NULL.
+                    count=0 if count_value is None else cast(int, count_value),
+                )
+            )
+        return result
 
 
 class BaseSample(BaseModel, SampleMixin):
