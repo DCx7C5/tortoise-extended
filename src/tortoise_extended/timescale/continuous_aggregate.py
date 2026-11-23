@@ -85,19 +85,36 @@ def _quoted_name(name: str) -> str:
     return ".".join(maybe_double_quote_name(part) for part in name.split("."))
 
 
+def _source_candidates(source_table: str) -> set[str]:
+    """Return the rendered forms *source_table* can take in a parsed query.
+
+    ``referenced_relations`` renders unquoted identifiers folded to lowercase
+    (PostgreSQL's rule) and quoted ones with their quotes.  A ``source_table``
+    is a plain string with no quoting information, so both readings are
+    candidates: the exact quoted rendering, and the folded form an unquoted
+    reference produces.
+    """
+    return {_quoted_name(source_table), source_table.lower()}
+
+
 def _references_source(relations: set[str], source_table: str) -> bool:
     """Whether a parsed query reads from *source_table*.
 
     A schema-qualified ``source_table`` (``metrics.events``) requires both the
     schema and the relation to match.  An unqualified one matches the relation
     name alone, whether or not the query qualifies it (``events`` matches both
-    ``events`` and ``metrics.events``).
+    ``events`` and ``metrics.events``).  Matching follows PostgreSQL's folding
+    of unquoted identifiers: a declared ``Events`` matches ``FROM Events``
+    (read by PostgreSQL as ``events``) and ``FROM "Events"``, while a declared
+    ``events`` does not match ``FROM "Events"``.
     """
-    wanted = _quoted_name(source_table)
+    candidates = _source_candidates(source_table)
     if "." in source_table:
-        return wanted in relations
+        return not candidates.isdisjoint(relations)
     return any(
-        relation == wanted or relation.endswith(f".{wanted}") for relation in relations
+        relation == candidate or relation.endswith(f".{candidate}")
+        for candidate in candidates
+        for relation in relations
     )
 
 

@@ -934,3 +934,39 @@ class TestBucketToTimedelta:
 
     def test_positive_ok(self) -> None:
         assert _bucket_to_timedelta("2 hour") == timedelta(hours=2)
+
+
+# ---------------------------------------------------------------------------
+# Source-table case folding (row 3008)
+# ---------------------------------------------------------------------------
+
+
+class TestCaggSourceCaseFolding:
+    """A declared mixed-case ``source_table`` must still match its query.
+
+    ``referenced_relations`` folds unquoted identifiers to lowercase, while a
+    declared ``source_table`` is a plain string.  Both readings must be tried,
+    or a declaration like ``"Events"`` regresses against ``FROM Events``.
+    """
+
+    def test_declared_mixed_case_matches_unquoted_reference(self) -> None:
+        assert (
+            validate_cagg_query("SELECT 1 FROM Events", "Events")
+            == "SELECT 1 FROM Events"
+        )
+
+    def test_declared_mixed_case_matches_quoted_reference(self) -> None:
+        assert (
+            validate_cagg_query('SELECT 1 FROM "Events"', "Events")
+            == 'SELECT 1 FROM "Events"'
+        )
+
+    def test_declared_lowercase_does_not_match_quoted_mixed_case(self) -> None:
+        with pytest.raises(ValueError, match="must reference the source table"):
+            validate_cagg_query('SELECT 1 FROM "Events"', "events")
+
+    def test_schema_qualified_mixed_case_folds(self) -> None:
+        assert (
+            validate_cagg_query("SELECT 1 FROM Metrics.Events", "Metrics.Events")
+            == "SELECT 1 FROM Metrics.Events"
+        )
