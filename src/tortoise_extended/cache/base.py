@@ -170,6 +170,7 @@ class _RestrictedUnpickler(pickle.Unpickler):
     callables, closing the standard pickle RCE vector.
     """
 
+    @override
     def find_class(self, module: str, name: str) -> object:
         """Resolve a global reference; deny anything outside the safe builtins."""
         if module == "builtins" and name in _SAFE_PICKLE_BUILTINS:
@@ -359,9 +360,7 @@ class SingleFlight:
         self._futures: dict[str, asyncio.Future[CacheValue]] = {}
         self._lock = threading.Lock()
 
-    def claim(
-        self, key: str
-    ) -> tuple[bool, asyncio.Future[CacheValue]]:
+    def claim(self, key: str) -> tuple[bool, asyncio.Future[CacheValue]]:
         """Claim exclusive execution for *key*.
 
         The first caller wins (returns ``(True, future)``); subsequent
