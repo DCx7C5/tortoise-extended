@@ -21,11 +21,12 @@ from datetime import datetime, timedelta
 from typing import Literal, TypeAlias, cast
 
 import msgspec
-from tortoise import connections, fields
+from tortoise import connections
 from tortoise.backends.base.client import BaseDBAsyncClient
 from tortoise.models import Model
 
 from tortoise_extended._types import RowMapping, RowValue
+from tortoise_extended.bulk import field_db_column as _field_db_column
 from tortoise_extended.exceptions import TimescaleError
 
 # ── Typed result containers ────────────────────────────────────────────────
@@ -97,11 +98,6 @@ class TimeBucketRow(msgspec.Struct):
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────
-
-
-def _field_db_column(field: fields.Field[RowValue], fallback: str) -> str:
-    """Resolve a field's physical DB column name."""
-    return field.source_field or fallback
 
 
 def _table_field(cls: type[Model], field_name: str, *, what: str) -> str:

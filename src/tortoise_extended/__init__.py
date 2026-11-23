@@ -45,9 +45,11 @@ from typing import cast
 from asyncpg import Pool
 from tortoise.fields import Field
 from tortoise.filters import FilterInfoDict
+from tortoise.models import Model as _Model
 from tortoise.queryset import QuerySet as _QuerySet
 
 from tortoise_extended._types import AsyncpgConnection, RowValue
+from tortoise_extended.bulk import bulk_insert
 from tortoise_extended.cache import (
     CachedQuerySet,
     RedisCache,
@@ -460,6 +462,10 @@ def _apply_patches() -> None:
        the same identity contract as site 5: absent installs, our own
        ``random_ordering`` is a no-op, anything else raises
        :class:`PatchConflictError`.
+    7. **COPY bulk insert** (``tortoise.models.Model.bulk_insert``) — the same
+       identity contract, compared through ``classmethod.__func__`` because the
+       install wraps the function: absent installs, our own ``bulk_insert`` is a
+       no-op, anything else raises :class:`PatchConflictError`.
 
     ``MigrationWriter._format_operation`` is patched separately, at import
     time, by :mod:`tortoise_extended.migrations.operations` — not by this
@@ -594,6 +600,22 @@ def _apply_patches() -> None:
             f"attribute."
         )
 
+    # 7. Register Model.bulk_insert (idempotent identity guard on __func__)
+    _existing_bulk_insert = getattr(_Model, "bulk_insert", None)
+    if _existing_bulk_insert is None:
+        setattr(_Model, "bulk_insert", classmethod(bulk_insert))
+    elif getattr(_existing_bulk_insert, "__func__", _existing_bulk_insert) is not (
+        bulk_insert
+    ):
+        raise PatchConflictError(
+            f"tortoise.models.Model.bulk_insert already holds a foreign "
+            f"object ({_existing_bulk_insert!r}), so tortoise-extended cannot "
+            f"install its own `bulk_insert`: the patch would silently no-op "
+            f"while `tortoise_extended.bulk_insert` still exports this "
+            f"package's function. Uninstall the conflicting extension or make "
+            f"tortoise-extended the only package patching this attribute."
+        )
+
 
 __all__ = [
     "BaseCacheableModel",
@@ -681,6 +703,7 @@ __all__ = [
     "VersionMixin",
     "all_paths",
     "avg_over",
+    "bulk_insert",
     "cached",
     "cached_method",
     "count_over",

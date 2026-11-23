@@ -82,7 +82,10 @@ await Event.bulk_insert(
 `bulk_insert` loads rows through asyncpg `COPY` (3–10× faster than
 `bulk_create`). It requires **explicit primary keys** on every instance —
 COPY cannot use identity defaults; use `bulk_create` when IDs are
-database-generated.
+database-generated. The stream method delegates to the general
+[`Model.bulk_insert`](models.md#modelbulk_insert--copy-ingestion-any-model),
+which also refuses models that declare relation fields (a `COPY` record cannot
+carry them).
 
 ## Queries
 

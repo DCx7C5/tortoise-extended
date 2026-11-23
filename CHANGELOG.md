@@ -8,6 +8,15 @@ the versions below are the `pyproject.toml` version at the time of the change.
 
 ### Added
 
+- `Model.bulk_insert(instances)` (patch site 7, `bulk.py`) — the COPY-based bulk insert
+  generalised from `SampleMixin`: one asyncpg `COPY` per batch instead of `bulk_create`'s multi-row
+  `INSERT`, on **every** model. Explicit primary keys remain mandatory (COPY cannot use identity
+  defaults); a model declaring any relation field is refused with `ValueError` naming the fields,
+  because a flat COPY record would silently drop an FK/M2M value — the stream-only implementation
+  did exactly that, so the generalisation refuses instead of spreading it. `db_default` omission,
+  `auto_now`/`auto_now_add` stamping and `source_field` column mapping mirror `bulk_create`.
+  `SampleMixin` keeps `bulk_insert` and its four helpers as thin delegates; documented in
+  `docs/api/models.md`.
 - `PGPEncryptedField` (`fields/pgcrypto.py`) — a `bytea` column for ciphertext the application
   produces. It performs no encryption and never sees a key; it exists so the intent is visible in
   the model and the boundary is enforced: a `str` raises `TypeError` naming the field (storing text
@@ -194,6 +203,10 @@ the versions below are the `pyproject.toml` version at the time of the change.
 
 ### Fixed
 
+- `bulk_insert` dropped any column whose field used `source_field` (`note` → `note_text`): the
+  column list was filtered against `MetaInfo.db_fields`, which holds *column* names, so the field
+  name never matched and the value the caller set was silently never written. The filter now keys
+  off `fields_db_projection`. Found while generalising the helper, fixed in the same change.
 - The recursive-CTE modules (`pathfinding`, `GraphTraversal`, `GraphVectorSearch`) now detect
   soft delete by the **projected column**, matching `distinct_on()`: a node or edge that projects
   `deleted_at` through a renamed field

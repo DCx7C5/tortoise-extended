@@ -59,6 +59,51 @@ from tortoise_extended import (
 
 ---
 
+## Model.bulk_insert — COPY ingestion (any model)
+
+`bulk_insert(instances)` is installed on **every** model by the patch set
+(site 7), so it is not tied to TimescaleDB streams. It writes rows with a single
+asyncpg `COPY` statement — 3–10× faster than `bulk_create`, which renders one
+multi-row `INSERT` per batch.
+
+```python
+from tortoise import fields
+from tortoise.models import Model
+
+
+class Reading(Model):
+    id = fields.IntField(primary_key=True)
+    sensor = fields.CharField(max_length=64)
+    value = fields.FloatField()
+
+    class Meta:
+        table = "readings"
+
+
+await Reading.bulk_insert(
+    [Reading(id=i, sensor="a", value=0.5 * i) for i in range(1, 5)]
+)
+```
+
+### Rules
+
+| Rule | Why |
+|------|-----|
+| Explicit primary keys on every instance | `COPY` cannot use identity/serial defaults; a missing id would insert a row the ORM cannot address (`ValueError` before any connection is used) |
+| No relation fields on the model | A `COPY` record is a flat column list: an FK, M2M or backward relation would be silently dropped. The call raises `ValueError` naming the fields and pointing at `bulk_create` |
+| `db_default` columns: all instances defer, or all set a value | Mirrors `bulk_create`; mixed usage raises `OperationalError` because one statement cannot express both |
+| Empty list returns `0` | No connection is acquired |
+
+`source_field` mappings are honoured — the `COPY` targets the real column, so a
+mapped field is never silently left at its default. `auto_now` / `auto_now_add`
+columns are stamped through the field's `to_db_value`, exactly as `bulk_create`
+does. Every instance is marked persisted after a successful `COPY`, so a later
+`instance.save()` updates the row instead of inserting a duplicate.
+
+Requires PostgreSQL (asyncpg backend). For stream tables the same method is also
+available on `SampleMixin` / `BaseSample`, which delegates to this
+implementation — see [Event Streams](event-streams.md#ingestion--copy).
+
 ## BaseModel
 
 Abstract base declaring `id = BigIntField(primary_key=True)`.

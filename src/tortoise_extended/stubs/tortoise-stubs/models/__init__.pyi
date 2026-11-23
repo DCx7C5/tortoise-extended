@@ -56,6 +56,9 @@ class MetaInfo:
     fk_fields: set[str]
     m2m_fields: dict[str, Any]
     backward_fk_fields: set[str]
+    o2o_fields: set[str]
+    backward_o2o_fields: set[str]
+    fetch_fields: set[str]
     fields_map: dict[str, Field[Any]]
     filters: dict[str, object]
     manager: Manager
@@ -63,6 +66,7 @@ class MetaInfo:
     basetable: Table
     fields_db_projection: dict[str, str]
     fields_db_projection_reverse: dict[str, str]
+    generated_db_fields: tuple[str, ...]
 
 class ModelMeta(type):
     """Metaclass for all Tortoise models (mirrors the runtime metaclass)."""
