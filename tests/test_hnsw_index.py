@@ -1,10 +1,17 @@
 """Tests for HNSWIndex and IVFFlatIndex."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from tortoise_extended.exceptions import IndexDefinitionError
+from tortoise_extended.expressions.graph_filters import (
+    CosineDistanceOp,
+    InnerProductOp,
+    L2DistanceOp,
+    get_vector_filters,
+)
 from tortoise_extended.indexes.hnsw_index import HNSWIndex, IVFFlatIndex
 
 
@@ -217,3 +224,71 @@ class TestDialectGuard:
             gen, FakeModel("chunks"), safe=False
         )
         assert sql.startswith('CREATE INDEX "hnsw_FakeModel_embedding"')
+
+
+# ---------------------------------------------------------------------------
+# TODO 3009 — opclass / operator / filter consistency (code and docs)
+# ---------------------------------------------------------------------------
+
+DOCS_INDEXES = Path(__file__).resolve().parents[1] / "docs" / "api" / "indexes.md"
+
+_OPCLASS_PAIRINGS: tuple[tuple[str, str, str], ...] = (
+    ("vector_l2_ops", "<->", "__l2_distance"),
+    ("vector_ip_ops", "<#>", "__inner_product"),
+    ("vector_cosine_ops", "<=>", "__cosine_distance"),
+)
+
+_OPCLASS_OPERATORS: dict[str, str] = {
+    "vector_l2_ops": L2DistanceOp.l2_distance.value,
+    "vector_ip_ops": InnerProductOp.inner_product.value,
+    "vector_cosine_ops": CosineDistanceOp.cosine_distance.value,
+}
+
+
+def _distance_metrics_rows() -> list[list[str]]:
+    """Return the data rows of the ``### Distance Metrics`` table in the docs."""
+    text = DOCS_INDEXES.read_text(encoding="utf-8")
+    # Fail loudly (IndexError) if the heading is renamed — the table is a contract.
+    section = text.split("### Distance Metrics", 1)[1].split("\n### ", 1)[0]
+    rows: list[list[str]] = []
+    for line in section.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        if len(cells) != 4 or not cells[0].startswith("`"):
+            continue  # header / separator row
+        rows.append(cells)
+    return rows
+
+
+class TestOpclassFilterDocConsistency:
+    """TODO 3009 — every opclass/operator/filter pairing must agree in code AND docs.
+
+    An index is only used by the operator of its opclass; a mismatched pair
+    silently falls back to a sequential scan, so code and documentation must
+    not drift apart.
+    """
+
+    @pytest.mark.parametrize(("opclass", "operator", "query_filter"), _OPCLASS_PAIRINGS)
+    def test_code_states_pairing(
+        self, opclass: str, operator: str, query_filter: str
+    ) -> None:
+        # The opclass is accepted by the index type (constructor validates it).
+        idx = HNSWIndex(fields=("embedding",), dist_metric=opclass)
+        assert idx.dist_metric == opclass
+        # The comparator for this opclass carries exactly this operator.
+        assert _OPCLASS_OPERATORS[opclass].strip() == operator
+        # The matching query filter is registered for VectorField.
+        filters = get_vector_filters("embedding", "embedding")
+        assert f"embedding{query_filter}" in filters
+
+    @pytest.mark.parametrize(("opclass", "operator", "query_filter"), _OPCLASS_PAIRINGS)
+    def test_docs_state_pairing(
+        self, opclass: str, operator: str, query_filter: str
+    ) -> None:
+        matching = [row for row in _distance_metrics_rows() if row[0] == f"`{opclass}`"]
+        assert len(matching) == 1, f"expected exactly one docs row for {opclass}"
+        _doc_opclass, doc_operator, _description, doc_filter = matching[0]
+        assert doc_operator == f"`{operator}`"
+        assert doc_filter == f"`{query_filter}`"

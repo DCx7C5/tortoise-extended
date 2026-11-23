@@ -220,3 +220,47 @@ class TestReparentChildCountSync:
 
         assert (await QueryNode.get(pk=p1.id)).child_count == 0
         assert (await QueryNode.get(pk=p2.id)).child_count == 1
+
+
+class TestMetaIndexesGuard:
+    """TODO 3007 — ``BaseGraphEdgeModel.__init_subclass__`` index guard.
+
+    Tortoise does not propagate ``Meta.indexes`` from the abstract base, so the
+    guard raises at class-creation time instead of silently building an edge
+    table without its composite indexes.
+    """
+
+    def test_concrete_without_indexes_raises_at_class_creation(self) -> None:
+        """A concrete subclass with ``Meta.table`` but no ``indexes`` must raise."""
+        with pytest.raises(NotImplementedError, match=r"\.Meta must redeclare indexes"):
+
+            class _NoIndexesEdge(BaseGraphEdgeModel):
+                class Meta:
+                    table = "guard_no_indexes_edges"
+
+    def test_empty_indexes_tuple_is_accepted(self) -> None:
+        """``indexes = ()`` is the documented deliberate opt-out."""
+
+        class _OptedOutEdge(BaseGraphEdgeModel):
+            class Meta:
+                table = "guard_opted_out_edges"
+                indexes = ()
+
+        assert issubclass(_OptedOutEdge, BaseGraphEdgeModel)
+        assert _OptedOutEdge._meta.db_table == "guard_opted_out_edges"
+
+    def test_abstract_without_indexes_is_allowed(self) -> None:
+        """``Meta.abstract = True`` returns before the indexes check."""
+
+        class _AbstractEdge(BaseGraphEdgeModel):
+            class Meta:
+                abstract = True
+
+        assert _AbstractEdge._meta.abstract is True
+
+    def test_missing_meta_raises_at_class_creation(self) -> None:
+        """No ``Meta`` at all is rejected by the same guard."""
+        with pytest.raises(NotImplementedError, match="must declare a Meta class"):
+
+            class _NoMetaEdge(BaseGraphEdgeModel):
+                pass

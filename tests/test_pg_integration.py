@@ -351,6 +351,62 @@ class TestPgvectorCodec:
             assert decoded == [1.0, 2.0, 3.0]
 
 
+class TestPgvectorCodecFreshConnection:
+    """TODO 3006 — the codec must be present on connections created AFTER the patch.
+
+    Freshness proof: the pool below belongs to a brand-new ``AsyncpgDBClient``
+    instance and is created through the patched ``AsyncpgDBClient.create_pool``
+    (the wrapper that injects ``_combined_codec_init``) *after*
+    ``tortoise_extended`` was imported and ``Tortoise.init()`` had already built
+    the default pool.  The connection is acquired from that second pool — a
+    different pool object and a different connection than the module fixture's
+    — so it can only decode vectors if the patch registered the codec, not
+    because an older connection happened to carry it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_fresh_connection_decodes_vector_to_list_of_floats(self) -> None:
+        """``SELECT '[1,2,3]'::vector`` on a post-patch connection is ``list[float]``.
+
+        No ``memoryview`` / ``str`` escape hatch: without the codec asyncpg
+        returns the pgvector text representation as ``str``, so this test fails
+        unless the patched ``create_pool`` actually registered the decoder.
+        """
+        from tortoise.backends.asyncpg.client import AsyncpgDBClient
+
+        live = Tortoise.get_connection("default")
+        assert isinstance(live, AsyncpgDBClient)
+
+        # A second, independent client -> a second pool, created after the patch.
+        fresh_client = AsyncpgDBClient(
+            connection_name="fresh",
+            user=live.user,
+            password=live.password,
+            database=live.database,
+            host=live.host,
+            port=live.port,
+        )
+        pool = await fresh_client.create_pool(
+            host=live.host,
+            port=live.port,
+            user=live.user,
+            password=live.password,
+            database=live.database,
+            min_size=1,
+            max_size=1,
+        )
+        try:
+            assert pool is not live._pool, "the pool must be a new object"
+            async with pool.acquire() as conn:
+                value = await conn.fetchval("SELECT '[1,2,3]'::vector AS v")
+        finally:
+            await pool.close()
+
+        assert isinstance(value, list)
+        assert all(isinstance(x, float) for x in value)
+        assert value == [1.0, 2.0, 3.0]
+
+
 # ---------------------------------------------------------------------------
 # 3. HNSWIndex — verify index is created in PG
 # ---------------------------------------------------------------------------
