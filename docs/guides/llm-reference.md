@@ -22,6 +22,8 @@ What do you need?
 │
 ├─ Hybrid search (vector + FTS) ─────────► HybridSearch
 │
+├─ Keyword search only (tsvector) ───────► TSVectorField + SearchQuery/SearchRank (upstream)
+│
 ├─ Custom recursive SQL ─────────────────► RecursiveCTE
 │
 ├─ Distance search between vectors ──────► L2Distance, CosineDistance, InnerProduct
@@ -122,6 +124,8 @@ Pick the base per model — each is opt-in and independent:
 | `all_paths` | `from tortoise_extended import all_paths` | Find all paths between nodes |
 | `find_cycles` | `from tortoise_extended import find_cycles` | Detect cycles in graph |
 | `HybridSearch` | `from tortoise_extended import HybridSearch` | Vector + FTS weighted scoring |
+| `TSVectorField` | `from tortoise.contrib.postgres.fields import TSVectorField` | Generated `tsvector` column (**upstream**; `config=` is mandatory) |
+| `SearchQuery` / `SearchRank` | `from tortoise.contrib.postgres.search import ...` | `tsquery` builder, `ts_rank` / `ts_rank_cd` annotation (**upstream**) |
 | `paginate` | `from tortoise_extended import paginate` | Offset pagination over a QuerySet → `PageInfo` |
 | `PageInfo` | `from tortoise_extended import PageInfo` | `items`, `total`, `total_pages`, `has_next`, `has_prev` |
 | `BaseNode` | `from tortoise_extended import BaseNode` | Primary graph-node base (`NodeMixin` + UUID7 identity, no FK on edges) |

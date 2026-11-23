@@ -93,3 +93,14 @@ results = await search.search(
 - Distance metrics: cosine (0=identical, 2=opposite), l2 (0=identical), inner_product (higher=more similar)
 - Raw SQL via `connections.get("default")` — requires initialized Tortoise ORM
 - The `tsvector_field` must exist on the table (add via trigger or computed column)
+
+## Relationship to upstream full-text search
+
+The `tsvector` column this class reads is the one `tortoise.contrib.postgres` builds for you:
+`TSVectorField(source_fields=[...], config="english")` generates it with
+`GENERATED ALWAYS AS (TO_TSVECTOR('english', COALESCE(...)) || ...) STORED`, and `GinIndex` indexes
+it. `HybridSearch` keeps its own raw `ts_rank_cd` because it has to combine a text score and a
+vector distance in one statement — but the column, the query builders and the ranking expressions
+are all upstream, and a plain keyword-only search needs none of this class. See
+[Full-Text Search](full-text-search.md) for those pieces and the four traps that make them look
+broken.

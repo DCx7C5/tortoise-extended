@@ -60,9 +60,14 @@
      "Implemented features not previously tracked"). Related-but-distinct:
      the remainder here was only `InetField` / `MacAddrField` /
      `CitextField` (`PathField` is shipped, not in the todo set).
-6. **`SearchVectorField`** — generated `tsvector` column (PG `GENERATED
-   ALWAYS AS ... STORED` or maintained via trigger), complements
-   `HybridSearch` (FTS currently raw-SQL-only).
+6. **`SearchVectorField`** — **re-scoped to documentation, `done`** (2026-11-23, `docs/api/full-text-search.md`).
+   Measured: tortoise-orm 1.1.x already ships the whole surface — `TSVectorField` (generated
+   `tsvector` with `source_fields` / `config` / `weights`), `SearchVector`, `SearchQuery`,
+   `SearchRank`, `SearchHeadline`, `Lexeme`, and `GinIndex`/`BrinIndex`/`HashIndex`/`SpGistIndex`/
+   `BloomIndex`. Nothing to build; the page records the working shapes and the four traps (missing
+   `config=` → `generation expression is not immutable`; a string vector term →
+   `to_tsvector(tsvector)`; `SearchVector(weight=...)` → asyncpg binds `'A'` as `tsvector`;
+   `ts_rank` is not a match indicator under `~`). `HybridSearch` keeps its raw `ts_rank_cd`.
 
 ### Tier 3 — QuerySet/API gaps — `wip`
 7. **Window functions** (`row_number()`, `rank()`, `dense_rank()`) —
@@ -820,6 +825,23 @@ ruff clean; basedpyright **0 errors, 0 warnings, 0 notes**. Re-measured baseline
 line: `c08af17` collects **1771** (1758 passed), so the pagination note's "1750 / 1715" figures above
 are **8 low** — the same unexplained drift the earlier note flagged, now measured rather than
 guessed.
+
+**FTS slice (3046).** Tier 2 item 6 was written when the roadmap assumed `HybridSearch` was the only
+FTS surface. Measured 2026-11-23: tortoise-orm 1.1.x ships the entire stack upstream —
+`TSVectorField(source_fields, config, weights, stored)` generating
+`GENERATED ALWAYS AS (TO_TSVECTOR('english',COALESCE(...)) || ...) STORED`, the `SearchVector` /
+`SearchQuery` / `SearchRank` / `SearchHeadline` / `Lexeme` expressions, the `@@` path through
+`filter(<col>__search=...)`, and GIN/Brin/Hash/SpGist/Bloom index types. So the row became a
+documentation row: `docs/api/full-text-search.md` records the working shapes plus four measured
+traps that make the library look broken — a generated column without `config=` fails DDL with
+`generation expression is not immutable` (one-argument `to_tsvector` is `STABLE`); `SearchRank`
+with a *string* column name wraps it in `SearchVector` and emits `TO_TSVECTOR("search")`
+(`function to_tsvector(tsvector) does not exist`), so the stored column needs `F("search")`;
+`SearchVector(weight="A")` binds the weight as a `tsvector` parameter and asyncpg rejects the string;
+and `ts_rank` is not a match indicator under `~SearchQuery(...)` (the matching rows score 0, the
+non-matching rows score > 0 — negated queries belong in `filter(<col>__search=...)`).
+`docs/api/hybrid-search.md` now says which half of it is upstream. Docs-only: no Python, so the gate
+is untouched.
 
 **Wheel payload (3010, `50910f0`).** The user added the one line —
 `exclude = ["src/tortoise_extended/stubs"]` under `[tool.hatch.build.targets.wheel]` — and the

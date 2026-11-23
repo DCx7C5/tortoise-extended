@@ -14,6 +14,7 @@ API documentation for the public modules.
 - **[Graph Vector Search](graph-vector-search.md)** — single-query vector + graph compositor with typed results
 - **[Pathfinding](pathfinding.md)** — Shortest path, all paths, cycle detection
 - **[Hybrid Search](hybrid-search.md)** — Vector + FTS weighted scoring
+- **[Full-Text Search](full-text-search.md)** — upstream `TSVectorField`, `SearchQuery`, `SearchRank`, `SearchHeadline`, `Lexeme` — and the four traps
 - **[Fusion](fusion.md)** — RRF, weighted score fusion, MMR diversity re-ranking (pure Python)
 - **[Pagination](pagination.md)** — `QuerySet.paginate(page, page_size)` and the `PageInfo` metadata
 - **[pgcrypto](pgcrypto.md)** — pgcrypto query helpers (Digest, DigestHex, HMACDigest)
