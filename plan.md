@@ -754,6 +754,32 @@ the `test_all.py` aggregator. Baseline before this slice was 1563 passed.
 rebuilt wheel was measured: **0 `.pyi` entries**, no `/stubs/` path, `py.typed` still present, 62
 entries (the 70 originally counted, minus the 12 stubs, plus the four modules shipped since).
 basedpyright still reads the overlay through `stubPath`, so the dev gate is unchanged at 0 errors.
+**Cross-repo consequence (appended to css-mcp row 2758):** css-mcp's own `stubPath`
+(`pyproject.toml:143`) points into the *installed* `tortoise_extended/stubs`, so its next pin bump
+plus `uv lock` leaves that path dangling — decide stubPath there before re-running the db lane.
+
+**Healthcheck (3024, `0c1aa2e`).** The row blamed `${POSTGRES_DB}` for an always-unhealthy
+container. Half of that is wrong, and measuring changed the fix: `pg_isready` returns 0 on an
+ERROR reply (`pg_isready -d definitely_missing_db` printed "accepting connections", exit 0), so the
+app-database coupling never gated liveness — it only logged one FATAL per interval. The real defect
+is the **cross-cluster probe**: both stacks publish `.s.PGSQL.5432` into `/var/run/postgresql`, and
+inside `postgres-ext` a socket-less `psql` listed css-postgres's databases (`core`, `secrets`,
+`testcore`, `testsecrets`) while `-h 127.0.0.1` listed the tortoise ones. The healthcheck now runs
+`pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER:-postgres} -d postgres`. Verified on a rebuilt
+image (full cache hit, 1.9s) in an isolated container: healthy in ~4s, baked command inspected, no
+FATAL. `tortoise_test` already exists on the live volume, so the row's create-the-DB half was moot.
+The running container is deliberately still on the old image — recreating it before css-mcp 3022
+isolates its socket dir would make the restart fight css-postgres for the shared host socket. That
+is row 3042.
+
+**Standing TODO verdicts (2026-11-23).** `TORTOISE-STUB-SQL-TYPE` (2110) **cancelled**: declaring
+`SQL_TYPE` as a `@property` in `fields/base.pyi` produces 14 basedpyright errors
+(`reportIncompatibleMethodOverride`, `reportAssignmentType`) across `fields/__init__.pyi:162,445`
+and the six `tortoise_extended` fields that assign `SQL_TYPE = "TEXT" | "ltree" | "inet" | "vector"`.
+`SQL_TYPE` is a plain class attribute at runtime (measured: `Field.SQL_TYPE is None`,
+`BooleanField` "BOOL", `IntField` "INT", only `CharField` a property), so the attribute declaration
+is the truthful one and the PyCharm-native "Missing super method" warning is a PyCharm limitation
+for property-over-attribute, not a stub defect. Nothing to change in this repo.
 
 **TODO positions:** NODE-ERGO 2964 · NODE-EDGE-HYBRID 2965 · LIFECYCLE-EXTENSIONS 2966 ·
 UNIFIED-NODE 2967 · NODE-SOFTDELETE 2968 · GRAPH-FACADE 2969 · SAMPLE-RECORD-LATEST 2970 ·
