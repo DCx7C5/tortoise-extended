@@ -67,6 +67,18 @@ def _split_schema_name(name: str) -> tuple[str | None, str]:
     return None, name
 
 
+def _unquote_ident(part: str) -> str:
+    """Strip one level of double quotes from an identifier part.
+
+    Catalog views (``timescaledb_information.jobs``) store bare names, while a
+    caller may pass a quoted identifier (``'"a.b"'``) whose dots must not be
+    read as qualification.
+    """
+    if len(part) >= 2 and part.startswith('"') and part.endswith('"'):
+        return part[1:-1].replace('""', '"')
+    return part
+
+
 def _quote_qualified(name: str) -> str:
     """Quote a possibly schema-qualified identifier as ``"schema"."table"``.
 
@@ -237,6 +249,15 @@ class HypertableManager:
     ) -> None:
         """Drop a hypertable.
 
+        Retention and columnstore (compression) policies are TimescaleDB
+        scheduler **jobs**, not table constraints, so a bare
+        ``DROP TABLE ... CASCADE`` would leave them registered and they would
+        keep failing against a hypertable that no longer exists. Every job
+        whose ``timescaledb_information.jobs.hypertable_name`` (plus schema,
+        for a schema-qualified name) matches is deleted first; a plain table
+        or a policy-less hypertable matches no rows, so the cleanup is a
+        no-op for them.
+
         Args:
             table_name: Name of the hypertable to drop (may be
                 schema-qualified, e.g. ``"metrics.events"``)
@@ -248,6 +269,27 @@ class HypertableManager:
             await HypertableManager.drop_hypertable("events")
         """
         conn = using_db or connections.get("default")
+
+        # Policies (retention, columnstore) are scheduler JOBS, not table
+        # constraints: `DROP TABLE ... CASCADE` leaves them registered, and the
+        # scheduler then keeps failing against a hypertable that no longer
+        # exists. Delete them first; a plain table or a policy-less hypertable
+        # matches no rows, so this stays a no-op for them.
+        schema, bare = _split_schema_name(table_name)
+        job_filter = f"hypertable_name = {quote_literal(_unquote_ident(bare))}"
+        if schema is not None:
+            job_filter += (
+                f" AND hypertable_schema = {quote_literal(_unquote_ident(schema))}"
+            )
+
+        try:
+            _ = await conn.execute_query(
+                "SELECT delete_job(job_id) "
+                f"FROM timescaledb_information.jobs WHERE {job_filter}"
+            )
+        except Exception as exc:
+            msg = f"Failed to remove policy jobs for hypertable {table_name!r}: {exc}"
+            raise TimescaleError(msg) from exc
 
         sql = f"""
             DROP TABLE

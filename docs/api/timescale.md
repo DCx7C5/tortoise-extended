@@ -22,7 +22,7 @@ Convert regular tables to TimescaleDB hypertables.
 | Method | Description |
 |--------|-------------|
 | `create_hypertable(table, time_column?, chunk_time_interval?, if_not_exists?, migrate_data?, validate_time_column?)` | Convert table to hypertable |
-| `drop_hypertable(table, if_exists?)` | Drop hypertable |
+| `drop_hypertable(table, if_exists?)` | Drop hypertable — removes its retention/compression policy jobs first |
 | `is_hypertable(table)` | Check if table is a hypertable |
 | `list_hypertables(extension_schema?)` | List all hypertables |
 | `add_dimension(table, column, chunk_time_interval?, number_partitions?)` | Add partitioning dimension |
@@ -45,6 +45,15 @@ hypertables = await HypertableManager.list_hypertables()
 for ht in hypertables:
     print(f"{ht.table_name}: {ht.num_chunks} chunks")
 ```
+
+**Dropping a hypertable also removes its policy jobs.**
+Retention and columnstore (compression) policies are TimescaleDB scheduler
+*jobs*, not table constraints, so `DROP TABLE ... CASCADE` alone would leave
+them registered and they would keep failing against a hypertable that no
+longer exists. `drop_hypertable()` deletes every job whose
+`timescaledb_information.jobs.hypertable_name` (and schema, when the name is
+schema-qualified) matches the table before dropping it; a plain table or a
+policy-less hypertable matches no rows, so the cleanup is a no-op for them.
 
 **Time-column pre-check.** TimescaleDB requires the partitioning (time) column
 to be part of the table's ``PRIMARY KEY`` or a ``UNIQUE`` index, otherwise

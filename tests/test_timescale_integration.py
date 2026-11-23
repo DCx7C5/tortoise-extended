@@ -318,6 +318,24 @@ class TestHypertableManager:
         await HypertableManager.drop_hypertable("test_events")
         assert await HypertableManager.is_hypertable("test_events") is False
 
+    @pytest.mark.asyncio
+    async def test_drop_hypertable_removes_policy_jobs(self) -> None:
+        """A dropped hypertable leaves no scheduled policy job behind."""
+        await _make_hypertable()
+        await RetentionPolicy.set_retention("test_events", drop_after="90 days")
+        conn = Tortoise.get_connection("default")
+
+        async def _job_count() -> int:
+            result = await conn.execute_query(
+                "SELECT count(*) AS n FROM timescaledb_information.jobs "
+                "WHERE hypertable_name = 'test_events'"
+            )
+            return int(result[1][0]["n"])
+
+        assert await _job_count() == 1
+        await HypertableManager.drop_hypertable("test_events")
+        assert await _job_count() == 0
+
 
 # ---------------------------------------------------------------------------
 # 2. CompressionManager

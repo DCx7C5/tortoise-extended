@@ -528,7 +528,26 @@ class TestSqlHardening:
     async def test_drop_hypertable_quotes_identifier(self, monkeypatch) -> None:
         conn = self._recording_conn(monkeypatch)
         await HypertableManager.drop_hypertable("weird name")
-        assert '"weird name"' in conn.sqls[0]
+        # The policy-job cleanup runs first; the DROP is the last statement.
+        assert "delete_job(job_id)" in conn.sqls[0]
+        assert '"weird name"' in conn.sqls[-1]
+
+    @pytest.mark.asyncio
+    async def test_drop_hypertable_clears_policy_jobs_first(
+        self, monkeypatch
+    ) -> None:
+        """Policy jobs are scheduler rows, not constraints — delete them first."""
+        conn = self._recording_conn(monkeypatch)
+        await HypertableManager.drop_hypertable("metrics.events")
+        cleanup = conn.sqls[0]
+        assert "delete_job(job_id)" in cleanup
+        assert "hypertable_name = 'events'" in cleanup
+        assert "hypertable_schema = 'metrics'" in cleanup
+        # Bare name matches every schema instead of guessing one.
+        conn2 = self._recording_conn(monkeypatch)
+        await HypertableManager.drop_hypertable("events")
+        assert "hypertable_schema" not in conn2.sqls[0]
+        assert "hypertable_name = 'events'" in conn2.sqls[0]
 
     @pytest.mark.asyncio
     async def test_error_message_is_single_line(self, monkeypatch) -> None:
@@ -902,9 +921,10 @@ class TestSqlHardening:
         """Schema-qualified names quote both parts separately."""
         conn = self._recording_conn(monkeypatch)
         await HypertableManager.drop_hypertable("metrics.events")
-        assert '"metrics"."events"' in conn.sqls[0]
+        drop_sql = conn.sqls[-1]
+        assert '"metrics"."events"' in drop_sql
         # Not quoted as a single broken identifier
-        assert '"metrics.events"' not in conn.sqls[0]
+        assert '"metrics.events"' not in drop_sql
 
     @pytest.mark.asyncio
     async def test_list_hypertables_quotes_extension_schema(self, monkeypatch) -> None:
