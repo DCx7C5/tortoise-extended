@@ -15,6 +15,7 @@ API documentation for the public modules.
 - **[Pathfinding](pathfinding.md)** — Shortest path, all paths, cycle detection
 - **[Hybrid Search](hybrid-search.md)** — Vector + FTS weighted scoring
 - **[Fusion](fusion.md)** — RRF, weighted score fusion, MMR diversity re-ranking (pure Python)
+- **[Pagination](pagination.md)** — `QuerySet.paginate(page, page_size)` and the `PageInfo` metadata
 - **[pgcrypto](pgcrypto.md)** — pgcrypto query helpers (Digest, DigestHex, HMACDigest)
 - **[Graph (Node/Edge/Hierarchy)](graph.md)** — BaseNode, BaseGraphEdgeModel, BaseHierarchyModel base classes (BaseGraphNodeModel is the deprecated alias)
 - **[Model Bases](models.md)** — BaseModel, UnifiedIdModel, BaseUserModel, BaseSoftDeleteModel + SoftDeleteQuerySet, TimestampMixin
@@ -119,6 +120,14 @@ from tortoise_extended.expressions.pgcrypto import (
     Digest, DigestHex, HMACDigest,
 )
 ```
+
+### Pagination
+```python
+from tortoise_extended import PageInfo, paginate
+```
+
+`await Chunk.filter(active=True).order_by("name").paginate(2, 25)` → `PageInfo` with the rows plus
+`total`, `total_pages`, `has_next`, `has_prev`. See [Pagination](pagination.md).
 
 ### Migrations
 ```python

@@ -45,6 +45,7 @@ from typing import cast
 from asyncpg import Pool
 from tortoise.fields import Field
 from tortoise.filters import FilterInfoDict
+from tortoise.queryset import QuerySet as _QuerySet
 
 from tortoise_extended._types import AsyncpgConnection, RowValue
 from tortoise_extended.cache import (
@@ -153,6 +154,7 @@ from tortoise_extended.models import (
     TimestampMixin,
     UnifiedIdModel,
 )
+from tortoise_extended.pagination import PageInfo, paginate
 from tortoise_extended.timescale import TimeBucketRow
 
 # ---------------------------------------------------------------------------
@@ -431,6 +433,10 @@ def _apply_patches() -> None:
     4. **asyncpg codec** (``asyncpg.Pool`` init hooks) —
        ``_tortoise_extended_codec_patched`` flag on the pool class. A foreign
        ``create_pool`` wrapper is composed with, not rejected.
+    5. **QuerySet pagination** (``tortoise.queryset.QuerySet.paginate``) —
+       the same identity contract as sites 1-2: absent installs, our own
+       ``paginate`` is a no-op, anything else raises
+       :class:`PatchConflictError`.
 
     ``MigrationWriter._format_operation`` is patched separately, at import
     time, by :mod:`tortoise_extended.migrations.operations` — not by this
@@ -536,6 +542,20 @@ def _apply_patches() -> None:
             True,
         )
 
+    # 5. Register QuerySet.paginate (idempotent identity guard)
+    _existing_paginate = getattr(_QuerySet, "paginate", None)
+    if _existing_paginate is None:
+        setattr(_QuerySet, "paginate", paginate)
+    elif _existing_paginate is not paginate:
+        raise PatchConflictError(
+            f"tortoise.queryset.QuerySet.paginate already holds a foreign "
+            f"object ({_existing_paginate!r}), so tortoise-extended cannot "
+            f"install its own `paginate`: the patch would silently no-op "
+            f"while `tortoise_extended.paginate` still exports this package's "
+            f"function. Uninstall the conflicting extension or make "
+            f"tortoise-extended the only package patching this attribute."
+        )
+
 
 __all__ = [
     "BaseCacheableModel",
@@ -588,6 +608,7 @@ __all__ = [
     "NeighborNode",
     "NodeMixin",
     "NodeTree",
+    "PageInfo",
     "PatchConflictError",
     "PathField",
     "RecursiveCTE",
@@ -622,6 +643,7 @@ __all__ = [
     "get_ltree_filters",
     "get_vector_filters",
     "invalidate",
+    "paginate",
     "patch",
     "ranking_from_hits",
     "reciprocal_rank_fusion",

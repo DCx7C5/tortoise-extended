@@ -66,6 +66,8 @@ and Tortoise reads those registrations when it initializes. Importing after `Tor
 - **`Graph` facade** — model-class API over traversal, pathfinding and graph-scoped vector search
   (`link` / `unlink` / `neighbours` / `shortest_path` / `find_cycles` / `search(seed=...)`)
 - **Fusion utilities** — reciprocal rank fusion, weighted score fusion, MMR diversity re-ranking
+- **`QuerySet.paginate(page, page_size)`** — offset pagination returning a `PageInfo`
+  (`items`, `total`, `total_pages`, `has_next`, `has_prev`)
 - **Startup helpers** — `ensure_extensions()` and `setup(models=None, *, generate_schemas=False)`:
   extensions → schemas → each stream model's `setup()`, in that order
 - **Model base classes** — `BaseModel` (BigInt pk), `UnifiedIdModel` (BigInt pk + UUID7 `uid`
@@ -90,6 +92,7 @@ src/tortoise_extended/
 ├── _types.py                # concrete type aliases + duck-typed protocols
 ├── exceptions.py            # exception hierarchy
 ├── lifecycle.py             # ensure_extensions / setup — extension, schema and hypertable fan-out
+├── pagination.py            # QuerySet.paginate + PageInfo
 ├── py.typed                 # PEP 561 typed-package marker
 ├── models/
 │   ├── base.py                # BaseModel (BigInt pk)

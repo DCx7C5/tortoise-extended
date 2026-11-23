@@ -169,6 +169,7 @@ src/tortoise_extended/
 ├── _types.py                # concrete type aliases + duck-typed protocols
 ├── exceptions.py            # exception hierarchy (VectorFieldError, GraphTraversalError, ...)
 ├── lifecycle.py             # ensure_extensions / setup — extension, schema and hypertable fan-out
+├── pagination.py            # QuerySet.paginate + PageInfo (offset pagination with page metadata)
 ├── py.typed                 # PEP 561 typed-package marker
 ├── models/
 │   ├── base.py                # BaseModel (BigInt pk)

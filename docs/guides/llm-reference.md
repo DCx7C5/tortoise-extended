@@ -118,6 +118,8 @@ Pick the base per model — each is opt-in and independent:
 | `all_paths` | `from tortoise_extended import all_paths` | Find all paths between nodes |
 | `find_cycles` | `from tortoise_extended import find_cycles` | Detect cycles in graph |
 | `HybridSearch` | `from tortoise_extended import HybridSearch` | Vector + FTS weighted scoring |
+| `paginate` | `from tortoise_extended import paginate` | Offset pagination over a QuerySet → `PageInfo` |
+| `PageInfo` | `from tortoise_extended import PageInfo` | `items`, `total`, `total_pages`, `has_next`, `has_prev` |
 | `BaseNode` | `from tortoise_extended import BaseNode` | Primary graph-node base (`NodeMixin` + UUID7 identity, no FK on edges) |
 | `NodeMixin` | `from tortoise_extended import NodeMixin` | pk-free adjacency-list mixin, stackable with any identity base |
 | `BaseGraphNodeModel` | `from tortoise_extended import BaseGraphNodeModel` | Deprecated UUID4 alias of `BaseNode` |

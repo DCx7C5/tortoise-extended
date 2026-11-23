@@ -8,6 +8,13 @@ the versions below are the `pyproject.toml` version at the time of the change.
 
 ### Added
 
+- `QuerySet.paginate(page, page_size)` and the `PageInfo` it returns — offset pagination with the
+  metadata a page widget needs (`items`, `total`, `total_pages`, `has_next`, `has_prev`). Two
+  queries (a `COUNT(*)` over the same filters, then the slice), a `ValueError` naming the argument
+  when `page` or `page_size` is below 1, and a page past the end returns no items with the true
+  total instead of raising. The free function `paginate(queryset, page, page_size)` is public for
+  callers that would rather not depend on the method; the method is installed on every QuerySet at
+  import time as patch site 5, under the same guard contract as the field and index patches.
 - Fusion utilities: `reciprocal_rank_fusion`, `weighted_score_fusion`, `diversity_rerank`
   (greedy MMR, requires a `similarity` callable), `ranking_from_hits`, `scores_from_hybrid_rows`.
 - `TortoiseVersionError` and `PatchConflictError`.
