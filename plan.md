@@ -735,6 +735,20 @@ why the decision is recorded here rather than left to the next reader. Shipped `
 `edge_type_field` eagerly, so an edge model without an edge-type column is rejected at
 construction instead of at the first `neighbours(edge_type=...)` call.
 
+**P7 docs — shipped 2026-11-23.** `DOCS-ERGO` (2974, `703b008`) closed the reference against the
+shipped surface: the four new modules added to the AGENTS.md and README layout trees (plus the
+long-missing `expressions/fusion.py` in README), an ergonomics method table for `BaseNode`, the
+four `SampleMixin` helpers in `timescale.md`, `Graph.search` in `graph-vector-search.md`, and the
+two new bases / soft-delete queryset / lifecycle exports in `index.md` and `guides/llm-reference.md`.
+The AGENTS.md §Testing drift the row expected (`test_pathfinding.py`, `test_graph_traversal.py`)
+was already gone — measured before editing. Every documented symbol was checked importable, and
+nothing describes `Meta.timescale`, which D8 cancelled.
+
+**Gate after the ergonomics slice (2026-11-23):** ruff clean, basedpyright **0 errors / 1 warning**
+(`cache/base.py:173`, pre-existing), full suite **1711 passed, 13 skipped** against
+`tortoise_test_push` — the 13 are the 12 live-Redis cases (AUTH secret absent in this worktree) plus
+the `test_all.py` aggregator. Baseline before this slice was 1563 passed.
+
 **TODO positions:** NODE-ERGO 2964 · NODE-EDGE-HYBRID 2965 · LIFECYCLE-EXTENSIONS 2966 ·
 UNIFIED-NODE 2967 · NODE-SOFTDELETE 2968 · GRAPH-FACADE 2969 · SAMPLE-RECORD-LATEST 2970 ·
 SAMPLE-GAPFILL 2971 · TIMESCALE-META-SPIKE 2972 · TIMESCALE-META-IMPL 2973 · DOCS-ERGO 2974 ·
