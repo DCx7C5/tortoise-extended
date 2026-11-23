@@ -154,9 +154,13 @@ async def _init_db():
         db_url=DB_URL,
         modules={"models": ["tests.test_soft_delete_traversal"]},
     )
+    conn = Tortoise.get_connection("default")
+    # DROP before CREATE: generate_schemas() is IF NOT EXISTS, so a stale table
+    # left behind by an aborted run would be silently reused.
+    for table in _TABLES:
+        await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.generate_schemas()
     yield
-    conn = Tortoise.get_connection("default")
     for table in _TABLES:
         await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.close_connections()

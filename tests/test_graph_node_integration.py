@@ -72,6 +72,12 @@ class ItGraphNodeGuarded(BaseNode):
 # ---------------------------------------------------------------------------
 
 
+_TABLES = (
+    "graph_node_it_guarded",
+    "graph_node_it_nodes",
+)
+
+
 @pytest.fixture(scope="module", autouse=True)
 async def _init_db():
     """Initialize Tortoise ORM for the test module."""
@@ -79,11 +85,15 @@ async def _init_db():
         db_url=DB_URL,
         modules={"models": ["tests.test_graph_node_integration"]},
     )
+    conn = Tortoise.get_connection("default")
+    # DROP before CREATE: generate_schemas() is IF NOT EXISTS, so a stale table
+    # left behind by an aborted run would be silently reused.
+    for table in _TABLES:
+        await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.generate_schemas()
     yield
-    conn = Tortoise.get_connection("default")
-    await conn.execute_query("DROP TABLE IF EXISTS graph_node_it_guarded CASCADE")
-    await conn.execute_query("DROP TABLE IF EXISTS graph_node_it_nodes CASCADE")
+    for table in _TABLES:
+        await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.close_connections()
 
 
