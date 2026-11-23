@@ -52,13 +52,13 @@
    `pypika_tortoise.terms.Field`; and two expression indexes resolving to the same column are
    de-duplicated into one (`dict.fromkeys` in `_get_field_indexes_sqls`), while distinct columns
    both survive. Documented in `docs/api/indexes.md` § "Partial and expression indexes (upstream)".
-5. **PG type fields** — `InetField`, `MacAddrField`, `CitextField`
-   (verified absent from `tortoise.fields`). Mirror `LTreeField`: codec +
-   `to_db_value`/`to_python_value` + filter registration.
+5. **PG type fields** — `InetField`, `MacAddrField`, `MacAddr8Field`, `CitextField` — `done`
+   (2026-11-23, `e29e42e` implementation + `7bc184f` tests). Verified absent from
+   `tortoise.fields` before building; see "PG FIELDS slice" below for what measuring changed.
    - **Reconciled (2026-09-02):** *shipped* `IPv4Field`, `PathField`, `URLField`,
      `UUID4Field`, `UUID7Field`, and `LTreeField` already exist (see
      "Implemented features not previously tracked"). Related-but-distinct:
-     the **todo** remainder here is only `InetField` / `MacAddrField` /
+     the remainder here was only `InetField` / `MacAddrField` /
      `CitextField` (`PathField` is shipped, not in the todo set).
 6. **`SearchVectorField`** — generated `tsvector` column (PG `GENERATED
    ALWAYS AS ... STORED` or maintained via trigger), complements
@@ -783,6 +783,43 @@ concatenating to exactly `order_by(...).limit(total)`. Measured: `pagination.py`
 and branch**, and a floor-division mutation of `total_pages` turns 13 cases red. Full suite
 **1750 passed, 13 skipped** (the ergonomics figure above measures **1715** without this module);
 ruff clean; basedpyright **0 errors, 0 warnings, 0 notes**.
+
+**PG FIELDS slice (3044 + 3045, `e29e42e` + `7bc184f`).** Tier 2 item 5 remainder, user-selected
+2026-11-23. Four field classes, no patch site: `InetField` (`inet`), `MacAddrField` (`macaddr`),
+`MacAddr8Field` (`macaddr8`), `CitextField` (`citext`). Three measurements changed the shape the
+rows assumed:
+
+- **`inet` decodes to an interface object.** asyncpg returns `ipaddress.IPv4Interface` /
+  `IPv6Interface`, not `IPv4Address`, so the obvious `isinstance(value, IPv4Address | IPv6Address)`
+  read branch never fires and `ip_address(<interface>)` raises. The shipped read path normalises: a
+  full-length prefix is the host address and is returned as one, a shorter prefix is a real
+  interface value and raises `ValueError`; interface strings are refused on write. The typeshed
+  `IPv4Interface`/`IPv6Interface` classes do not declare `prefixlen`/`max_prefixlen`, so the guard
+  reads them through `.network` (that was 2 errors + 1 warning until fixed).
+- **Two classes, not one.** `macaddr` and `macaddr8` differ only by octet count, but `SQL_TYPE`
+  must stay a plain class attribute here (row 2110: a `@property` there produced 14 basedpyright
+  errors), so they share a private concrete base and each declares its own `SQL_TYPE`. Accepted
+  input is colon, dash or dotted-Cisco spelling, normalised to lowercase colon form on both sides of
+  the round-trip; a wrong octet count or bad hex raises `ValueError` naming the value.
+- **`citext` has no length modifier.** `max_length` (default 256) is a Python-side guard in
+  `to_db_value`, the same device `LTreeField` uses. The extension is now in
+  `docker/postgres-ext/scripts/00-extensions.sql`, but that only applies to a fresh volume — the
+  live volume predates it (recreating it is 3042, still blocked on the css-mcp socket-dir row), so
+  the tests issue `CREATE EXTENSION IF NOT EXISTS citext` themselves.
+
+Tests (`7bc184f`, 51 cases in `tests/test_inet_macaddr_fields.py` + `tests/test_citext_field.py`):
+column types read back from `information_schema` (`inet` / `macaddr` / `macaddr8` /
+`citext`, not `text`), address objects out of the driver, `ORDER BY` on the `inet` column ordering
+numerically rather than as text, every accepted MAC spelling, the citation of rejection paths, and
+citext equality / uniqueness / `icontains` measured against PostgreSQL rather than assumed.
+**Known gap (row 3051):** no test drives a short-prefix interface object through the read path —
+reaching that branch needs a raw-SQL insert, so it is defensive and currently unpinned.
+
+Full suite **1809 passed, 13 skipped** (the 12 live-Redis cases plus the `test_all.py` aggregator);
+ruff clean; basedpyright **0 errors, 0 warnings, 0 notes**. Re-measured baseline for this commit
+line: `c08af17` collects **1771** (1758 passed), so the pagination note's "1750 / 1715" figures above
+are **8 low** — the same unexplained drift the earlier note flagged, now measured rather than
+guessed.
 
 **Wheel payload (3010, `50910f0`).** The user added the one line —
 `exclude = ["src/tortoise_extended/stubs"]` under `[tool.hatch.build.targets.wheel]` — and the
