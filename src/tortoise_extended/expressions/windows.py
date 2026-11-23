@@ -75,9 +75,21 @@ def _terms(names: str | Sequence[str]) -> list[Field]:
         escaping or table resolution this helper does not perform.
     """
     if isinstance(names, str):
-        names = (names,)
+        candidates: tuple[str, ...] = (names,)
+    else:
+        try:
+            candidates = tuple(names)
+        except TypeError as exc:
+            # Tortoise's ``F()`` is not a pypika term and is not iterable; the
+            # builders refuse it here so the caller never sees the
+            # ``PARTITION BY <F object …>`` SQL that ``.over()`` would emit.
+            raise ValueError(
+                f"{names!r} is not a plain field name: window builders take "
+                f"column names (letters, digits and underscores, not starting "
+                f"with a digit), not expressions or qualified names"
+            ) from exc
     fields: list[Field] = []
-    for name in names:
+    for name in candidates:
         if _IDENTIFIER.fullmatch(name) is None:
             raise ValueError(
                 f"{name!r} is not a plain field name: window builders take "
@@ -98,7 +110,10 @@ def _ordered(names: str | Sequence[str]) -> list[tuple[Field, Order]]:
     pairs: list[tuple[Field, Order]] = []
     for name in names:
         descending = name.startswith("-")
-        field = _terms(name[1:] if descending else name)[0]
+        stripped = name[1:] if descending else name
+        # A bare "-" has an empty remainder: validate the original token so the
+        # error names what the caller wrote, not "".
+        field = _terms(stripped or name)[0]
         pairs.append((field, Order.desc if descending else Order.asc))
     return pairs
 
