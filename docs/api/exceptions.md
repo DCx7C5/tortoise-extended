@@ -29,6 +29,7 @@ TortoiseExtendedError
 ├── TimescaleError
 ├── MigrationOperationError
 ├── SetupError
+├── VersionMismatchError
 └── CacheError
     ├── CacheKeyError
     ├── CacheSerializationError
@@ -51,6 +52,7 @@ TortoiseExtendedError
 | `TimescaleError` | TimescaleDB manager/migration failures |
 | `MigrationOperationError` | a migration operation is misconfigured |
 | `SetupError` | a required PostgreSQL extension cannot be created (typically a missing privilege) |
+| `VersionMismatchError` | a `VersionMixin` guarded `save()` lost the race: the row's `version` moved since the instance was loaded (attributes: `model`, `pk`, `expected`, `current`) |
 | `CacheKeyError` | a `CacheKey` cannot be built from the given parts |
 | `CacheSerializationError` | a value cannot be serialized/deserialized |
 | `CacheDataError` | cached data has an unexpected shape |

@@ -37,6 +37,8 @@ convention and lives under ``tortoise_extended.models``:
   BigInt-keyed node base: ``NodeMixin`` traversal over ``UnifiedIdModel``
   identity, with an integer ``parent_id``.
 * :class:`~tortoise_extended.models.mixins.TimestampMixin` — timestamps.
+* :class:`~tortoise_extended.models.versioned.VersionMixin` — optimistic
+  locking: a ``version`` column and a guarded ``save()``.
 
 All are opt-in abstract bases — nothing is forced on any model.
 """
@@ -54,6 +56,7 @@ from .soft_delete import BaseSoftDeleteModel, SoftDeleteQuerySet
 from .soft_delete_node import BaseSoftDeleteNode, SoftDeleteNodeQuerySet
 from .unified import UnifiedIdModel
 from .unified_node import BaseUnifiedNode
+from .versioned import VersionMixin
 from .user import BaseUserModel
 
 __all__ = [
@@ -77,4 +80,5 @@ __all__ = [
     "TimestampEndMixin",
     "TimestampMixin",
     "UnifiedIdModel",
+    "VersionMixin",
 ]

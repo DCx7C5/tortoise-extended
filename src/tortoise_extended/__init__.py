@@ -78,6 +78,7 @@ from tortoise_extended.exceptions import (
     TortoiseExtendedError,
     TortoiseVersionError,
     VectorFieldError,
+    VersionMismatchError,
 )
 from tortoise_extended.expressions.distinct_on import distinct_on
 from tortoise_extended.expressions.fusion import (
@@ -168,6 +169,7 @@ from tortoise_extended.models import (
     TimestampEndMixin,
     TimestampMixin,
     UnifiedIdModel,
+    VersionMixin,
 )
 from tortoise_extended.pagination import PageInfo, paginate
 from tortoise_extended.queryset import random_ordering
@@ -673,6 +675,8 @@ __all__ = [
     "UnifiedIdModel",
     "VectorField",
     "VectorFieldError",
+    "VersionMismatchError",
+    "VersionMixin",
     "all_paths",
     "avg_over",
     "cached",

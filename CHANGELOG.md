@@ -8,6 +8,15 @@ the versions below are the `pyproject.toml` version at the time of the change.
 
 ### Added
 
+- `VersionMixin` — opt-in optimistic locking: a `version` column (`BigIntField`, default `0`) and a
+  guarded `save()` that runs one `UPDATE … WHERE <pk> = $1 AND version = $2` with
+  `version = version + 1` (queryset API, no raw SQL). A stale write raises
+  `VersionMismatchError` (new, exported) naming model, pk, expected and current version, and leaves
+  the instance untouched so the caller can reload and retry; a missing row raises `IntegrityError`
+  as upstream. Inserts delegate to the parent `save()` unchanged, `auto_now` columns are stamped
+  explicitly (the queryset executor would skip them), and `update_fields` narrows the payload.
+  `bulk_create` / `bulk_update` / `QuerySet.update()` deliberately bypass the guard — documented in
+  the docstring and `docs/api/models.md`.
 - `distinct_on(model, *on, order_by=(), limit=None, where=None, params=(), include_deleted=False)`
   — PostgreSQL `DISTINCT ON` as one sanitised statement plus real model instances back:
   `SELECT DISTINCT ON (…) <projected columns> FROM … [WHERE …] ORDER BY <on…>, … [LIMIT n]`,

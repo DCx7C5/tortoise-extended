@@ -13,6 +13,7 @@ from tortoise_extended import (
     UnifiedIdModel,
     TimestampMixin,
     TimestampEndMixin,
+    VersionMixin,
     BaseSoftDeleteModel,
     SoftDeleteQuerySet,
     BaseSoftDeleteNode,
@@ -36,6 +37,7 @@ from tortoise_extended import (
 | No extra columns, Tortoise default | plain `tortoise.models.Model` | auto `IntField` pk |
 | 64-bit JOIN-fast primary key | `BaseModel` | internal-only tables |
 | `created_at` / `updated_at` columns | `TimestampMixin` | stackable with any base |
+| Optimistic locking (`version` column) | `VersionMixin` | guarded `save()`, see below |
 | Soft delete (`deleted_at`, auto-filtered) | `BaseSoftDeleteModel` | pairs with `SoftDeleteQuerySet` |
 | Soft-deleted graph nodes (whole subtree) | `BaseSoftDeleteNode` | `BaseSoftDeleteModel` + `NodeMixin`, see below |
 | Cross-table / external refs | `UnifiedIdModel` | BigInt pk + UUID7 `uid`, see below |
@@ -157,6 +159,69 @@ class Account(BaseModel, TimestampMixin):
 > **Mixin-last convention:** the real model base (``BaseModel``,
 > ``BaseSoftDeleteModel``, …) goes **first**, mixins (``TimestampMixin``,
 > ``TimestampEndMixin``) go **last**.
+
+---
+
+## VersionMixin — optimistic locking
+
+`VersionMixin` adds a `version` column (`BigIntField`, default `0`) and a
+`save()` that refuses to overwrite a newer row:
+
+```python
+from tortoise_extended import BaseModel, TimestampMixin, VersionMixin
+
+class Document(BaseModel, VersionMixin, TimestampMixin):
+    title = fields.CharField(max_length=200)
+
+    class Meta:
+        table = "documents"
+
+doc = await Document.get(pk=1)       # version 0
+doc.title = "Draft"
+await doc.save()                     # UPDATE … WHERE id = 1 AND version = 0
+                                     # SET …, version = version + 1
+
+first = await Document.get(pk=1)     # someone else loaded the same row
+doc.title = "Mine"
+await doc.save()                     # still holds version 0 -> conflict
+first.title = "Theirs"
+await first.save()                   # version 1 -> 2, succeeds
+await doc.save()                     # VersionMismatchError
+```
+
+What the guarded `save()` does:
+
+- **Inserts are untouched.** `force_create`, an unsaved instance, or a `pk`
+  that is still `None` delegate to the next `save` in the MRO, so defaults,
+  generated keys, `auto_now_add` and other mixins' hooks behave as upstream.
+- **Updates are one statement**: `UPDATE <table> SET …, version = version + 1
+  WHERE <pk> = $1 AND version = $2`, built through the queryset API — no raw
+  SQL. `version` is bumped in the database with `F("version") + 1`, so two
+  writers cannot both read `0` and both write `1`.
+- **`auto_now` fields are stamped explicitly.** The queryset executor converts
+  values without an instance, so `auto_now` would never fire — the same reason
+  it does not fire through `QuerySet.update()`. The mixin writes the timestamp
+  itself and mirrors it onto the instance.
+- **`update_fields` narrows the payload**; `version` is always written. Naming
+  the primary key or a generated column raises `OperationalError`, as upstream.
+- **On conflict** nothing is written — in the database or in memory — and
+  `VersionMismatchError` names the model, `pk`, expected version and the
+  version now in the row, so the caller can reload and retry. A row that
+  disappeared raises `IntegrityError` (upstream's message for a forced update
+  of a missing object).
+- **Partial instances** (`.only(...)`) must have `version` loaded *and* must
+  pass `update_fields`; without a version there is nothing to guard, so
+  `IncompleteInstanceError` is raised rather than an unguarded write.
+
+**Not covered — deliberately.** `bulk_create`, `bulk_update` and
+`QuerySet.update()` bypass model `save()` entirely: they do not check the
+version and do not bump it. They are the bulk escape hatch; use
+`instance.save()` for anything that must be race-safe, and treat the bulk
+paths as last-write-wins.
+
+The guard uses a plain `QuerySet` internally, so it also works on soft-delete
+models: a soft-deleted row is still version-checked (the auto-filtering
+`SoftDeleteQuerySet` is not involved and cannot hide the row from the guard).
 
 ---
 

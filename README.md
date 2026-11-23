@@ -99,6 +99,7 @@ src/tortoise_extended/
 │   ├── base.py                # BaseModel (BigInt pk)
 │   ├── unified.py             # UnifiedIdModel (BigInt pk + UUID7 uid)
 │   ├── unified_node.py        # BaseUnifiedNode (UnifiedIdModel + NodeMixin)
+│   ├── versioned.py           # VersionMixin (optimistic locking: version + guarded save)
 │   ├── user.py                # BaseUserModel (Django-style email/password auth)
 │   ├── mixins.py              # TimestampMixin / TimestampEndMixin (created_at/updated_at)
 │   ├── soft_delete.py         # BaseSoftDeleteModel + SoftDeleteQuerySet

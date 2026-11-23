@@ -72,6 +72,8 @@ class Model:
 
     _meta: MetaInfo
     pk: Any
+    _saved_in_db: bool
+    _partial: bool
 
     def __init__(self, **kwargs: Any) -> None: ...
     @override
@@ -86,6 +88,18 @@ class Model:
         update_fields: Iterable[str] | None = None,
         force_create: bool = False,
         force_update: bool = False,
+    ) -> None: ...
+    async def _set_async_default_field(self) -> None: ...
+    async def _pre_save(
+        self,
+        using_db: BaseDBAsyncClient | None = None,
+        update_fields: Iterable[str] | None = None,
+    ) -> None: ...
+    async def _post_save(
+        self,
+        using_db: BaseDBAsyncClient | None = None,
+        created: bool = False,
+        update_fields: Iterable[str] | None = None,
     ) -> None: ...
     async def delete(self, using_db: BaseDBAsyncClient | None = None) -> None: ...
     async def fetch_related(

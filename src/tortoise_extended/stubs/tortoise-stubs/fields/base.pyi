@@ -55,6 +55,9 @@ class Field(Generic[VALUE]):
     default: Any
     db_default: Any
     pk: bool
+    generated: bool
+    auto_now: bool
+    """Declared by ``DatetimeField``; read defensively with ``getattr``."""
 
     def has_db_default(self) -> bool:
         """True when the field declares a database-level default."""

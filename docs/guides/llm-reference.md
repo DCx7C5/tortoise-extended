@@ -131,6 +131,7 @@ Pick the base per model — each is opt-in and independent:
 | `distinct_on` | `from tortoise_extended import distinct_on` | `DISTINCT ON` with bound `where`/`params` → real model instances (one per group) |
 | `PageInfo` | `from tortoise_extended import PageInfo` | `items`, `total`, `total_pages`, `has_next`, `has_prev` |
 | `row_number` / `sum_over` | `from tortoise_extended import row_number, sum_over` | Window functions (`ROW_NUMBER`, `SUM … OVER`, …) through `annotate()` — builder terms, no `F()` trap |
+| `VersionMixin` | `from tortoise_extended import VersionMixin` | Optimistic locking: `version` column + guarded `save()` raising `VersionMismatchError` |
 | `BaseNode` | `from tortoise_extended import BaseNode` | Primary graph-node base (`NodeMixin` + UUID7 identity, no FK on edges) |
 | `NodeMixin` | `from tortoise_extended import NodeMixin` | pk-free adjacency-list mixin, stackable with any identity base |
 | `BaseGraphNodeModel` | `from tortoise_extended import BaseGraphNodeModel` | Deprecated UUID4 alias of `BaseNode` |

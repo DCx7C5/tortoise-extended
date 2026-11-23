@@ -185,6 +185,7 @@ src/tortoise_extended/
 │   ├── cacheable_model.py     # BaseCacheableModel (model-level Redis caching)
 │   ├── sample.py              # SampleMixin + BaseSample (TimescaleDB multi-stream, pk-free mixin, BigInt identity)
 │   ├── unified.py             # UnifiedIdModel (BigInt pk + UUID7 uid)
+│   ├── versioned.py           # VersionMixin (optimistic locking: version + guarded save)
 │   ├── unified_node.py        # BaseUnifiedNode (UnifiedIdModel + NodeMixin, integer parent_id)
 │   └── event_stream.py        # BaseEventStreamModel (deprecated alias of BaseSample)
 ├── fields/
