@@ -30,7 +30,8 @@ Usage::
 """
 
 from collections import deque
-from typing import Self, override
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING, NoReturn, Self, override
 
 from pypika_tortoise.context import SqlContext
 from pypika_tortoise.terms import Term, ValueWrapper
@@ -41,10 +42,14 @@ from tortoise.models import Model
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
+from tortoise_extended._types import CacheValue
 from tortoise_extended.exceptions import HierarchyError
 from tortoise_extended.fields import CharField
 from tortoise_extended.fields.ltree import LTreeField
 from tortoise_extended.indexes.ltree_index import GiSTIndex
+
+if TYPE_CHECKING:
+    from tortoise.backends.base.client import BaseDBAsyncClient
 
 # ── Internal helpers ────────────────────────────────────────────────────
 
@@ -465,8 +470,8 @@ class BaseHierarchyModel(Model):
             # Lock the source and target rows so no concurrent move of either
             # node can interleave between our validation and our writes.
             locked_self = await type(self).select_for_update().get(pk=self.pk)
-            locked_parent = await type(new_parent).select_for_update().get(
-                pk=new_parent.pk
+            locked_parent = (
+                await type(new_parent).select_for_update().get(pk=new_parent.pk)
             )
 
             self_path_str = _path_to_str(locked_self.path)
@@ -527,6 +532,173 @@ class BaseHierarchyModel(Model):
             # This instance still holds the pre-move path/depth/parent_id —
             # refresh it so callers see the new tree position.
             await self.refresh_from_db()
+
+    # ── Bulk writes ──────────────────────────────────────────────────────
+
+    @classmethod
+    async def bulk_add_children(
+        cls,
+        parent: Self | None,
+        rows: Sequence[dict[str, CacheValue]],
+        *,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> list[Self]:
+        """Insert a batch of siblings with ``path`` and ``depth`` derived.
+
+        Seeds one level of a materialized-path tree: each row's ``path`` is
+        the parent's path plus its own ``name``, and ``depth`` the parent's
+        depth ``+ 1``.  A plain ``bulk_create`` skips both — which is why it
+        raises on this base — and leaves a tree that ``validate_hierarchy()``
+        reports but nothing notices at write time.
+
+        Rows are inserted one at a time inside one transaction (Tortoise's
+        ``bulk_create`` cannot return database-generated keys, and the next
+        level needs them).  For a raw ``COPY``-speed load, insert outside the
+        library and repair with :meth:`rebuild_paths`.
+
+        Each entry of *rows* is a mapping of ordinary field values.  ``name``
+        is required and must be a single ltree label (non-empty, no ``"."``);
+        ``path``, ``parent_id`` and ``depth`` are **derived** and must not
+        appear in the row.  ``namespace`` defaults to the parent's and must
+        not name another tenant.  Pass ``parent=None`` to seed roots: their
+        ``path`` is the ``name`` and their ``depth`` is ``0``.
+
+        Args:
+            parent: The parent node, or ``None`` to create roots.
+            rows: One mapping of field values per new node, in insert order.
+            using_db: Connection to run the INSERT on; ``None`` uses the
+                default connection (inside an ambient transaction when one is
+                open).
+
+        Returns:
+            The created instances, in *rows* order.
+
+        Raises:
+            HierarchyError: If *parent* is unpersisted, a row omits or
+                malforms ``name``, a row sets a derived column, or a row names
+                another namespace.
+        """
+        if not rows:
+            return []
+        if parent is not None and parent.pk is None:
+            raise HierarchyError(
+                f"Cannot bulk-add children to an unpersisted {cls.__name__}: "
+                "save the parent node first."
+            )
+
+        parent_id = None if parent is None else parent.pk
+        depth = 0 if parent is None else parent.depth + 1
+        parent_path = "" if parent is None else parent.path_str
+        parent_namespace = None if parent is None else parent.namespace
+
+        prepared: list[dict[str, CacheValue]] = []
+        for index, row in enumerate(rows):
+            values = dict(row)
+            for derived in ("path", "parent_id", "depth"):
+                if derived in values:
+                    raise HierarchyError(
+                        f"bulk_add_children row {index} sets {derived!r}, which is "
+                        "derived from the parent; remove it from the row."
+                    )
+            name = values.get("name")
+            if not isinstance(name, str) or not name:
+                raise HierarchyError(
+                    f"bulk_add_children row {index} needs a non-empty 'name': it "
+                    "becomes the last label of the ltree path."
+                )
+            if "." in name:
+                raise HierarchyError(
+                    f"bulk_add_children row {index} has name {name!r}: '.' is the "
+                    "ltree label separator and cannot appear in a single label."
+                )
+            if parent_namespace is not None:
+                row_namespace = values.get("namespace", parent_namespace)
+                if row_namespace != parent_namespace:
+                    raise HierarchyError(
+                        f"bulk_add_children row {index} targets namespace "
+                        f"{row_namespace!r} but the parent is in "
+                        f"{parent_namespace!r}: a child cannot cross namespaces."
+                    )
+                values["namespace"] = parent_namespace
+            values["path"] = f"{parent_path}.{name}" if parent_path else name
+            values["parent_id"] = parent_id
+            values["depth"] = depth
+            prepared.append(values)
+
+        async def _insert(db: BaseDBAsyncClient | None) -> list[Self]:
+            objects: list[Self] = []
+            # ``create()`` runs Tortoise's INSERT path (generated key, auto_now
+            # timestamps, field defaults) instead of ``bulk_create``, which
+            # returns no keys; ``path``/``depth`` are already derived above.
+            for values in prepared:
+                objects.append(await cls.create(using_db=db, **values))
+            return objects
+
+        # A level is one unit: a failure halfway through must not leave it
+        # half-inserted.  A caller-supplied connection is already scoped.
+        if using_db is None:
+            async with in_transaction() as raw_conn:
+                db: BaseDBAsyncClient = raw_conn
+                return await _insert(db)
+        return await _insert(using_db)
+
+    @classmethod
+    @override
+    def bulk_create(
+        cls,
+        objects: Iterable[Model],
+        batch_size: int | None = None,
+        ignore_conflicts: bool = False,
+        update_fields: Iterable[str] | None = None,
+        on_conflict: Iterable[str] | None = None,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> NoReturn:
+        """Refuse ``bulk_create`` on hierarchy models.
+
+        The INSERT bypasses :meth:`save`, so ``path`` and ``depth`` are never
+        derived: a bulk-inserted child inherits whatever the constructor
+        defaults gave it, and ``validate_hierarchy()`` (or an ltree prefix
+        query) is the only thing that ever notices.
+
+        Use :meth:`bulk_add_children` to seed a level, or
+        :meth:`rebuild_paths` after a raw ``COPY`` / SQL load.
+
+        Raises:
+            HierarchyError: Always — this method never inserts.
+        """
+        raise HierarchyError(
+            f"{cls.__name__}.bulk_create() is not supported: it does not run "
+            "save(), so path/depth would be silently wrong. Use "
+            f"`await {cls.__name__}.bulk_add_children(parent, rows)` to seed a "
+            "level, or `rebuild_paths()` after a raw load."
+        )
+
+    @classmethod
+    @override
+    def bulk_update(
+        cls,
+        objects: Iterable[Model],
+        fields: Iterable[str],
+        batch_size: int | None = None,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> NoReturn:
+        """Refuse ``bulk_update`` on hierarchy models.
+
+        A bulk UPDATE can persist a new ``parent_id`` while ``path``,
+        ``depth`` and every descendant's path keep their old values.
+        Reparenting is :meth:`move_to`'s job — it locks both rows, guards
+        against cycles and rewrites the whole subtree's paths in one
+        transaction.  :meth:`rebuild_paths` is the repair path (it writes
+        through the unguarded ORM call internally).
+
+        Raises:
+            HierarchyError: Always — this method never writes.
+        """
+        raise HierarchyError(
+            f"{cls.__name__}.bulk_update() is not supported: it does not run "
+            "save(), so path/depth and descendant paths would be silently "
+            "wrong. Use move_to() to reparent, or rebuild_paths() to repair."
+        )
 
     # ── Validation ───────────────────────────────────────────────────────
 
@@ -642,5 +814,9 @@ class BaseHierarchyModel(Model):
                 queue.append((child, f"{path_str}.{child.name}", depth + 1))
 
         if changed:
-            _ = await cls.bulk_update(changed, fields=["path", "depth"])
+            # Bypass this class's own guard: rebuild_paths IS the repair
+            # path that guard points at.
+            _ = await super(BaseHierarchyModel, cls).bulk_update(
+                changed, fields=["path", "depth"]
+            )
         return len(changed)

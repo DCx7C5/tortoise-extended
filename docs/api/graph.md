@@ -292,8 +292,39 @@ so `await node.get_ancestors()` executes the query:
 | `get_root()` | `Model \| None` | Root node of this tree (async) |
 | `get_path_to_root()` | `list` | Nodes from root to this node (async) |
 | `move_to(new_parent)` | `None` | Move subtree to new parent (async, atomic) |
+| `bulk_add_children(parent, rows, *, using_db=None)` | `list` | Insert a level with `path`/`depth` derived (async, classmethod) |
+| `bulk_create(...)` / `bulk_update(...)` | — | **Refused** — they skip `save()`, so `path`/`depth` would drift |
 | `validate_hierarchy()` | `list[str]` | Integrity check — list of errors (async) |
 | `rebuild_paths(*, namespace?)` | `int` | Recompute `path`/`depth` for the tree; returns rows changed (async) |
+
+### Bulk seeding
+
+`bulk_add_children(parent, rows, *, using_db=None)` inserts a whole level with
+`path` and `depth` derived: each row's `path` is the parent's path plus its own
+`name`, `depth` is the parent's depth `+ 1`, and `parent_id`/`namespace` are
+inherited. Pass `parent=None` to seed roots — their `path` is the `name` and
+their `depth` is `0`.
+
+```python
+roots = await Category.bulk_add_children(None, [{"name": "electronics"}])
+children = await Category.bulk_add_children(
+    roots[0], [{"name": "laptops"}, {"name": "phones"}]
+)
+
+assert [c.path_str for c in children] == ["electronics.laptops", "electronics.phones"]
+assert all(await c.validate_hierarchy() == [] for c in children)
+```
+
+`name` is required and must be one ltree label (non-empty, no `"."`); rows may
+not set `path`, `parent_id` or `depth` (they raise `HierarchyError`), and a
+row's `namespace` must match the parent's. The batch shares one transaction and
+inserts row by row — Tortoise's `bulk_create` returns no generated keys, and the
+next level needs them.
+
+`bulk_create()` and `bulk_update()` themselves **raise** on this base:
+neither runs `save()`, so `path`/`depth` (and every descendant path, on a
+reparent) would silently keep their old values. Use `move_to()` to reparent and
+`rebuild_paths()` to repair a load that bypassed the ORM.
 
 ### Repairing a hierarchy
 

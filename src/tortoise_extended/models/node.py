@@ -32,7 +32,7 @@ Usage::
 
 from collections import deque
 from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast, override
+from typing import TYPE_CHECKING, ClassVar, Literal, NoReturn, Self, cast, override
 from uuid import UUID
 
 import msgspec
@@ -473,6 +473,188 @@ class NodeMixin(Model):
         return child
 
     @classmethod
+    async def bulk_add_children(
+        cls,
+        parent: Self | None,
+        rows: Sequence[dict[str, CacheValue]],
+        *,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> list[Self]:
+        """Insert a batch of siblings with every derived column computed.
+
+        The supported way to seed a level of a tree: every row goes through
+        Tortoise's own INSERT path (so a generated primary key, ``auto_now``
+        timestamps and field defaults all come out right), the whole batch
+        shares one transaction, and the parent's ``child_count`` is bumped
+        once.  Derived columns are the point — a plain ``bulk_create`` skips
+        them (see :meth:`bulk_create`), which is why that method raises here.
+
+        It is **not** a single multi-row ``INSERT``: rows are inserted one at
+        a time inside the transaction.  Tortoise's ``bulk_create`` cannot
+        return database-generated keys, and a seeded level is useless without
+        them (the next level needs the parents' ``pk``).  For a raw
+        ``COPY``-speed load, insert outside the library and repair with
+        :meth:`rebuild_derived`.
+
+        Each entry of *rows* is a mapping of ordinary field values (like
+        :meth:`add_child` keyword arguments) for one node:
+
+        * ``parent_id``, ``depth``, ``is_root`` and ``child_count`` are
+          **derived** and must not appear in the row — a row that sets one
+          raises :class:`~tortoise_extended.exceptions.GraphError`;
+        * ``namespace`` defaults to the parent's and must not name another
+          tenant;
+        * pass ``parent=None`` to seed roots: ``parent_id=None``, ``depth=0``,
+          ``is_root=True``.
+
+        The INSERT and the parent ``child_count`` update share one transaction
+        when *using_db* is ``None``; a supplied handle (for example a
+        transaction already open on the caller's connection) is used as-is, so
+        a caller can nest this in its own atomic unit.
+
+        Args:
+            parent: The parent node, or ``None`` to create roots.
+            rows: One mapping of field values per new node, in insert order.
+            using_db: Connection to run the write on; ``None`` uses a
+                freshly opened transaction on the default connection.
+
+        Returns:
+            The unsaved-then-persisted instances, in *rows* order.
+
+        Raises:
+            GraphError: If *parent* is unpersisted, a row sets a derived
+                column, or a row names another namespace.
+        """
+        if not rows:
+            return []
+        if parent is not None and parent.pk is None:
+            raise GraphError(
+                f"Cannot bulk-add children to an unpersisted {cls.__name__}: "
+                "save the parent node first."
+            )
+
+        parent_id: UUID | int | None = parent.pk if parent is not None else None
+        depth = 0 if parent is None else parent.depth + 1
+        parent_namespace = None if parent is None else parent.namespace
+
+        prepared: list[dict[str, CacheValue]] = []
+        for index, row in enumerate(rows):
+            values = dict(row)
+            for derived in ("parent_id", "depth", "is_root", "child_count"):
+                if derived in values:
+                    raise GraphError(
+                        f"bulk_add_children row {index} sets {derived!r}, which is "
+                        f"derived from the parent; remove it from the row."
+                    )
+            if parent_namespace is not None:
+                row_namespace = values.get("namespace", parent_namespace)
+                if row_namespace != parent_namespace:
+                    raise GraphError(
+                        f"bulk_add_children row {index} targets namespace "
+                        f"{row_namespace!r} but the parent is in "
+                        f"{parent_namespace!r}: a child cannot cross namespaces."
+                    )
+                values["namespace"] = parent_namespace
+            # ``CacheValue`` has no UUID member (a wire-type alias for the
+            # cache backend, not a model column); the value is passed to
+            # ``cls(**values)``, which accepts it verbatim.
+            values["parent_id"] = cast(CacheValue, parent_id)
+            values["depth"] = depth
+            values["is_root"] = parent is None
+            values["child_count"] = 0
+            prepared.append(values)
+
+        async def _insert(db: BaseDBAsyncClient | None) -> list[Self]:
+            objects: list[Self] = []
+            for values in prepared:
+                instance = cls(**values)
+                # Insert through Tortoise's own save() rather than NodeMixin's:
+                # the per-row child_count maintenance below replaces the
+                # per-row hook with a single bump, and Model.save() still
+                # generates keys, timestamps and field defaults.
+                await super(NodeMixin, instance).save(using_db=db)
+                objects.append(instance)
+            if parent_id is not None:
+                _ = await (
+                    cls.filter(pk=parent_id)
+                    .using_db(db)
+                    .update(child_count=F("child_count") + len(objects))
+                )
+                if parent is not None:
+                    parent.child_count += len(objects)
+            return objects
+
+        # The INSERTs and the counter bump must land together, mirroring
+        # save(); a caller-supplied connection is already scoped.
+        if using_db is None:
+            async with in_transaction() as raw_conn:
+                db: BaseDBAsyncClient = raw_conn
+                return await _insert(db)
+        return await _insert(using_db)
+
+    @classmethod
+    @override
+    def bulk_create(
+        cls,
+        objects: Iterable[Model],
+        batch_size: int | None = None,
+        ignore_conflicts: bool = False,
+        update_fields: Iterable[str] | None = None,
+        on_conflict: Iterable[str] | None = None,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> NoReturn:
+        """Refuse ``bulk_create`` on node models.
+
+        ``bulk_create`` inserts rows without running :meth:`save`, so no
+        derived column is maintained: a bulk-inserted child keeps
+        ``depth=0``, ``is_root=False`` and the parent's ``child_count`` stays
+        at zero.  Nothing raises, and every ordering and traversal query then
+        works on a tree that is silently wrong — the failure mode
+        django-mptt documents as its own undoing.
+
+        Use :meth:`bulk_add_children` to seed a level (it derives
+        ``parent_id`` / ``depth`` / ``is_root`` / ``child_count`` and bumps the
+        parent's counter), or, after a raw ``COPY`` / SQL load, call
+        :meth:`rebuild_derived` to repair the derived columns.
+
+        Raises:
+            GraphError: Always — this method never inserts.
+        """
+        raise GraphError(
+            f"{cls.__name__}.bulk_create() is not supported: a bulk INSERT does "
+            "not run save(), so depth/is_root/child_count would be silently "
+            f"wrong. Use `await {cls.__name__}.bulk_add_children(parent, rows)` "
+            "to seed a level, or `rebuild_derived()` after a raw load."
+        )
+
+    @classmethod
+    @override
+    def bulk_update(
+        cls,
+        objects: Iterable[Model],
+        fields: Iterable[str],
+        batch_size: int | None = None,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> NoReturn:
+        """Refuse ``bulk_update`` on node models.
+
+        ``bulk_update`` writes columns without running :meth:`save`, so it can
+        persist a changed ``parent_id`` while ``is_root`` / ``child_count``
+        (and every descendant's ``depth``) keep their old values.  Reparenting
+        is :meth:`move_to`'s job — it locks, guards against cycles and shifts
+        the whole subtree inside one transaction.
+
+        Raises:
+            GraphError: Always — this method never writes.
+        """
+        raise GraphError(
+            f"{cls.__name__}.bulk_update() is not supported: it does not run "
+            "save(), so is_root/child_count and descendant depth would be "
+            "silently wrong. Use move_to() to reparent, or rebuild_derived() "
+            "to repair derived columns."
+        )
+
+    @classmethod
     def _require_edge_model(cls) -> type[Model]:
         """Return the configured edge model or raise a clear :class:`GraphError`.
 
@@ -582,9 +764,7 @@ class NodeMixin(Model):
         """
         edge_model = type(self)._require_edge_model()
         if self.pk is None or other.pk is None:
-            raise GraphError(
-                "Cannot disconnect unpersisted nodes: save them first."
-            )
+            raise GraphError("Cannot disconnect unpersisted nodes: save them first.")
 
         edge_fields = edge_model._meta.fields_map
         filters: dict[str, CacheValue] = {}
@@ -873,9 +1053,9 @@ class NodeMixin(Model):
                         f"(parent depth {parent.depth} + 1) but got {stored.depth}"
                     )
 
-        child_count = await type(self).filter(
-            parent_id=pk, namespace=stored.namespace
-        ).count()
+        child_count = (
+            await type(self).filter(parent_id=pk, namespace=stored.namespace).count()
+        )
         if stored.child_count != child_count:
             errors.append(
                 f"child_count mismatch: stored {stored.child_count} but "

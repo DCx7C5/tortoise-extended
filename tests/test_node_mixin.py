@@ -274,6 +274,32 @@ class TestNodeTree:
         assert walked == length - 1
 
 
+class TestBulkWriteGuards:
+    """Bulk ORM writes cannot maintain the derived node columns — they raise."""
+
+    def test_bulk_create_raises_before_any_write(self) -> None:
+        with pytest.raises(GraphError, match="bulk_create\\(\\) is not supported"):
+            UnitHybridNode.bulk_create([UnitHybridNode(name="x")])
+
+    def test_bulk_create_names_the_supported_alternatives(self) -> None:
+        with pytest.raises(GraphError) as excinfo:
+            UnitHybridNode.bulk_create([UnitHybridNode(name="x")])
+        message = str(excinfo.value)
+        assert "bulk_add_children" in message
+        assert "rebuild_derived" in message
+
+    def test_bulk_update_raises_before_any_write(self) -> None:
+        node = UnitHybridNode(id=1, name="x", depth=0)
+        with pytest.raises(GraphError, match="bulk_update\\(\\) is not supported"):
+            UnitHybridNode.bulk_update([node], fields=["depth"])
+
+    def test_bulk_update_points_at_move_to(self) -> None:
+        node = UnitHybridNode(id=1, name="x", depth=0)
+        with pytest.raises(GraphError) as excinfo:
+            UnitHybridNode.bulk_update([node], fields=["depth"])
+        assert "move_to" in str(excinfo.value)
+
+
 class TestEdgeModelContract:
     """edge_model is unset by default and its shape is validated lazily."""
 

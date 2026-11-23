@@ -568,3 +568,104 @@ class TestRebuildPaths:
         assert await Category.rebuild_paths(namespace="other") == 1
         assert await Category.rebuild_paths() == 0
         assert (await Category.get(pk=macbook.pk)).depth == 2
+
+
+# ---------------------------------------------------------------------------
+# bulk_add_children / bulk guards
+# ---------------------------------------------------------------------------
+
+
+class TestBulkAddChildren:
+    """bulk_add_children() derives path/depth; plain bulk writes are refused."""
+
+    @pytest.mark.asyncio
+    async def test_seeds_roots_with_path_and_depth(self) -> None:
+        roots = await Category.bulk_add_children(
+            None,
+            [
+                {"name": "electronics", "namespace": "shop"},
+                {"name": "outdoors", "namespace": "shop"},
+            ],
+        )
+
+        assert [root.path_str for root in roots] == ["electronics", "outdoors"]
+        assert [root.depth for root in roots] == [0, 0]
+        assert all(root.parent_id is None for root in roots)
+        for root in roots:
+            assert await root.validate_hierarchy() == []
+
+    @pytest.mark.asyncio
+    async def test_seeds_a_level_with_parent_paths(self) -> None:
+        electronics, laptops, _macbook, _phones = await _make_tree()
+
+        added = await Category.bulk_add_children(
+            laptops,
+            [{"name": "thinkpad"}, {"name": "framework"}],
+        )
+
+        assert [node.path_str for node in added] == [
+            "electronics.laptops.thinkpad",
+            "electronics.laptops.framework",
+        ]
+        assert [node.depth for node in added] == [2, 2]
+        assert all(node.parent_id == laptops.pk for node in added)
+        assert all(node.namespace == "shop" for node in added)
+        for node in (electronics, laptops, *added):
+            assert await node.validate_hierarchy() == []
+
+    @pytest.mark.asyncio
+    async def test_the_seeded_tree_needs_no_repair(self) -> None:
+        electronics, _laptops, _macbook, _phones = await _make_tree()
+        _ = await Category.bulk_add_children(electronics, [{"name": "tablets"}])
+
+        assert await Category.rebuild_paths() == 0
+
+    @pytest.mark.asyncio
+    async def test_rejects_derived_columns_in_a_row(self) -> None:
+        electronics, _laptops, _macbook, _phones = await _make_tree()
+        for derived in ("path", "parent_id", "depth"):
+            with pytest.raises(HierarchyError, match=derived):
+                _ = await Category.bulk_add_children(
+                    electronics, [{"name": "tablets", derived: 1}]
+                )
+
+    @pytest.mark.asyncio
+    async def test_rejects_a_name_that_is_not_a_single_label(self) -> None:
+        electronics, _laptops, _macbook, _phones = await _make_tree()
+        with pytest.raises(HierarchyError, match="separator"):
+            _ = await Category.bulk_add_children(
+                electronics, [{"name": "tablets.pro"}]
+            )
+        with pytest.raises(HierarchyError, match="non-empty"):
+            _ = await Category.bulk_add_children(electronics, [{"name": ""}])
+
+    @pytest.mark.asyncio
+    async def test_rejects_a_row_from_another_namespace(self) -> None:
+        electronics, _laptops, _macbook, _phones = await _make_tree()
+        with pytest.raises(HierarchyError, match="cannot cross namespaces"):
+            _ = await Category.bulk_add_children(
+                electronics, [{"name": "tablets", "namespace": "office"}]
+            )
+
+    @pytest.mark.asyncio
+    async def test_rejects_an_unpersisted_parent(self) -> None:
+        with pytest.raises(HierarchyError, match="unpersisted"):
+            _ = await Category.bulk_add_children(
+                Category(name="ghost", namespace="shop"), [{"name": "tablets"}]
+            )
+
+    @pytest.mark.asyncio
+    async def test_empty_rows_is_a_noop(self) -> None:
+        electronics, _laptops, _macbook, _phones = await _make_tree()
+        assert await Category.bulk_add_children(electronics, []) == []
+
+    @pytest.mark.asyncio
+    async def test_bulk_create_is_refused(self) -> None:
+        with pytest.raises(HierarchyError, match="bulk_create\\(\\) is not supported"):
+            Category.bulk_create([])
+
+    @pytest.mark.asyncio
+    async def test_bulk_update_is_refused(self) -> None:
+        electronics, _laptops, _macbook, _phones = await _make_tree()
+        with pytest.raises(HierarchyError, match="bulk_update\\(\\) is not supported"):
+            Category.bulk_update([electronics], fields=["depth"])

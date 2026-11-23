@@ -881,6 +881,113 @@ class TestRebuildDerived:
 
 
 # ---------------------------------------------------------------------------
+# Bulk seeding
+# ---------------------------------------------------------------------------
+
+
+class TestBulkAddChildren:
+    """bulk_add_children() seeds a level with every derived column correct."""
+
+    async def test_seeds_roots_with_derived_columns(self) -> None:
+        roots = await HybridNode.bulk_add_children(
+            None,
+            [
+                {"namespace": "shop", "metadata_json": {"label": "a"}},
+                {"namespace": "shop", "metadata_json": {"label": "b"}},
+            ],
+        )
+
+        assert len(roots) == 2
+        for root in roots:
+            assert root.parent_id is None
+            assert root.depth == 0
+            assert root.is_root is True
+            assert root.child_count == 0
+            assert root.namespace == "shop"
+        for root in roots:
+            assert await root.validate_node() == []
+
+    async def test_seeds_a_level_and_bumps_the_parent_counter(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+
+        children = await HybridNode.bulk_add_children(
+            root,
+            [{"metadata_json": {"label": "c1"}}, {"metadata_json": {"label": "c2"}}],
+        )
+
+        assert [child.depth for child in children] == [1, 1]
+        assert all(child.parent_id == root.pk for child in children)
+        assert all(child.is_root is False for child in children)
+        assert all(child.namespace == "shop" for child in children)
+        assert root.child_count == 2  # in-memory copy matches the single bump
+        assert (await HybridNode.get(pk=root.pk)).child_count == 2
+        for child in children:
+            assert await child.validate_node() == []
+
+    async def test_seeds_a_two_level_tree(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        children = await HybridNode.bulk_add_children(
+            root, [{"metadata_json": {"label": "laptops"}}]
+        )
+
+        grandchildren = await HybridNode.bulk_add_children(
+            children[0],
+            [
+                {"metadata_json": {"label": "macbook"}},
+                {"metadata_json": {"label": "thinkpad"}},
+            ],
+        )
+
+        assert [node.depth for node in grandchildren] == [2, 2]
+        for node in (root, *children, *grandchildren):
+            assert await node.validate_node() == []
+
+    async def test_the_seeded_tree_needs_no_repair(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        _ = await HybridNode.bulk_add_children(root, [{"metadata_json": {}}])
+
+        assert await HybridNode.rebuild_derived() == 0
+
+    async def test_rejects_derived_columns_in_a_row(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        for derived in ("parent_id", "depth", "is_root", "child_count"):
+            with pytest.raises(GraphError, match=derived):
+                _ = await HybridNode.bulk_add_children(root, [{derived: 3}])
+
+    async def test_rejects_a_row_from_another_namespace(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        with pytest.raises(GraphError, match="cannot cross namespaces"):
+            _ = await HybridNode.bulk_add_children(root, [{"namespace": "office"}])
+
+    async def test_rejects_an_unpersisted_parent(self) -> None:
+        with pytest.raises(GraphError, match="unpersisted"):
+            _ = await HybridNode.bulk_add_children(
+                HybridNode(namespace="shop"), [{"metadata_json": {}}]
+            )
+
+    async def test_empty_rows_is_a_noop(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        assert await HybridNode.bulk_add_children(root, []) == []
+        assert (await HybridNode.get(pk=root.pk)).child_count == 0
+
+    async def test_joins_a_caller_transaction(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        async with in_transaction() as conn:
+            _ = await HybridNode.bulk_add_children(
+                root, [{"metadata_json": {}}], using_db=conn
+            )
+            # Visible inside the transaction, before it commits.
+            assert await HybridNode.filter(parent_id=root.pk).count() == 1
+
+    async def test_concrete_model_guards_still_raise(self) -> None:
+        with pytest.raises(GraphError, match="bulk_create\\(\\) is not supported"):
+            HybridNode.bulk_create([HybridNode(namespace="shop")])
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        with pytest.raises(GraphError, match="bulk_update\\(\\) is not supported"):
+            HybridNode.bulk_update([root], fields=["depth"])
+
+
+# ---------------------------------------------------------------------------
 # root() and strict ancestry
 # ---------------------------------------------------------------------------
 

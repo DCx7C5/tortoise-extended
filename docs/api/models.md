@@ -295,6 +295,8 @@ top of the adjacency-list fields. The field tables and the query helpers
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `add_child(*, using_db=None, **fields)` | `Self` | Insert a child linked to this node |
+| `bulk_add_children(parent, rows, *, using_db=None)` | `list[Self]` | Insert a whole level with derived columns; `parent=None` seeds roots (classmethod) |
+| `bulk_create(...)` / `bulk_update(...)` | — | **Refused** — they skip `save()`, so the derived columns would drift |
 | `move_to(new_parent)` | `None` | Reparent this node and its subtree under `new_parent` (or detach to root with `None`) |
 | `connect(other, *, edge_type?, weight?, **attrs)` | `Model` | Create an edge to `other` through the configured `edge_model` |
 | `disconnect(other, *, edge_type?)` | `int` | Delete edges to `other`; returns the count |
@@ -332,6 +334,39 @@ assert laptops.parent_id == root.pk
 assert laptops.depth == root.depth + 1
 assert root.child_count == 1  # in-memory copy matches the single DB bump
 ```
+
+### bulk_add_children
+
+Seeds one level of a tree. Each row is a mapping of ordinary field values —
+like `add_child` keyword arguments — and the derived columns are computed for
+you: `parent_id`, `depth = parent.depth + 1`, `is_root=False` and
+`child_count=0`, plus the parent's own `child_count` bump (one `UPDATE` for
+the whole batch). Pass `parent=None` to seed roots (`parent_id=None`,
+`depth=0`, `is_root=True`).
+
+```python
+roots = await Category.bulk_add_children(
+    None, [{"namespace": "shop"}, {"namespace": "shop"}]
+)
+children = await Category.bulk_add_children(
+    roots[0], [{"metadata_json": {"label": "laptops"}}]
+)
+
+assert children[0].depth == 1 and children[0].is_root is False
+assert await children[0].validate_node() == []
+```
+
+Rows may **not** set `parent_id`, `depth`, `is_root` or `child_count` (they are
+derived — that raises `GraphError`), and a row's `namespace` must match the
+parent's. The batch shares one transaction; the rows are inserted one at a
+time because Tortoise's `bulk_create` returns no database-generated keys and
+the next level needs the parents' `pk`. For a raw `COPY`-speed load, insert
+outside the library and repair with `rebuild_derived()`.
+
+`bulk_create()` and `bulk_update()` themselves **raise** on these bases: they
+do not run `save()`, so a bulk-inserted child keeps `depth=0` and the parent's
+`child_count` stays at zero — silently. `move_to()` is the reparent path, and
+`rebuild_derived()` is the repair path.
 
 ### move_to
 
@@ -393,9 +428,9 @@ chain. It is the adjacency-list counterpart of
 assert await laptops.validate_node() == []
 ```
 
-`bulk_create` / `bulk_update` do not run `save()`, so a bulk-seeded tree can
-fail these checks — that is what the method is for. It validates a single
-node; call it in a loop to survey a whole tree.
+It validates a single node; call it in a loop to survey a whole tree, or call
+it once per node after a raw SQL / `COPY` load to find the rows
+`rebuild_derived()` needs to repair.
 
 ### rebuild_derived
 
