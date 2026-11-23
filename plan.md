@@ -628,6 +628,12 @@ Gaps that motivate the work:
     consumer needed to read the config from outside the model class, which nothing does.
 - **D9 — parked.** Splitting `BaseNode`'s forced `name` field into a `NamedNodeMixin` was
   discussed but **not selected**; it stays a parked low-priority row.
+- **D10 — the sample "latest" name (2026-11-23, user decision).** `SampleMixin.latest(stream)`
+  as originally specced shadows `Model.latest(*orderings)` — the inherited sync classmethod that
+  returns `QuerySetSingle` — so every sample model lost the ORM helper and a generic call like
+  `await Event.latest("created_at")` silently changed meaning. Renamed to
+  `latest_for_stream(stream)`, matching the existing `latest_per_stream`; `Model.latest` stays
+  intact and the method needs no `@override` / pyright suppression.
 
 ### H.3 Phases → TODOs
 
@@ -690,6 +696,22 @@ an empty value. `REDIS_PASSWORD` also gates the live cache tests (`tests/_redis_
 authenticates and percent-encodes), so the three cache modules skip — visibly — when the secret
 is absent. 2963 (SQLite doc claims) was already resolved by `4bd5d8c`; measured, not assumed.
 
+**P2 lifecycle, P3 first hybrid, P5 streams — shipped 2026-11-23.** `LIFECYCLE-EXTENSIONS` (2966,
+`f8e8dd6`) adds `ensure_extensions()` / `EXTENSIONS` / `SetupReport` / `SetupError`;
+`LIFECYCLE-SETUP` (2978, `62fb090`) adds `setup()`, whose ordering is pinned by measuring that the
+reversed order raises (`create_hypertable` before `generate_schemas` →
+`TimescaleError` naming the partitioning column). `UNIFIED-NODE` (2967, `c72c161`) ships
+`BaseUnifiedNode`, with one measured correction to that row: `NodeMixin.__init_subclass__` returns
+early for abstract bases (`models/node.py:233-234`), so the index guard bites *concrete*
+subclasses, not the abstract base — the base redeclares the index as documentation.
+`SAMPLE-RECORD-LATEST` (2970, `57fe354`) ships `record()` / `downsample()` and the renamed
+`latest_for_stream()` (D10); `at=None` follows D7 — the value is omitted only when the time column
+carries a non-`None` `default`, otherwise the call raises. Two follow-ups were filed out of these
+rows rather than folded in: `LIFECYCLE-SETUP-EXPORT` (3021 — `setup` is public in
+`tortoise_extended.lifecycle` but not yet re-exported from the top-level `__init__.py`), and `3010`,
+which needs one `pyproject.toml` line the user has agreed to add (the tool-level edit denial stands;
+do not work around it).
+
 **TODO positions:** NODE-ERGO 2964 · NODE-EDGE-HYBRID 2965 · LIFECYCLE-EXTENSIONS 2966 ·
 UNIFIED-NODE 2967 · NODE-SOFTDELETE 2968 · GRAPH-FACADE 2969 · SAMPLE-RECORD-LATEST 2970 ·
 SAMPLE-GAPFILL 2971 · TIMESCALE-META-SPIKE 2972 · TIMESCALE-META-IMPL 2973 · DOCS-ERGO 2974 ·
@@ -701,9 +723,10 @@ hybrid). `TRACKING-DRIFT-SESSION-JOIN` is not an ergonomics row — it records t
 `todo`↔`session` join drift found while verifying the review (see H.5).
 
 **Serialisation — the real rule.** One writer at a time per shared file:
-`models/node.py` (**2995 → 2996 → NODE-MOVE-TO 2977 → NODE-EDGE-HYBRID 2965**);
-`models/sample.py` (SAMPLE-RECORD-LATEST → SAMPLE-GAPFILL); `models/__init__.py` + top-level
-`__init__.py` + `docs/api/models.md` (UNIFIED-NODE → NODE-SOFTDELETE → LIFECYCLE-*). The earlier
+`models/node.py` (**2995 → 2996 → NODE-MOVE-TO 2977 → NODE-EDGE-HYBRID 2965**, all shipped);
+`models/sample.py` (SAMPLE-RECORD-LATEST ✔ 2970 → SAMPLE-GAPFILL 2971); `models/__init__.py` +
+top-level `__init__.py` + `docs/api/models.md` (UNIFIED-NODE ✔ 2967 → NODE-SOFTDELETE 2968);
+top-level `__init__.py` again for GRAPH-FACADE 2969 → LIFECYCLE-SETUP-EXPORT 3021. The earlier
 claim that "P2–P5 are file-disjoint" was **false**: P3's two rows share four files, P5's two rows
 share `models/sample.py`, and three rows edit the top-level `__init__.py`.
 
