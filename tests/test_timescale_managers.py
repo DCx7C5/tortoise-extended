@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from datetime import timedelta
 from typing import TypeAlias
 
+import msgspec
 import pytest
 
 from tortoise_extended._types import RowMapping, RowValue
@@ -21,7 +22,7 @@ from tortoise_extended.timescale.continuous_aggregate import (
     validate_cagg_query,
 )
 from tortoise_extended.timescale.hypertable import HypertableManager
-from tortoise_extended.timescale.retention import RetentionPolicy
+from tortoise_extended.timescale.retention import RetentionPolicy, RetentionPolicyInfo
 from tortoise_extended.timescale.stream import _bucket_to_timedelta
 
 
@@ -228,6 +229,44 @@ class TestListPolicies:
         assert policies[0].schedule_interval == "1 day"
         assert policies[0].initial_start is None
         assert policies[0].scheduled is False
+
+
+class TestRetentionPolicyInfoDecode:
+    """``RetentionPolicyInfo`` stays a decodable ``msgspec.Struct``.
+
+    Regression guard: ``drop_after`` must not widen back to ``RowValue`` —
+    ``bytes`` in that union makes msgspec reject the struct outright
+    ("Type unions may not contain more than one str-like type").
+    """
+
+    def test_json_decode(self) -> None:
+        payload = (
+            b'{"table_name": "events",'
+            b' "drop_after": {"drop_after": "90 days"},'
+            b' "schedule_interval": null,'
+            b' "initial_start": null,'
+            b' "scheduled": true}'
+        )
+        info = msgspec.json.decode(payload, type=RetentionPolicyInfo)
+        assert info.table_name == "events"
+        assert info.drop_after == {"drop_after": "90 days"}
+        assert info.schedule_interval is None
+        assert info.initial_start is None
+        assert info.scheduled is True
+
+    def test_encode_decode_round_trip(self) -> None:
+        info = RetentionPolicyInfo(
+            table_name="events",
+            drop_after={"drop_after": "90 days"},
+            schedule_interval="1 day",
+            initial_start=None,
+            scheduled=False,
+        )
+        decoded = msgspec.json.decode(
+            msgspec.json.encode(info), type=RetentionPolicyInfo
+        )
+        assert decoded == info
+        assert decoded.drop_after == {"drop_after": "90 days"}
 
 
 class TestListContinuousAggregates:

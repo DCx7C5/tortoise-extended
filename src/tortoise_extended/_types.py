@@ -46,6 +46,15 @@ T = TypeVar("T")
 type RowValue = str | int | float | bool | bytes | None
 """A single SQL result value (PostgreSQL wire types)."""
 
+type JsonScalar = str | int | float | bool | None
+"""A JSON scalar value — ``RowValue`` without ``bytes``.
+
+``bytes`` makes the union unusable as a ``msgspec.Struct`` field: msgspec
+rejects any union with more than one str-like type ("Type unions may not
+contain more than one str-like type ... bytes ..."), which makes the enclosing
+struct undecodable. Use this alias for JSON/jsonb-decoded scalar maps.
+"""
+
 type CoercedValue = RowValue | datetime | date | time
 """A cache value after field-type coercion (JSON str restored to datetime/date/time)."""
 

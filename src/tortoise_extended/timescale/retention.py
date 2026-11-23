@@ -28,7 +28,7 @@ from tortoise import connections
 from tortoise.backends.base.client import BaseDBAsyncClient
 
 from tortoise_extended._quote import quote_literal
-from tortoise_extended._types import RowMapping, RowValue
+from tortoise_extended._types import JsonScalar, RowMapping, RowValue
 from tortoise_extended.exceptions import TimescaleError
 
 
@@ -48,7 +48,7 @@ class RetentionPolicyInfo(msgspec.Struct):
     """
 
     table_name: str
-    drop_after: dict[str, RowValue]
+    drop_after: dict[str, JsonScalar]
     schedule_interval: str | None
     initial_start: str | None
     scheduled: bool
@@ -172,16 +172,14 @@ class RetentionPolicy:
         for row in rows:
             if isinstance(row, dict):
                 drop_after = cast(
-                    "RowValue | dict[str, RowValue]", row.get("drop_after")
+                    "RowValue | dict[str, JsonScalar]", row.get("drop_after")
                 )
                 if not isinstance(drop_after, dict):
                     # ``config`` is a jsonb column: drivers decode it to a
                     # dict even though the row mapping types it as a scalar
                     # RowValue. Bridge through ``object`` to keep the narrow
                     # dict at the scalar value position (G20).
-                    drop_after = cast(
-                        "dict[str, RowValue]", cast(object, drop_after)
-                    )
+                    drop_after = cast("dict[str, JsonScalar]", cast(object, drop_after))
                 policies.append(
                     RetentionPolicyInfo(
                         table_name=cast(str, row["table_name"]),
@@ -192,14 +190,10 @@ class RetentionPolicy:
                     )
                 )
             else:
-                drop_after = cast(
-                    "RowValue | dict[str, RowValue]", row[1]
-                )
+                drop_after = cast("RowValue | dict[str, JsonScalar]", row[1])
                 if not isinstance(drop_after, dict):
                     # Same jsonb handling as the dict-row branch (G20).
-                    drop_after = cast(
-                        "dict[str, RowValue]", cast(object, drop_after)
-                    )
+                    drop_after = cast("dict[str, JsonScalar]", cast(object, drop_after))
                 policies.append(
                     RetentionPolicyInfo(
                         cast(str, row[0]),
