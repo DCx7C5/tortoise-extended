@@ -34,6 +34,7 @@ from tortoise.models import Model
 
 import tortoise_extended
 from tortoise_extended import distinct_on
+from tortoise_extended.expressions.distinct_on import _assert_asyncpg_backend
 
 # =========================================================================
 # Models
@@ -63,6 +64,23 @@ class SoftReading(Model):
 
     class Meta:
         table = "test_distinct_soft_reading"
+
+
+class RenamedSoftReading(Model):
+    """The soft-delete column under a different attribute name.
+
+    ``removed_at`` projects onto the ``deleted_at`` column, so detection must
+    key on the *column*, not the field name.
+    """
+
+    id = fields.IntField(primary_key=True)
+    sensor_id = fields.CharField(max_length=8)
+    observed_at = fields.DatetimeField()
+    value = fields.IntField()
+    removed_at = fields.DatetimeField(null=True, source_field="deleted_at")
+
+    class Meta:
+        table = "test_distinct_renamed_soft_reading"
 
 
 def _at(hour: int, minute: int = 0) -> datetime:
@@ -209,6 +227,7 @@ DB_URL = os.environ.get(
 
 READING_TABLE = "test_distinct_reading"
 SOFT_TABLE = "test_distinct_soft_reading"
+RENAMED_SOFT_TABLE = "test_distinct_renamed_soft_reading"
 
 
 def _pg_available() -> bool:
@@ -241,11 +260,11 @@ async def _db() -> AsyncGenerator[None]:
     conn = Tortoise.get_connection("default")
     # DROP before CREATE: generate_schemas() is IF NOT EXISTS, so a stale table
     # left behind by an aborted run would be silently reused.
-    for table in (READING_TABLE, SOFT_TABLE):
+    for table in (READING_TABLE, SOFT_TABLE, RENAMED_SOFT_TABLE):
         await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.generate_schemas()
     yield
-    for table in (READING_TABLE, SOFT_TABLE):
+    for table in (READING_TABLE, SOFT_TABLE, RENAMED_SOFT_TABLE):
         await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.close_connections()
 
@@ -254,7 +273,7 @@ async def _db() -> AsyncGenerator[None]:
 async def _clean_rows(_db: None) -> AsyncGenerator[None]:
     """Start every test from empty tables with fresh integer ids."""
     conn = Tortoise.get_connection("default")
-    for table in (READING_TABLE, SOFT_TABLE):
+    for table in (READING_TABLE, SOFT_TABLE, RENAMED_SOFT_TABLE):
         await conn.execute_query(f"TRUNCATE {table} RESTART IDENTITY")
     yield
 
@@ -658,3 +677,123 @@ class TestDistinctOnAgainstPostgres:
         assert [(row.sensor_id, row.value, row.observed_at) for row in rows] == [
             ("u", 40, _at(2)),
         ]
+
+    @pytest.mark.parametrize("limit", [True, False])
+    async def test_bool_limit_is_refused(self, limit: bool) -> None:
+        """``bool`` is an ``int``, but ``limit=True`` is not ``limit=1``.
+
+        ``False < 1`` would already be caught as a below-one limit, so the
+        contrast below is what proves the refusal is about the type. Catches a
+        guard that lets ``True`` through as one row and a message that does not
+        quote the offending value.
+        """
+        with pytest.raises(ValueError) as excinfo:
+            await distinct_on(Reading, "sensor_id", limit=limit)
+
+        assert str(limit).lower() in str(excinfo.value).lower()
+
+    async def test_integer_limit_one_is_accepted(self) -> None:
+        """The contrast for the ``bool`` refusal: ``limit=1`` still works.
+
+        Catches a guard that refuses every limit it does not freshly validate,
+        or one that conflates ``1`` with ``True``.
+        """
+        await _seed()
+
+        rows = await distinct_on(
+            Reading, "sensor_id", order_by=("sensor_id", "-observed_at"), limit=1
+        )
+
+        assert [(row.sensor_id, row.value) for row in rows] == [("a", 51)]
+
+    async def test_model_instance_target_is_type_error(self) -> None:
+        """A fetched row is not a target; the model class is.
+
+        Catches an implementation that accepts any object with ``_meta`` and
+        would then read carried state off a loaded instance (silently ignoring
+        the row's pk). The message must name ``instance`` so the caller can find
+        the call site, and passing the class afterwards must still work.
+        """
+        await _seed()
+        row = await Reading.get(sensor_id="a", value=51)
+
+        with pytest.raises(TypeError) as excinfo:
+            await distinct_on(row, "sensor_id")
+
+        assert "instance" in str(excinfo.value).lower()
+
+        rows = await distinct_on(
+            Reading, "sensor_id", order_by=("sensor_id", "-observed_at")
+        )
+        assert [(r.sensor_id, r.value) for r in rows] == [
+            ("a", 51),
+            ("b", 52),
+            ("c", 53),
+        ]
+
+    async def test_model_get_target_is_carried_state(self) -> None:
+        """An un-awaited ``.get()`` is a ``QuerySet`` with state, not a target.
+
+        ``Reading.get(...)`` returns a queryset carrying ``_limit = 2`` and
+        ``_q_objects``; ``distinct_on`` would silently rewrite that query. The
+        documented outcome is ``ValueError`` naming the carried state — a
+        ``TypeError`` here means the implementation and its docs disagree.
+        """
+        await _seed()
+        pending = Reading.get(sensor_id="a", value=51)
+
+        with pytest.raises(ValueError) as excinfo:
+            await distinct_on(pending, "sensor_id")
+
+        message = str(excinfo.value)
+        assert "_limit" in message or "_q_objects" in message
+
+    async def test_soft_delete_detected_by_column(self) -> None:
+        """Soft delete is found through the projection, not the field name.
+
+        ``removed_at`` maps to the ``deleted_at`` column. Catches detection
+        that looks for a field *called* ``deleted_at``: it would miss this
+        model and return the soft-deleted newest row by default.
+        """
+        assert (
+            RenamedSoftReading._meta.fields_db_projection["removed_at"] == "deleted_at"
+        )
+        await RenamedSoftReading.create(sensor_id="r", observed_at=_at(0), value=10)
+        newer = await RenamedSoftReading.create(
+            sensor_id="r", observed_at=_at(1), value=20
+        )
+        await RenamedSoftReading.filter(id=newer.pk).update(removed_at=_at(1))
+
+        stored = await RenamedSoftReading.get(id=newer.pk)
+        assert stored.removed_at == _at(1)
+
+        visible = await distinct_on(
+            RenamedSoftReading, "sensor_id", order_by=("sensor_id", "-observed_at")
+        )
+        everything = await distinct_on(
+            RenamedSoftReading,
+            "sensor_id",
+            order_by=("sensor_id", "-observed_at"),
+            include_deleted=True,
+        )
+
+        assert [(row.sensor_id, row.value) for row in visible] == [("r", 10)]
+        assert [(row.sensor_id, row.value) for row in everything] == [("r", 20)]
+
+    async def test_non_asyncpg_client_is_refused(self) -> None:
+        """The backend guard refuses a non-asyncpg client and accepts the real one.
+
+        Catches a guard that only checks for a connection-shaped attribute:
+        the codec and the ``$n`` placeholder scan are asyncpg-specific, so a
+        duck-typed client must be refused rather than receive SQL it cannot
+        bind.
+        """
+
+        class _Fake:
+            """A connection-shaped object that is not an asyncpg client."""
+
+        with pytest.raises(ValueError) as excinfo:
+            _assert_asyncpg_backend(_Fake())
+
+        assert "asyncpg" in str(excinfo.value).lower()
+        assert _assert_asyncpg_backend(Tortoise.get_connection("default")) is None

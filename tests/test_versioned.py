@@ -44,6 +44,7 @@ from tortoise_extended import (
 
 TABLE = "test_version_doc"
 PLAIN_TABLE = "test_version_plain"
+REQUIRED_TABLE = "test_version_required_plain"
 
 
 class Doc(BaseModel, TimestampMixin, VersionMixin):
@@ -68,6 +69,23 @@ class Plain(VersionMixin):
 
     class Meta:
         table = PLAIN_TABLE
+
+
+class RequiredPlain(VersionMixin):
+    """A non-null forward relation: the guarded payload must key the column.
+
+    ``required_doc`` has no ``NULL`` escape, so the guarded ``UPDATE`` has to
+    write ``required_doc_id`` (the projected column) rather than a relational
+    descriptor that only exists in memory.
+    """
+
+    label = fields.CharField(max_length=32)
+    required_doc = fields.ForeignKeyField(
+        "models.Doc", related_name="required_plains", null=False
+    )
+
+    class Meta:
+        table = REQUIRED_TABLE
 
 
 # ---------------------------------------------------------------------------
@@ -138,11 +156,11 @@ async def _db() -> AsyncGenerator[None]:
     conn = Tortoise.get_connection("default")
     # DROP before CREATE: generate_schemas() is IF NOT EXISTS, so a stale table
     # left behind by an aborted run would be silently reused.
-    for table in (TABLE, PLAIN_TABLE):
+    for table in (TABLE, PLAIN_TABLE, REQUIRED_TABLE):
         await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.generate_schemas()
     yield
-    for table in (TABLE, PLAIN_TABLE):
+    for table in (TABLE, PLAIN_TABLE, REQUIRED_TABLE):
         await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.close_connections()
 
@@ -151,7 +169,9 @@ async def _db() -> AsyncGenerator[None]:
 async def _clean_rows(_db: None) -> AsyncGenerator[None]:
     """Start every test from empty tables with fresh identities."""
     conn = Tortoise.get_connection("default")
-    await conn.execute_query(f"TRUNCATE {TABLE}, {PLAIN_TABLE} RESTART IDENTITY")
+    await conn.execute_query(
+        f"TRUNCATE {TABLE}, {PLAIN_TABLE}, {REQUIRED_TABLE} RESTART IDENTITY"
+    )
     yield
 
 
@@ -536,6 +556,37 @@ class TestVersionGuardAgainstPostgres:
         row = await Plain.get(id=plain.pk)
         assert row.version == 1
         assert row.label == "two"
+
+    async def test_full_guarded_save_of_a_non_null_fk_model(self) -> None:
+        """A non-null FK survives the guarded ``UPDATE`` by column name.
+
+        ``RequiredPlain`` has no nullable relation, so the payload the guard
+        writes must key ``required_doc_id`` — the projected column — and not
+        the in-memory ``required_doc`` descriptor. Catches a payload built from
+        ``fields_map`` keys: PostgreSQL would reject ``required_doc`` as an
+        unknown column, or a silent drop would null the mandatory relation.
+        The projection assertion is what makes the payload safe; the fresh read
+        proves the ``*_id`` column still holds the right pk after the bump.
+        """
+        assert {"required_doc_id": "required_doc_id"}.items() <= (
+            RequiredPlain._meta.fields_db_projection.items()
+        )
+
+        doc = await Doc.create(title="owner")
+        plain = RequiredPlain(label="one", required_doc=doc)
+        await plain.save()
+
+        assert plain.version == 0
+        assert plain.required_doc_id == doc.pk
+
+        plain.label = "two"
+        await plain.save()
+
+        assert plain.version == 1
+        row = await RequiredPlain.get(id=plain.pk)
+        assert row.version == 1
+        assert row.label == "two"
+        assert row.required_doc_id == doc.pk
 
     def test_public_exports_and_abstract_base(self) -> None:
         """Both names are exported, listed in ``__all__``, and the base is abstract.
