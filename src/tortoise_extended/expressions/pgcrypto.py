@@ -213,8 +213,125 @@ class HMACDigest(Function):
         super().__init__(data, key, algorithm)
 
 
+class _PGPSymFunction(PypikaFunction):
+    """pypika term emitting ``pgp_sym_encrypt`` / ``pgp_sym_decrypt``.
+
+    Shared by both wrappers: the only difference is the SQL function name.
+    The key follows the :class:`HMACDigest` rule (a ``str`` becomes a quoted
+    literal, a term is rendered verbatim), and *options* is appended only when
+    given, because both pgcrypto functions take it as an optional third
+    argument.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        data: Term,
+        key: Term | str,
+        options: str | None,
+    ) -> None:
+        key_term: Term = ValueWrapper(key) if isinstance(key, str) else key
+        args: list[Term] = [data, key_term]
+        if options is not None:
+            args.append(ValueWrapper(options))
+        super().__init__(name, *args)
+
+
+class _PGPSymEncryptFunction(_PGPSymFunction):
+    """pypika term emitting ``pgp_sym_encrypt(<data>, <key>[, '<options>'])``."""
+
+    def __init__(self, data: Term, key: Term | str, options: str | None) -> None:
+        super().__init__("PGP_SYM_ENCRYPT", data, key, options)
+
+
+class _PGPSymDecryptFunction(_PGPSymFunction):
+    """pypika term emitting ``pgp_sym_decrypt(<data>, <key>[, '<options>'])``."""
+
+    def __init__(self, data: Term, key: Term | str, options: str | None) -> None:
+        super().__init__("PGP_SYM_DECRYPT", data, key, options)
+
+
+class PGPSymEncrypt(Function):
+    """pgcrypto ``pgp_sym_encrypt(<data>, '<key>'[, '<options>'])`` — ciphertext.
+
+    Encrypts *data* with a symmetric (passphrase) key inside the database and
+    returns OpenPGP ciphertext as ``bytea``.  Store the result in a
+    ``bytea`` column — :class:`~tortoise_extended.fields.pgcrypto.PGPEncryptedField`
+    is exactly that column.
+
+    .. warning::
+
+        A **plain ``str`` key is rendered as a SQL string literal**, so the
+        passphrase becomes part of the statement text: visible in
+        ``pg_stat_activity.query`` and captured by ``log_statement`` /
+        ``auto_explain``.  Pass a term instead —
+        ``RawSQL("current_setting('app.encryption_key')")`` — to resolve the
+        key server-side and keep it out of the statement.
+
+    Args:
+        data: The value to encrypt (a field name, ``F()``, or expression).
+        key: The passphrase.  A ``str`` is quoted as a SQL string literal (see
+            the warning above); any pypika term is rendered verbatim.
+        options: Optional pgcrypto options string, e.g.
+            ``"cipher-algo=aes256"``.  Rendered as a SQL string literal.
+
+    Returns:
+        ``bytea`` — non-deterministic ciphertext, so the value is not
+        searchable or indexable; derive a blind index with :class:`HMACDigest`
+        when you need lookups.
+    """
+
+    database_func = _PGPSymEncryptFunction
+
+    def __init__(
+        self,
+        data: DataArg,
+        key: KeyArg,
+        options: str | None = None,
+    ) -> None:
+        super().__init__(data, key, options)
+
+
+class PGPSymDecrypt(Function):
+    """pgcrypto ``pgp_sym_decrypt(<data>, '<key>'[, '<options>'])`` — plaintext.
+
+    Decrypts OpenPGP ciphertext produced by :class:`PGPSymEncrypt` (or by any
+    compatible encoder) inside the database.  *data* must be a ``bytea``
+    expression — a ``bytea`` column, or the result of ``PGPSymEncrypt`` nested
+    directly, which is the usual way to verify a stored row decrypts.
+
+    .. warning::
+
+        The passphrase obeys the same rule as :class:`PGPSymEncrypt`: a plain
+        ``str`` key is part of the statement text, a term is resolved
+        server-side.  The **plaintext** is returned to the client as ``text``,
+        so it travels over the connection and lands in the result buffer — the
+        library cannot avoid that; decrypt only where you need the value.
+
+    Args:
+        data: The ciphertext (a field name, ``F()``, or expression).
+        key: The passphrase (see the warning above).
+        options: Optional pgcrypto options string.
+
+    Returns:
+        ``text`` — the decrypted plaintext.
+    """
+
+    database_func = _PGPSymDecryptFunction
+
+    def __init__(
+        self,
+        data: DataArg,
+        key: KeyArg,
+        options: str | None = None,
+    ) -> None:
+        super().__init__(data, key, options)
+
+
 __all__ = [
     "Digest",
     "DigestHex",
     "HMACDigest",
+    "PGPSymDecrypt",
+    "PGPSymEncrypt",
 ]

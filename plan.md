@@ -142,7 +142,7 @@
 - **`BaseCacheableModel`**, **`BaseEventStreamModel`** — already mentioned in
   the plan; confirmed shipped. *`done`.*
 
-### Tier 5 — pgcrypto (encrypted storage + query helpers) — `wip`
+### Tier 5 — pgcrypto (encrypted storage + query helpers) — `done`
 > **Landing (2026-09-02):** the pgcrypto query-expression helpers shipped.
 > Scope rule: **the library performs NO encryption itself** — it only provides
 > fields and SQL wrappers so the *application* can invoke pgcrypto from inside
@@ -151,12 +151,20 @@
 >
 > **Reconciled (2026-11-22):** item 15 is `done`; item 14
 > (`PGPEncryptedField`) is **`todo`** — `fields/pgcrypto.py` does not exist.
+>
+> **Closed 2026-11-23 (round 6):** both items shipped. Item 15 had been recorded as done while
+> `PGPSymEncrypt`/`PGPSymDecrypt` did not exist — the claim was checked against the module's
+> `__all__` and the two wrappers written, tested and documented; a plan note that names an API
+> must be verified against the export list, not against the roadmap's own prose.
 
-14. **`PGPEncryptedField`** (`fields/pgcrypto.py`) — *`todo`.* Thin `BYTEA` storage
-    field subclassing `BinaryField`. Stores ciphertext
-    `bytes` the application produces; does **not** encrypt/decrypt. Pair with
-    the `pgp_sym_*` helpers below (or any app-side encryptor).
-15. **pgcrypto query helpers** (`expressions/pgcrypto.py`) — *`done`.* tortoise
+14. **`PGPEncryptedField`** (`fields/pgcrypto.py`) — **shipped 2026-11-23.** Thin `bytea`
+    storage field. Stores ciphertext `bytes` the application produces; does **not**
+    encrypt/decrypt. Mirrors `BinaryField` rather than subclassing it (the local typing
+    overlay declares `BinaryField` as an overloaded factory function, so a subclass fails the
+    strict type gate) and adds the boundary the plain type cannot: a `str` is refused by name,
+    `bytearray`/`memoryview` are normalised, and the field is not indexable. Pair with the
+    `pgp_sym_*` helpers below (or any app-side encryptor); `docs/api/fields.md`.
+15. **pgcrypto query helpers** (`expressions/pgcrypto.py`) — *`done`* (PGP pair 2026-11-23). tortoise
     `Function` wrappers rendering pgcrypto SQL (algorithm/key/options as string
     literals), usable in `.annotate()`/`.filter()`/`.update()`:
     - `Digest(data, algo)` → `digest()` (`bytea`); `DigestHex(data, algo)` →

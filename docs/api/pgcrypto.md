@@ -1,12 +1,13 @@
 # pgcrypto
 
-PostgreSQL pgcrypto hash/digest query-expression helpers.
+PostgreSQL pgcrypto hash/digest and symmetric-encryption query-expression helpers.
 
 ## Overview
 
 This module provides thin pypika/Tortoise `Function` wrappers that render
 [pgcrypto](https://www.postgresql.org/docs/current/pgcrypto.html) SQL
-hash and digest functions (`digest`, `hmac`) inside Tortoise ORM queries.
+functions inside Tortoise ORM queries: the hash/digest family (`digest`,
+`hmac`) and the symmetric PGP family (`pgp_sym_encrypt`, `pgp_sym_decrypt`).
 
 > **Important:** The library performs **no encryption itself**.  The helpers
 > only make it easy to call pgcrypto from inside Tortoise queries.  Your
@@ -19,6 +20,8 @@ from tortoise_extended.expressions.pgcrypto import (
     Digest,
     DigestHex,
     HMACDigest,
+    PGPSymDecrypt,
+    PGPSymEncrypt,
 )
 ```
 
@@ -98,6 +101,69 @@ rows = await Document.annotate(
 
 ---
 
+---
+
+## PGPSymEncrypt
+
+`pgp_sym_encrypt(data, key[, options])` — OpenPGP symmetric ciphertext (`bytea`).
+
+Encrypts a **text** expression with a passphrase inside the database. The
+result is non-deterministic ciphertext, so it is neither searchable nor
+indexable: store it in a `bytea` column
+([`PGPEncryptedField`](fields.md#pgpencryptedfield)) and derive a blind index
+with `HMACDigest` when you need lookups.
+
+```python
+from tortoise.expressions import RawSQL
+
+from tortoise_extended.expressions.pgcrypto import PGPSymEncrypt
+
+await Document.filter(id=doc_id).update(
+    secret=PGPSymEncrypt(
+        "body_text",
+        RawSQL("current_setting('app.encryption_key')"),
+        "cipher-algo=aes256",
+    )
+)
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `data` | `str \| F \| Function \| Term` | Required | Text to encrypt (`text`, not `bytea`) |
+| `key` | `str \| Term` | Required | Passphrase; a `str` is a SQL literal (see Security Notes) |
+| `options` | `str \| None` | `None` | pgcrypto options, e.g. `"cipher-algo=aes256"`; omitted entirely when `None` |
+
+**Returns:** `bytea` (ciphertext).
+
+---
+
+## PGPSymDecrypt
+
+`pgp_sym_decrypt(data, key[, options])` — plaintext (`text`).
+
+Decrypts ciphertext produced by `PGPSymEncrypt` (or any compatible encoder).
+`data` must be a `bytea` expression; nesting `PGPSymEncrypt(...)` inside it is
+the usual way to prove a value round-trips.
+
+```python
+from tortoise_extended.expressions.pgcrypto import PGPSymDecrypt
+
+doc = await Document.annotate(
+    clear=PGPSymDecrypt("secret", RawSQL("current_setting('app.encryption_key')"))
+).get(id=doc_id)
+print(doc.clear)  # the plaintext
+```
+
+**Parameters:** the same three as `PGPSymEncrypt`; `data` is the ciphertext.
+
+**Returns:** `text` — the plaintext. It is returned to the client by design, so
+it crosses the connection and sits in the result buffer; decrypt only where the
+value is actually needed, never in a list/annotation you do not consume.
+
+---
+
 ## Requirements
 
 - PostgreSQL with the `pgcrypto` extension enabled:
@@ -128,3 +194,9 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
   variables or a secrets manager; do not hardcode them in model definitions.
 - **`Digest` is not HMAC.**  For keyed hashing, prefer `HMACDigest` which is
   not vulnerable to length-extension attacks.
+
+## Storage type
+
+`PGPEncryptedField` is the matching column — a `bytea` type that refuses
+`str`, so plaintext cannot be stored in a column that only looks encrypted.
+See [Field Types → PGPEncryptedField](fields.md#pgpencryptedfield).

@@ -1,8 +1,9 @@
-"""Tests for pgcrypto expression wrappers (hash/digest only).
+"""Tests for pgcrypto expression wrappers (hash/digest + symmetric PGP).
 
 Sections:
   1. ``TestPgcryptoSQL`` — SQL rendering (unit, no DB required).
-  2. ``TestPgcryptoIntegration`` — live PostgreSQL integration (skipped when PG is down).
+  2. ``TestPgcryptoAlgorithmAllowlist`` — algorithm allowlist (SEC-M03).
+  3. ``TestPgcryptoIntegration`` — live PostgreSQL integration (skipped when PG is down).
 """
 
 import hashlib
@@ -24,12 +25,16 @@ from tortoise_extended.expressions.pgcrypto import (
     Digest,
     DigestHex,
     HMACDigest,
+    PGPSymDecrypt,
+    PGPSymEncrypt,
 )
 from tortoise_extended.exceptions import PgCryptoError
 from tortoise_extended.expressions.pgcrypto import (
     _DigestFunction,
     _DigestHexFunction,
     _HMACFunction,
+    _PGPSymDecryptFunction,
+    _PGPSymEncryptFunction,
 )
 
 
@@ -124,6 +129,66 @@ class TestPgcryptoSQL:
         sql = func.get_sql(DEFAULT_SQL_CONTEXT)
         assert "DIGEST(" in sql.upper()
         assert "'sha256'" in sql
+
+
+    def test_pgp_sym_encrypt_renders_function_and_arguments(self) -> None:
+        """PGP_SYM_ENCRYPT(<data>, 'key') with the data as a column reference."""
+        sql = _PGPSymEncryptFunction(Field("body"), "passphrase", None).get_sql(
+            DEFAULT_SQL_CONTEXT
+        )
+        assert "PGP_SYM_ENCRYPT(" in sql.upper()
+        assert "'passphrase'" in sql
+        assert "'body'" not in sql
+        assert "body" in sql
+
+    def test_pgp_sym_encrypt_omits_options_when_none(self) -> None:
+        """No third argument unless options are given, so pgcrypto applies its defaults."""
+        with_none = _PGPSymEncryptFunction(Field("body"), "k", None).get_sql(
+            DEFAULT_SQL_CONTEXT
+        )
+        with_opts = _PGPSymEncryptFunction(
+            Field("body"), "k", "cipher-algo=aes256"
+        ).get_sql(DEFAULT_SQL_CONTEXT)
+        assert with_none.count(",") == 1
+        assert "'cipher-algo=aes256'" in with_opts
+        assert with_opts.count(",") == 2
+
+    def test_pgp_sym_decrypt_renders_function(self) -> None:
+        """PGP_SYM_DECRYPT(<data>, 'key')."""
+        sql = _PGPSymDecryptFunction(Field("cipher"), "passphrase", None).get_sql(
+            DEFAULT_SQL_CONTEXT
+        )
+        assert "PGP_SYM_DECRYPT(" in sql.upper()
+        assert "'passphrase'" in sql
+
+    def test_pgp_sym_key_expression_renders_verbatim(self) -> None:
+        """A term key is never quoted — the passphrase can stay out of the statement."""
+        key = RawSQL("current_setting('app.encryption_key')")
+        sql = _PGPSymEncryptFunction(Field("body"), key, None).get_sql(
+            DEFAULT_SQL_CONTEXT
+        )
+        assert "current_setting('app.encryption_key')" in sql
+        assert "'current_setting" not in sql
+
+    def test_pgp_sym_string_key_escapes_embedded_quote(self) -> None:
+        """A ``str`` passphrase is a SQL literal: pypika doubles an embedded quote."""
+        sql = _PGPSymEncryptFunction(Field("body"), "a'b", None).get_sql(
+            DEFAULT_SQL_CONTEXT
+        )
+        assert "'a''b'" in sql
+
+    def test_pgp_sym_outer_classes_render_through_function_chain(self) -> None:
+        """The public Function subclasses resolve to their pypika terms."""
+        enc = PGPSymEncrypt("body", "passphrase")
+        dec = PGPSymDecrypt("cipher", "passphrase", "cipher-algo=aes256")
+        enc_sql = enc._get_function_field("body", "passphrase", None).get_sql(
+            DEFAULT_SQL_CONTEXT
+        )
+        dec_sql = dec._get_function_field(
+            "cipher", "passphrase", "cipher-algo=aes256"
+        ).get_sql(DEFAULT_SQL_CONTEXT)
+        assert "PGP_SYM_ENCRYPT(" in enc_sql.upper()
+        assert "PGP_SYM_DECRYPT(" in dec_sql.upper()
 
 
 # =========================================================================
@@ -348,3 +413,31 @@ class TestPgcryptoIntegration:
         assert bytes(result.mac) == expected
         # The table is still there and still holds the row.
         assert await SimpleDocument.filter(id=doc.id).count() == 1
+
+    async def test_pgp_sym_encrypt_decrypt_roundtrip(self) -> None:
+        """pgp_sym_encrypt produces bytes; nesting decrypt returns the plaintext."""
+        doc = await SimpleDocument.create(plain_text="top secret")
+        encrypted = await SimpleDocument.annotate(
+            cipher=PGPSymEncrypt("plain_text", "test-passphrase"),
+        ).get(id=doc.id)
+        assert isinstance(encrypted.cipher, bytes)
+        assert encrypted.cipher != b"top secret"
+
+        decrypted = await SimpleDocument.annotate(
+            clear=PGPSymDecrypt(
+                PGPSymEncrypt("plain_text", "test-passphrase"),
+                "test-passphrase",
+            ),
+        ).get(id=doc.id)
+        assert decrypted.clear == "top secret"
+
+    async def test_pgp_sym_decrypt_wrong_key_raises(self) -> None:
+        """A wrong passphrase is a database error, not silent garbage."""
+        doc = await SimpleDocument.create(plain_text="top secret")
+        with pytest.raises(Exception, match="Wrong key or corrupt data"):
+            await SimpleDocument.annotate(
+                clear=PGPSymDecrypt(
+                    PGPSymEncrypt("plain_text", "right"),
+                    "wrong",
+                ),
+            ).get(id=doc.id)

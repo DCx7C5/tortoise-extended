@@ -8,6 +8,20 @@ the versions below are the `pyproject.toml` version at the time of the change.
 
 ### Added
 
+- `PGPEncryptedField` (`fields/pgcrypto.py`) — a `bytea` column for ciphertext the application
+  produces. It performs no encryption and never sees a key; it exists so the intent is visible in
+  the model and the boundary is enforced: a `str` raises `TypeError` naming the field (storing text
+  is how plaintext ends up in a column that only looks encrypted), `bytearray`/`memoryview` are
+  normalised to `bytes`, and the field is `indexable = False` because pgcrypto ciphertext is
+  non-deterministic. Pair with `PGPSymEncrypt`/`PGPSymDecrypt` or an application-side encryptor;
+  documented in `docs/api/fields.md`.
+- `PGPSymEncrypt` / `PGPSymDecrypt` (`expressions/pgcrypto.py`) — the symmetric-encryption pair of
+  the pgcrypto wrappers, rendering `pgp_sym_encrypt(data, key[, options])` and
+  `pgp_sym_decrypt(data, key[, options])` for `.annotate()`/`.update()`. The options string is
+  omitted entirely when `None` (so pgcrypto applies its defaults) and the passphrase follows the
+  `HMACDigest` rule: a `str` is a SQL literal that travels in the statement, a term such as
+  `RawSQL("current_setting('app.encryption_key')")` is rendered verbatim and resolved server-side.
+  Both keys were documented as shipped before the functions existed; they are real now.
 - `VersionMixin` — opt-in optimistic locking: a `version` column (`BigIntField`, default `0`) and a
   guarded `save()` that runs one `UPDATE … WHERE <pk> = $1 AND version = $2` with
   `version = version + 1` (queryset API, no raw SQL). A stale write raises

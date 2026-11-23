@@ -639,3 +639,73 @@ event.id  # UUID with embedded timestamp (time-ordered)
 - UUID7 values embed a Unix timestamp, which keeps index locality good for insert-heavy tables
 - Requires Python 3.14+ for `uuid.uuid7`
 - Same `null=True` typing caveat as `UUID4Field`
+
+## PGPEncryptedField
+
+`bytea` column for ciphertext produced by the application (or by the
+`pgp_sym_*` helpers). The field performs **no** encryption: it stores the bytes
+you pass and never sees a key.
+
+### Import
+
+```python
+from tortoise_extended import PGPEncryptedField
+```
+
+### Constructor
+
+```python
+PGPEncryptedField(*, null: bool = False, default=None,
+                  description: str | None = None, **kwargs)
+```
+
+### Python Type
+
+`bytes` (or `bytes | None` with `null=True`)
+
+### SQL Type
+
+`bytea`.
+
+### Behaviour
+
+- **Not indexable** (`indexable = False`) — pgcrypto ciphertext is
+  non-deterministic, so an index on it can never serve an equality lookup.
+  Derive a blind index in a companion column with `HMACDigest` / `DigestHex`
+  when you need to search.
+- **`str` is refused** with `TypeError` naming the field: storing text here is
+  the usual way plaintext ends up in a column that only looks encrypted.
+  `bytes`, `bytearray` and `memoryview` are accepted and normalised to `bytes`.
+- Reads normalise `memoryview` (some drivers) back to `bytes`.
+
+### Usage
+
+```python
+from tortoise import fields, models
+from tortoise_extended import PGPEncryptedField
+from tortoise_extended.expressions.pgcrypto import PGPSymDecrypt, PGPSymEncrypt
+
+
+class Document(models.Model):
+    id = fields.IntField(primary_key=True)
+    body_text = fields.TextField(null=True)
+    secret = PGPEncryptedField(null=True)
+
+    class Meta:
+        table = "documents"
+
+
+# encrypt a text column into the bytea column, inside the database
+await Document.filter(id=doc_id).update(
+    secret=PGPSymEncrypt("body_text", "passphrase")
+)
+
+# read the plaintext back without storing it anywhere else
+doc = await Document.annotate(
+    clear=PGPSymDecrypt("secret", "passphrase")
+).get(id=doc_id)
+```
+
+Requires nothing beyond `bytea` for the column itself; the `pgp_sym_*` helpers
+need `CREATE EXTENSION IF NOT EXISTS pgcrypto;` (see [pgcrypto](pgcrypto.md)).
+

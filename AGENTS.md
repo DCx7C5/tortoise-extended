@@ -24,7 +24,9 @@ What the package provides:
   aliases of `BaseNode` / `BaseSample` (all opt-in abstract bases under `tortoise_extended.models`)
 - **`LTreeField` + ltree filters** — PostgreSQL `ltree` hierarchical column type
 - **`CharField`** — validated `varchar` column (`tortoise_extended.fields.char`)
-- **pgcrypto query helpers** — `Digest` / `DigestHex` / `HMACDigest` (`expressions/pgcrypto.py`)
+- **pgcrypto** — `Digest` / `DigestHex` / `HMACDigest` and `PGPSymEncrypt` / `PGPSymDecrypt`
+  (`expressions/pgcrypto.py`), plus `PGPEncryptedField` — a `bytea` column for ciphertext
+  (`fields/pgcrypto.py`)
 - **TimescaleDB integration** — `HypertableManager`, `CompressionManager`, `RetentionPolicy`,
   `ContinuousAggregateManager`, and migration operations (`CreateHypertable`,
   `CreateContinuousAggregate`)
@@ -197,6 +199,7 @@ src/tortoise_extended/
 │   ├── macaddr.py         # MacAddrField / MacAddr8Field (PostgreSQL macaddr / macaddr8)
 │   ├── citext.py          # CitextField (PostgreSQL citext, case-insensitive text)
 │   ├── path.py            # PathField (text path column, pathlib.Path support)
+│   ├── pgcrypto.py        # PGPEncryptedField (bytea ciphertext, not indexable)
 │   ├── url.py             # URLField (validated URL column)
 │   └── uuid.py            # UUID4Field / UUID7Field (auto-generating UUID columns)
 ├── indexes/
@@ -214,7 +217,7 @@ src/tortoise_extended/
 │   ├── fusion.py            # rank/score fusion + MMR diversity re-ranking
 │   ├── distinct_on.py       # PostgreSQL DISTINCT ON as hydrated models
 │   ├── ltree_filters.py     # ltree query operators
-│   ├── pgcrypto.py          # Digest / DigestHex / HMACDigest SQL wrappers
+│   ├── pgcrypto.py          # digest/hmac + pgp_sym_* SQL wrappers
 │   ├── windows.py           # row_number / rank / dense_rank / ntile + windowed aggregates
 │   ├── _soft_delete.py      # soft-delete column detection (soft_delete_column)
 │   └── _edge_filter.py      # shared edge-type filter (et_clause) + live-row predicate
