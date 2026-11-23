@@ -16,6 +16,7 @@ from tortoise_extended import (
     BaseSoftDeleteModel,
     SoftDeleteQuerySet,
     BaseNode,
+    BaseUnifiedNode,
     BaseGraphNodeModel,
     BaseGraphEdgeModel,
     BaseHierarchyModel,
@@ -36,6 +37,7 @@ from tortoise_extended import (
 | Soft delete (`deleted_at`, auto-filtered) | `BaseSoftDeleteModel` | pairs with `SoftDeleteQuerySet` |
 | Cross-table / external refs | `UnifiedIdModel` | BigInt pk + UUID7 `uid`, see below |
 | Graph nodes / edges | `BaseNode` / `BaseGraphEdgeModel` | `BaseGraphNodeModel` is the deprecated alias, see [Graph](graph.md) |
+| BigInt-keyed graph nodes | `BaseUnifiedNode` | `NodeMixin` + UUID7 `uid`, integer `parent_id`, see below |
 | ltree trees | `BaseHierarchyModel` | see [Graph](graph.md) |
 | Redis row caching | `BaseCacheableModel` | see [Cache](cache.md) |
 | Time-series stream tables | `BaseSample` | `BaseEventStreamModel` is the deprecated alias, see [Event Streams](event-streams.md) |
@@ -555,3 +557,51 @@ several streams at once.
 `downsample()` validates `field` against the model and raises `TimescaleError`
 for an unknown name; `start` / `end` default to the earliest row and the latest
 row plus one microsecond (the upper bound is exclusive).
+
+---
+
+## BaseUnifiedNode
+
+The BigInt-keyed graph node: `NodeMixin`'s adjacency-list fields and traversal
+helpers over `UnifiedIdModel`'s BigInt `id` + UUID7 `uid`. `parent_id` is a
+`BigIntField`, so tree links and JOINs stay integer-cheap; the cost is a `uid`
+unique-index write per insert and two identities per row (`id` for internal FK
+targets, `uid` for cross-table / external references). Use `BaseNode` when
+UUID7 keys are enough; use this base when integer adjacency is the priority.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `BigIntField` | 64-bit auto-increment primary key (inherited) |
+| `uid` | `UUID7Field(unique=True)` | Time-ordered UUID7 for cross-table / external refs (inherited) |
+| `parent_id` | `BigIntField(null=True, db_index=True)` | Parent node key; `NULL` for a root |
+
+Plus the `NodeMixin` fields (`depth`, `is_root`, `child_count`, `namespace`,
+`metadata_json`) and its full helper surface — see [Graph](graph.md) and the
+`NodeMixin traversal helpers` section above.
+
+### Usage
+
+```python
+from tortoise_extended import BaseUnifiedNode
+
+
+class Category(BaseUnifiedNode):
+    class Meta:
+        table = "categories"
+        indexes = (("namespace", "depth"),)  # must be redeclared
+
+
+root = await Category.create(namespace="shop", is_root=True)
+laptops = await root.add_child()
+assert isinstance(laptops.parent_id, int)  # BigInt adjacency list
+assert laptops.uid != root.uid  # UUID7 cross-table identifier
+
+forest = Category.to_tree(await root.descendants().all())
+```
+
+> Concrete subclasses must redeclare `Meta.indexes`: Tortoise does not
+> propagate `Meta.indexes` from abstract bases, and `NodeMixin`'s
+> `__init_subclass__` raises at class-creation time when it is missing.
+> `parent_id` itself is declared on the base, so subclasses never repeat it.

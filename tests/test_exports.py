@@ -86,6 +86,7 @@ class TestModelsAllCoversReexports:
             "BaseNode",
             "BaseSample",
             "BaseSoftDeleteModel",
+            "BaseUnifiedNode",
             "BaseUserModel",
             "NodeMixin",
             "NodeTree",

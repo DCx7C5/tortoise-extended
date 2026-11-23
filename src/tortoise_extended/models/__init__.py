@@ -30,6 +30,9 @@ convention and lives under ``tortoise_extended.models``:
   deprecated compatibility alias for ``BaseSample``.
 * :class:`~tortoise_extended.models.unified.UnifiedIdModel` — BigInt pk +
   UUID7 ``uid`` for cross-table / external references.
+* :class:`~tortoise_extended.models.unified_node.BaseUnifiedNode` — the
+  BigInt-keyed node base: ``NodeMixin`` traversal over ``UnifiedIdModel``
+  identity, with an integer ``parent_id``.
 * :class:`~tortoise_extended.models.mixins.TimestampMixin` — timestamps.
 
 All are opt-in abstract bases — nothing is forced on any model.
@@ -46,6 +49,7 @@ from .node import BaseNode, NodeMixin, NodeTree
 from .sample import BaseSample, SampleMixin
 from .soft_delete import BaseSoftDeleteModel, SoftDeleteQuerySet
 from .unified import UnifiedIdModel
+from .unified_node import BaseUnifiedNode
 from .user import BaseUserModel
 
 __all__ = [
@@ -58,6 +62,7 @@ __all__ = [
     "BaseNode",
     "BaseSample",
     "BaseSoftDeleteModel",
+    "BaseUnifiedNode",
     "BaseUserModel",
     "NodeMixin",
     "NodeTree",

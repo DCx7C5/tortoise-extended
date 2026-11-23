@@ -39,6 +39,13 @@ the versions below are the `pyproject.toml` version at the time of the change.
   is safe on every application start. `EXTENSIONS` is the public tuple it iterates; a refusal
   (typically missing privilege) raises `SetupError` with the server error chained, never
   swallowed. `SetupReport` is the struct the `setup()` fan-out fills.
+- `BaseUnifiedNode(UnifiedIdModel, NodeMixin)` — the BigInt-keyed hybrid the `NodeMixin`
+  docstring advertised but nothing shipped: BigInt `id` primary key for compact, JOIN-fast
+  foreign keys, plus the UUID7 `uid` for cross-table refs, with `NodeMixin`'s tree helpers
+  working on integer `parent_id`s. `NodeMixin.__init_subclass__` returns early on an abstract
+  base, so concrete subclasses still redeclare the `(namespace, depth)` index — the base
+  redeclares it as documentation, and the guard's error message is what a forgetful subclass
+  hits.
 - `SampleMixin.record(*, stream=None, at=None, **fields)` — one-row create with the partition
   columns mapped from the `stream=` / `at=` shorthands. A shorthand that collides with an
   explicit field raises `TimescaleError` instead of one silently winning. `at=None` has no
