@@ -893,13 +893,22 @@ is untouched.
 **Deviation recorded:** both workers for this round died on the account-wide free-tier quota
 (several times, in sequence), so after the user's "Planner implements directly" approval the
 planner wrote the four implementations and probed them himself; tests stayed with `css-tester`
-(`8c514ec` landed; `tests/test_distinct_on.py` and `tests/test_versioned.py` were dispatched last
-and are the only outstanding pieces of the round). Stub-overlay additions were required and are
+except where a quota death left a half-finished module. All three test modules landed:
+`cabf3bc` (13), `8c514ec` (32), `9eeea39` (25) and `bc906e8` (15). The distinct_on tester was
+killed mid-module and left 16 red cases; finishing it found two real defects — validation ran
+after `_model_and_connection`, so an unbound model raised `ConfigurationError` where the docs
+promised `ValueError` (split into `_target_model` + `_connection_for`, connection resolved only
+just before the statement), and the where-before-grouping case filtered on the *winner* column,
+which cannot distinguish the two orders at all (now `value < $1`, where grouping first returns
+nothing). Stub-overlay additions were required and are
 part of the same commits: `MetaInfo.basetable` / `fields_db_projection[_reverse]`,
 `execute_query_dict(Sequence[CoercedValue])`, `Field.generated` / `Field.auto_now`,
 `Model._saved_in_db` / `_partial` / `_set_async_default_field` / `_pre_save` / `_post_save`, and a
 new `tortoise.timezone` stub. Gate at the end of the round: ruff clean, basedpyright
-**0 errors, 0 warnings, 0 notes**, `tests/test_windows.py` 32 passed.
+**0 errors, 0 warnings, 0 notes**, full suite **1920 passed, 13 skipped** (the 13 are the 12
+live-Redis cases plus the `test_all.py` aggregator); the first full run caught a missing
+`models.__all__` mirror in `tests/test_exports.py` (`9bb3da4`), which is exactly what that guard
+exists for.
 
 **Wheel payload (3010, `50910f0`).** The user added the one line —
 `exclude = ["src/tortoise_extended/stubs"]` under `[tool.hatch.build.targets.wheel]` — and the
