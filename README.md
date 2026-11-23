@@ -38,6 +38,19 @@ entities = (
 )
 ```
 
+## Import order and patching
+
+`import tortoise_extended` must run **before** `Tortoise.init()`. The import applies every
+monkey-patch — the field and index types, the query filters, and the asyncpg pgvector codec hook —
+and Tortoise reads those registrations when it initializes. Importing after `Tortoise.init()` raises
+`TortoiseExtendedError` instead of leaving `VectorField` silently unregistered.
+
+- **Patching is idempotent.** `tortoise_extended.patch()` may be called any number of times; a
+  second call is a no-op and does not double-register filters or codecs.
+- **The tortoise-orm version is checked at import.** The supported range is `>=1.1.7,<1.2` — the
+  same range `pyproject.toml` declares. An unsupported tortoise-orm raises `TortoiseVersionError`
+  naming that range, so a monkey-patch conflict surfaces at import instead of deep inside Tortoise.
+
 ## What This Package Does
 
 `tortoise-extended` monkey-patches [tortoise-orm](https://github.com/tortoise/tortoise-orm) at import time to add:
@@ -151,6 +164,11 @@ laptops = await Category.create(name="Laptops", parent=root)
 # Create a typed, weighted edge
 await CategoryLink.create(source=root, target=laptops, edge_type="contains", weight=1.0)
 ```
+
+`Meta.indexes` is not inherited from an abstract base. Tortoise does not propagate it, so every
+concrete subclass must redeclare it — and the three graph bases enforce that at class-creation
+time: `NodeMixin`, `BaseGraphEdgeModel`, and `BaseHierarchyModel` raise `NotImplementedError` when a
+concrete subclass omits `Meta.indexes`. Opt out deliberately with `indexes = ()`.
 
 ## Module Reference
 

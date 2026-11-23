@@ -277,7 +277,9 @@ await Account.with_deleted().hard_delete()  # physical delete
 - `SoftDeleteQuerySet.restore()` operates on the soft-deleted rows it
   matches; `hard_delete()` physically removes them.
 - Tortoise does **not** inherit `Meta.indexes` from abstract bases — redeclare
-  indexes on every concrete subclass.
+  indexes on every concrete subclass. `NodeMixin`, `BaseGraphEdgeModel`, and
+  `BaseHierarchyModel` enforce this at class-creation time
+  (`NotImplementedError`); opt out deliberately with `indexes = ()`.
 
 ---
 

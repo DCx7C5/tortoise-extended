@@ -36,14 +36,25 @@ HNSWIndex(
 
 ### Distance Metrics
 
-| Value | Description |
-|-------|-------------|
-| `vector_l2_ops` | Euclidean distance |
-| `vector_ip_ops` | Inner product |
-| `vector_cosine_ops` | Cosine distance |
-| `halfvec_l2_ops` | Euclidean distance on a `halfvec` column |
-| `halfvec_ip_ops` | Inner product on a `halfvec` column |
-| `halfvec_cosine_ops` | Cosine distance on a `halfvec` column |
+| Value | Operator | Description | Matching query filter |
+|-------|----------|-------------|-----------------------|
+| `vector_l2_ops` | `<->` | Euclidean distance | `__l2_distance` |
+| `vector_ip_ops` | `<#>` | Inner product | `__inner_product` |
+| `vector_cosine_ops` | `<=>` | Cosine distance | `__cosine_distance` |
+| `halfvec_l2_ops` | `<->` | Euclidean distance on a `halfvec` column | `__l2_distance` |
+| `halfvec_ip_ops` | `<#>` | Inner product on a `halfvec` column | `__inner_product` |
+| `halfvec_cosine_ops` | `<=>` | Cosine distance on a `halfvec` column | `__cosine_distance` |
+
+The operator class and the query filter must agree. An index is only used by
+the operator that belongs to its class: a `vector_cosine_ops` index serves
+`<=>` (`__cosine_distance`) and nothing else, so pairing it with
+`__l2_distance` does not error — it silently falls back to a sequential scan,
+leaving the HNSW index built, healthy, and unused. Pair each metric with its
+own filter.
+
+`vector_ip_ops` (`<#>`) ranks by inner product, which ranks the same way as
+cosine only when **both** the stored vectors and the query vector are
+L2-normalized. The library does not normalize for you.
 
 Use the `halfvec_*` metrics when indexing a `VectorField(vector_type="halfvec")`
 column (requires pgvector 0.7+); the plain `vector_*` metrics index full
