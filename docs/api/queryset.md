@@ -89,7 +89,8 @@ ORDER BY "sensor_id" ASC, "observed_at" DESC
 LIMIT 10
 ```
 
-`ValueError` — never a database error — for: an empty `on`; a name that is not a field of the model;
+`ValueError` — never a database error, and raised before the connection is resolved, so bad
+arguments fail the same way on an unbound model — for: an empty `on`; a name that is not a field of the model;
 an `order_by` that does not lead with the `on` columns (or is shorter than them); a `limit` below 1;
 placeholders that do not match `params` (missing values, values with no placeholder, skipped
 indices); and a queryset carrying filters, annotations, ordering, grouping, `limit` or `offset` —

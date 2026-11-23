@@ -66,14 +66,15 @@ _QUERYSET_CARRIED = (
 """Queryset attributes this helper cannot translate into raw SQL."""
 
 
-def _model_and_connection[M: Model](
-    target: type[M] | QuerySet[M],
-) -> tuple[type[M], BaseDBAsyncClient]:
-    """Split ``target`` into the model class and the connection to run on.
+def _target_model[M: Model](target: type[M] | QuerySet[M]) -> type[M]:
+    """Return the model ``target`` stands for, refusing a stateful queryset.
+
+    Argument validation runs on the model alone, so a caller gets
+    ``ValueError`` for bad arguments even before a connection exists.
 
     :param target: A model class, or an unfiltered queryset (``Model.all()``,
         optionally ``.using_db(...)``).
-    :returns: The model class and its connection.
+    :returns: The model class.
     :raises ValueError: When ``target`` is a queryset that carries filters,
         annotations, ordering, grouping, limit or offset — none of which can be
         represented in this helper's single statement. Predicates belong in
@@ -92,8 +93,24 @@ def _model_and_connection[M: Model](
                 f"supply the model and connection — put predicates in "
                 f"`where=` / `params=` and ordering in `order_by=`"
             )
-        return target.model, target._db or target.model._choose_db()  # pyright: ignore[reportPrivateUsage]
-    return target, target._choose_db()
+        return target.model
+    return target
+
+
+def _connection_for[M: Model](
+    target: type[M] | QuerySet[M],
+    model: type[M],
+) -> BaseDBAsyncClient:
+    """Resolve the connection to run the statement on.
+
+    :param target: The original argument, so a queryset's ``.using_db(...)``
+        choice is honoured.
+    :param model: The model resolved from ``target``.
+    :returns: The connection.
+    """
+    if isinstance(target, QuerySet):
+        return target._db or model._choose_db()  # pyright: ignore[reportPrivateUsage]
+    return model._choose_db()
 
 
 def _db_column(model: type[Model], name: str, *, argument: str) -> str:
@@ -198,7 +215,7 @@ async def distinct_on[M: Model](
     output is stable when several groups share an order key; append a
     tiebreaker to ``order_by`` for a fully deterministic winner per group.
     """
-    model, connection = _model_and_connection(target)
+    model = _target_model(target)
     if not on:
         raise ValueError("distinct_on() needs at least one field name in `on`")
     if limit is not None and limit < 1:
@@ -247,5 +264,5 @@ async def distinct_on[M: Model](
     if limit is not None:
         sql += f" LIMIT {limit}"
 
-    rows = await connection.execute_query_dict(sql, list(params))
+    rows = await _connection_for(target, model).execute_query_dict(sql, list(params))
     return [model._init_from_db(**row) for row in rows]

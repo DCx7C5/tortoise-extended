@@ -23,7 +23,9 @@ the versions below are the `pyproject.toml` version at the time of the change.
   with `$1`-style bound parameters and the soft-delete `deleted_at IS NULL` filter applied to
   models that declare the column. `order_by` must lead with the `on` columns (PostgreSQL's rule) and
   every refused input — empty `on`, unknown field, wrong ordering prefix, placeholder/param
-  mismatch, `limit < 1`, filtered queryset — raises `ValueError` instead of reaching the server.
+  mismatch, `limit < 1`, filtered queryset — raises `ValueError` instead of reaching the server,
+  and every one of them is decided before the connection is resolved (bad arguments fail identically
+  on a model that has no connection yet).
   Hydration goes through `execute_query_dict` + `Model._init_from_db`, the executor's own path, so
   the rows are saveable instances. Documented in `docs/api/queryset.md`.
 - Window-function builders for `annotate()`: `row_number`, `rank`, `dense_rank`, `ntile(n)` and the
