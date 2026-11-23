@@ -706,7 +706,10 @@ early for abstract bases (`models/node.py:233-234`), so the index guard bites *c
 subclasses, not the abstract base — the base redeclares the index as documentation.
 `SAMPLE-RECORD-LATEST` (2970, `57fe354`) ships `record()` / `downsample()` and the renamed
 `latest_for_stream()` (D10); `at=None` follows D7 — the value is omitted only when the time column
-carries a non-`None` `default`, otherwise the call raises. Two follow-ups were filed out of these
+carries a non-`None` `default`, otherwise the call raises. `SAMPLE-GAPFILL` (2971, `6af5206`) ships
+`gapfill()` over `time_bucket_gapfill` with `locf` / `interpolate` / no fill: `start`/`end` are
+required because TimescaleDB derives the synthetic buckets from the range, unlike `downsample()`
+which infers them. Two follow-ups were filed out of these
 rows rather than folded in: `LIFECYCLE-SETUP-EXPORT` (3021 — `setup` is public in
 `tortoise_extended.lifecycle` but not yet re-exported from the top-level `__init__.py`), and `3010`,
 which needs one `pyproject.toml` line the user has agreed to add (the tool-level edit denial stands;
