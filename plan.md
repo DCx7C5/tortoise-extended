@@ -615,6 +615,15 @@ Gaps that motivate the work:
 | P6 declarative | `TIMESCALE-META-SPIKE` → `TIMESCALE-META-IMPL` | `SAMPLE-*` |
 | P7 docs | `DOCS-ERGO` | all of the above |
 
+**Status 2026-11-23:** `NODE-ERGO` (2964) is shipped (`add_child(*, using_db=None)`,
+`root`/`is_ancestor_of`/`is_descendant_of`, `NodeTree`/`to_tree`; the `using_db` widening
+landed in `1910d44`). `NODE-MOVE-TO` (2977) is shipped in `c6f5711`:
+`NodeMixin.move_to` implements D2's mandatory two-statement shape, sorted-pk
+`select_for_update()` lock order, and the recursive-CTE descendant materialisation
+(`_descendant_ids`, `UNION` so a pre-existing data cycle terminates) with the TOCTOU
+window documented in the method docstring and `docs/api/models.md`. `NODE-EDGE-HYBRID`
+(2965) is next and owns `models/node.py`.
+
 **TODO positions:** NODE-ERGO 2964 · NODE-EDGE-HYBRID 2965 · LIFECYCLE-EXTENSIONS 2966 ·
 UNIFIED-NODE 2967 · NODE-SOFTDELETE 2968 · GRAPH-FACADE 2969 · SAMPLE-RECORD-LATEST 2970 ·
 SAMPLE-GAPFILL 2971 · TIMESCALE-META-SPIKE 2972 · TIMESCALE-META-IMPL 2973 · DOCS-ERGO 2974 ·

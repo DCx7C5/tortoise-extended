@@ -68,12 +68,22 @@ type ModelKwargs = dict[str, CoercedValue]
 """Keyword arguments accepted by Model.create / Model.construct mirrors."""
 
 type CacheValue = RowValue | list[CacheValue] | dict[str, CacheValue]
-"""A value storable in a cache backend (JSON-serializable shape)."""
+"""A value storable in a cache backend (JSON-serializable shape).
+
+Caution: recursive ``type`` alias — never use as a ``msgspec.Struct`` field
+annotation. msgspec's type analysis overflows the stack on it
+(``RecursionError: Stack overflow``); the older ``TypeAlias`` spelling fails
+too, just as ``TypeError: Type 'ForwardRef(...)' is not supported``.
+"""
 
 type FieldDefaultValue = (
     str | int | float | bool | bytes | list[FieldDefaultValue] | None
 )
-"""A field default that is not a callable."""
+"""A field default that is not a callable.
+
+Caution: recursive ``type`` alias — never use as a ``msgspec.Struct`` field
+annotation (msgspec type analysis recurses until the stack overflows).
+"""
 
 
 class FieldInitKwargs(TypedDict, total=False):
