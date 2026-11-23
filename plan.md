@@ -64,7 +64,7 @@
    ALWAYS AS ... STORED` or maintained via trigger), complements
    `HybridSearch` (FTS currently raw-SQL-only).
 
-### Tier 3 — QuerySet/API gaps — `todo`
+### Tier 3 — QuerySet/API gaps — `wip`
 7. **Window functions** (`row_number()`, `rank()`, `dense_rank()`) —
    verified no window support in `QuerySet`; pypika supports it; home in
    `expressions/`.
@@ -73,7 +73,9 @@
 9. **`.random()`** — `ORDER BY RANDOM()`; verified absent. Useful for
    sampling/ab-tests.
 10. **`.paginate(page, page_size)` → `PageInfo`** — Tortoise has only
-    `offset`/`limit`; return items + total + total_pages.
+    `offset`/`limit`; return items + total + total_pages. **Shipped 2026-11-23**
+    (`1fd2e95` implementation, `5446be1` tests): `pagination.py`, `QuerySet.paginate`
+    as patch site 5, `docs/api/pagination.md`.
 11. **`bulk_insert(instances)`** — COPY-based bulk insert; shipped as a public
     classmethod on `SampleMixin` / `BaseSample` (`models/sample.py`; requires an
     explicit primary key on every instance). Remaining gap: generalise it to any
@@ -761,6 +763,26 @@ nothing describes `Meta.timescale`, which D8 cancelled.
 skipped** against
 `tortoise_test_push` — the 13 are the 12 live-Redis cases (AUTH secret absent in this worktree) plus
 the `test_all.py` aggregator. Baseline before this slice was 1563 passed.
+
+**PAGINATION slice (3043, `1fd2e95` + `5446be1`).** Tier 3 item 10, user-selected on 2026-11-23.
+`pagination.py` ships a frozen `slots` dataclass `PageInfo[T: Model]` (`items`, `page`, `page_size`,
+`total`; `total_pages` / `has_next` / `has_prev`) and `async paginate(queryset, page, page_size)` —
+one `COUNT(*)` plus one `offset((page - 1) * page_size).limit(page_size)` fetch, `ValueError` naming
+the argument and the received value below 1, and a page past the end returning `[]` with the true
+`total` instead of raising. `QuerySet.paginate` is **patch site 5**, same identity contract as
+sites 1-2 (absent → install, ours → no-op, foreign → `PatchConflictError`). A dataclass, not a
+msgspec `Struct`: the payload is hydrated model instances, not a wire DTO. Ordering stays the
+caller's job and the docstring says why — `OFFSET` without `ORDER BY` is not a stable page
+boundary, since PostgreSQL may order the count query and the page query differently.
+Tests (`5446be1`, 35 cases in `tests/test_pagination.py`): page math including the empty set
+(`total_pages == 0`) and the past-the-end page, validation that would fail with a connection error
+if the checks ever moved below `count()`, patch identity / idempotency / foreign conflict with the
+foreign object restored in the test, and a live walk over `tortoise_test_pag` asserting the pages
+are disjoint and cover every row, `total` honouring a filter rather than the table, and paged slices
+concatenating to exactly `order_by(...).limit(total)`. Measured: `pagination.py` at **100 % line
+and branch**, and a floor-division mutation of `total_pages` turns 13 cases red. Full suite
+**1750 passed, 13 skipped** (the ergonomics figure above measures **1715** without this module);
+ruff clean; basedpyright **0 errors, 0 warnings, 0 notes**.
 
 **Wheel payload (3010, `50910f0`).** The user added the one line —
 `exclude = ["src/tortoise_extended/stubs"]` under `[tool.hatch.build.targets.wheel]` — and the
