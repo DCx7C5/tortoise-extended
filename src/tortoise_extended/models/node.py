@@ -32,12 +32,12 @@ Usage::
 
 from collections import deque
 from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING, ClassVar, Self, cast, override
+from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast, override
 from uuid import UUID
 
 import msgspec
 from tortoise import fields
-from tortoise.expressions import F
+from tortoise.expressions import F, Q
 from tortoise.models import Model
 from tortoise.transactions import in_transaction
 
@@ -158,6 +158,19 @@ class NodeMixin(Model):
 
     ordering_field: ClassVar[str] = "id"
     """Field name used to order :meth:`children` / :meth:`siblings` results."""
+
+    edge_model: ClassVar[type[Model] | None] = None
+    """Optional edge model enabling :meth:`connect` / :meth:`disconnect` /
+    :meth:`neighbours`.
+
+    Set it on a concrete node class to the edge model that links nodes of
+    this type, e.g. ``edge_model = Relationship``.  It is duck-typed: the
+    edge model only has to declare ``source_id`` and ``target_id`` (plus,
+    optionally, ``namespace``, ``edge_type`` and ``weight``).  It is never
+    imported here, because the edge model imports this module's bases.
+    Declare a plain ``allow_self_loops = True`` attribute on the edge model
+    to permit self-links.
+    """
 
     depth = fields.IntField(
         default=0,
@@ -458,6 +471,205 @@ class NodeMixin(Model):
         # here too would double-count. Keep only the local copy in sync.
         self.child_count += 1
         return child
+
+    @classmethod
+    def _require_edge_model(cls) -> type[Model]:
+        """Return the configured edge model or raise a clear :class:`GraphError`.
+
+        Validates the duck-typed contract the edge helpers rely on: a
+        ``source_id`` and ``target_id`` column must exist on the edge model.
+        """
+        edge_model = cls.edge_model
+        if edge_model is None:
+            raise GraphError(
+                f"{cls.__name__} has no edge_model configured: set "
+                "`edge_model = <edge model>` on the node class to use "
+                "connect(), disconnect() and neighbours()."
+            )
+        for field_name in ("source_id", "target_id"):
+            if field_name not in edge_model._meta.fields_map:
+                raise GraphError(
+                    f"{edge_model.__name__} is not usable as an edge model: "
+                    f"missing the {field_name!r} field."
+                )
+        return edge_model
+
+    async def connect(
+        self,
+        other: Self,
+        *,
+        edge_type: str | None = None,
+        weight: float | None = None,
+        **attrs: CacheValue,
+    ) -> Model:
+        """Create an edge from this node to *other*.
+
+        The edge row is written through the configured :attr:`edge_model`;
+        only fields that model declares are passed, so an edge model without
+        ``edge_type`` / ``weight`` is usable as long as the caller does not
+        ask for them.
+
+        Args:
+            other: Target node — must be persisted and in the same namespace.
+            edge_type: Optional relationship type (requires the edge model to
+                declare an ``edge_type`` field).
+            weight: Optional edge weight (requires a ``weight`` field).
+            **attrs: Extra edge-model fields, written verbatim.
+
+        Returns:
+            The created edge instance.
+
+        Raises:
+            GraphError: If either node is unpersisted, the link crosses
+                namespaces, a self-link is attempted without the edge model
+                opting in via ``allow_self_loops = True``, or a requested
+                field does not exist on the edge model.
+        """
+        edge_model = type(self)._require_edge_model()
+        if self.pk is None or other.pk is None:
+            raise GraphError("Cannot connect unpersisted nodes: save them first.")
+        if self.pk == other.pk and not getattr(edge_model, "allow_self_loops", False):
+            raise GraphError(
+                "Cannot connect a node to itself: the edge model does not "
+                "declare allow_self_loops = True."
+            )
+        if other.namespace != self.namespace:
+            raise GraphError(
+                "Cannot connect nodes across namespaces: "
+                f"source namespace {self.namespace!r}, "
+                f"target namespace {other.namespace!r}"
+            )
+
+        edge_fields = edge_model._meta.fields_map
+        payload: dict[str, CacheValue] = {}
+        if "namespace" in edge_fields:
+            payload["namespace"] = self.namespace
+        for optional_name, optional_value in (
+            ("edge_type", edge_type),
+            ("weight", weight),
+        ):
+            if optional_value is None:
+                continue
+            if optional_name not in edge_fields:
+                raise GraphError(
+                    f"{edge_model.__name__} has no {optional_name!r} field; "
+                    "omit it or use an edge model that declares it."
+                )
+            payload[optional_name] = optional_value
+
+        unknown = set(attrs) - set(edge_fields)
+        if unknown:
+            names = ", ".join(sorted(unknown))
+            raise GraphError(
+                f"{edge_model.__name__} has no field(s) {names}; "
+                "pass only fields the edge model declares."
+            )
+        payload.update(attrs)
+        payload["source_id"] = self.pk
+        payload["target_id"] = other.pk
+        return await edge_model.create(using_db=None, **payload)
+
+    async def disconnect(self, other: Self, *, edge_type: str | None = None) -> int:
+        """Delete edges from this node to *other*; return the number removed.
+
+        Directed by design: only rows whose ``source_id`` is this node and
+        ``target_id`` is *other* are deleted.  Pass ``edge_type`` to narrow
+        the deletion to one relationship type.
+
+        Raises:
+            GraphError: If either node is unpersisted or a requested
+                ``edge_type`` field does not exist on the edge model.
+        """
+        edge_model = type(self)._require_edge_model()
+        if self.pk is None or other.pk is None:
+            raise GraphError(
+                "Cannot disconnect unpersisted nodes: save them first."
+            )
+
+        edge_fields = edge_model._meta.fields_map
+        filters: dict[str, CacheValue] = {}
+        if "namespace" in edge_fields:
+            filters["namespace"] = self.namespace
+        if edge_type is not None:
+            if "edge_type" not in edge_fields:
+                raise GraphError(
+                    f"{edge_model.__name__} has no 'edge_type' field; "
+                    "omit it or use an edge model that declares it."
+                )
+            filters["edge_type"] = edge_type
+        filters["source_id"] = self.pk
+        filters["target_id"] = other.pk
+        deleted = await edge_model.filter(**filters).delete()
+        return int(deleted)
+
+    async def neighbours(
+        self,
+        *,
+        edge_type: str | None = None,
+        direction: Literal["out", "in", "both"] = "both",
+        namespace: str | None = None,
+    ) -> list[Self]:
+        """Return the nodes linked to this one through :attr:`edge_model`.
+
+        Filter shapes mirror :meth:`BaseGraphEdgeModel.outgoing`,
+        :meth:`~BaseGraphEdgeModel.incoming` and
+        :meth:`~BaseGraphEdgeModel.between_any`: ``out`` reads edges whose
+        ``source_id`` is this node, ``in`` those whose ``target_id`` is, and
+        ``both`` the union of the two (so a bidirectional edge is seen from
+        either end).
+
+        Args:
+            edge_type: Only follow edges of this type.
+            direction: ``"out"``, ``"in"`` or ``"both"``.
+            namespace: Namespace to read edges from; defaults to this node's
+                own namespace.
+
+        Returns:
+            Deduplicated peer nodes (this node is never included), ordered by
+            :attr:`ordering_field`.
+
+        Raises:
+            GraphError: If the node is unpersisted or a requested field is
+                absent from the edge model.
+        """
+        edge_model = type(self)._require_edge_model()
+        if self.pk is None:
+            raise GraphError("Cannot read neighbours of an unpersisted node.")
+
+        edge_fields = edge_model._meta.fields_map
+        filters: Q
+        if direction == "out":
+            filters = Q(source_id=self.pk)
+        elif direction == "in":
+            filters = Q(target_id=self.pk)
+        else:
+            filters = Q(source_id=self.pk) | Q(target_id=self.pk)
+        if "namespace" in edge_fields:
+            filters &= Q(namespace=self.namespace if namespace is None else namespace)
+        if edge_type is not None:
+            if "edge_type" not in edge_fields:
+                raise GraphError(
+                    f"{edge_model.__name__} has no 'edge_type' field; "
+                    "omit it or use an edge model that declares it."
+                )
+            filters &= Q(edge_type=edge_type)
+
+        rows = await edge_model.filter(filters).values("source_id", "target_id")
+        self_pk = cast(UUID | int, self.pk)
+        peer_ids: list[UUID | int] = []
+        seen: set[UUID | int] = set()
+        for row in rows:
+            source = cast(UUID | int, row["source_id"])
+            target = cast(UUID | int, row["target_id"])
+            peer = target if source == self_pk else source
+            if peer != self_pk and peer not in seen:
+                seen.add(peer)
+                peer_ids.append(peer)
+        if not peer_ids:
+            return []
+        return await (
+            type(self).filter(pk__in=peer_ids).order_by(type(self).ordering_field)
+        )
 
     async def move_to(self, new_parent: Self | None) -> None:
         """Move this node and its whole subtree under *new_parent*.

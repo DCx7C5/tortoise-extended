@@ -8,6 +8,7 @@ Run with: uv run pytest tests/test_node_mixin_integration.py -v
 
 import os
 import socket
+from uuid import UUID
 
 import pytest
 from tortoise import Tortoise, fields
@@ -16,7 +17,7 @@ from tortoise.transactions import in_transaction
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended._types import CacheValue
 from tortoise_extended.exceptions import GraphError
-from tortoise_extended.models import BaseModel, NodeMixin
+from tortoise_extended.models import BaseModel, BaseNode, NodeMixin
 
 
 # ---------------------------------------------------------------------------
@@ -71,14 +72,58 @@ class OrderedHybridNode(BaseModel, NodeMixin):
         indexes = ()
 
 
+class HybridEdge(BaseModel):
+    """Duck-typed edge model for :meth:`NodeMixin.connect` / ``neighbours``."""
+
+    source_id = fields.BigIntField(db_index=True)
+    target_id = fields.BigIntField(db_index=True)
+    edge_type = fields.CharField(max_length=50, default="link", db_index=True)
+    weight = fields.FloatField(default=1.0)
+    namespace = fields.CharField(max_length=100, default="default", db_index=True)
+
+    class Meta:
+        table = "node_mixin_it_edges"
+        indexes = (("source_id", "target_id"),)
+
+
+HybridNode.edge_model = HybridEdge
+
+
+class UuidNode(BaseNode):
+    """UUID7-keyed node — proves the edge helpers are pk-type agnostic."""
+
+    class Meta:
+        table = "node_mixin_it_uuid"
+        indexes = (("namespace", "depth"),)
+
+
+class UuidEdge(BaseModel):
+    """UUID-keyed edge model for :class:`UuidNode`."""
+
+    source_id = fields.UUIDField(db_index=True)
+    target_id = fields.UUIDField(db_index=True)
+    edge_type = fields.CharField(max_length=50, default="link")
+    namespace = fields.CharField(max_length=100, default="default")
+
+    class Meta:
+        table = "node_mixin_it_uuid_edges"
+        indexes = ()
+
+
+UuidNode.edge_model = UuidEdge
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
 _TABLES = (
+    "node_mixin_it_edges",
     "node_mixin_it_hybrid",
     "node_mixin_it_ordered",
+    "node_mixin_it_uuid_edges",
+    "node_mixin_it_uuid",
 )
 
 
@@ -106,7 +151,9 @@ async def _clean_tables():
     """Truncate the node tables before every test."""
     conn = Tortoise.get_connection("default")
     await conn.execute_query(
-        "TRUNCATE node_mixin_it_hybrid, node_mixin_it_ordered CASCADE"
+        "TRUNCATE node_mixin_it_edges, node_mixin_it_hybrid, "
+        "node_mixin_it_ordered, node_mixin_it_uuid_edges, "
+        "node_mixin_it_uuid CASCADE"
     )
     yield
 
@@ -587,6 +634,136 @@ class TestMoveTo:
         unsaved = HybridNode(namespace="shop", depth=0)
         with pytest.raises(GraphError, match="unpersisted"):
             await unsaved.move_to(None)
+
+
+# ---------------------------------------------------------------------------
+# connect / disconnect / neighbours — node <-> edge sugar
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeHelpers:
+    """connect()/disconnect()/neighbours() over the configured edge model."""
+
+    async def _pair(self) -> tuple[HybridNode, HybridNode]:
+        a = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        b = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        return a, b
+
+    async def test_connect_creates_edge_row(self) -> None:
+        a, b = await self._pair()
+        edge = await a.connect(b, edge_type="cites", weight=0.5)
+        assert edge.source_id == a.pk
+        assert edge.target_id == b.pk
+        assert await HybridEdge.filter(source_id=a.pk, target_id=b.pk).count() == 1
+        stored = await HybridEdge.get(source_id=a.pk, target_id=b.pk)
+        assert stored.edge_type == "cites"
+        assert stored.weight == 0.5
+        assert stored.namespace == "shop"
+
+    async def test_neighbours_both_directions(self) -> None:
+        a, b = await self._pair()
+        c = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        await a.connect(b)
+        await c.connect(a)
+
+        assert {n.pk for n in await a.neighbours()} == {b.pk, c.pk}
+        assert [n.pk for n in await a.neighbours(direction="out")] == [b.pk]
+        assert [n.pk for n in await a.neighbours(direction="in")] == [c.pk]
+
+    async def test_neighbours_filters_by_edge_type(self) -> None:
+        a, b = await self._pair()
+        c = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        await a.connect(b, edge_type="cites")
+        await a.connect(c, edge_type="mentions")
+
+        assert [n.pk for n in await a.neighbours(edge_type="cites")] == [b.pk]
+        assert [n.pk for n in await a.neighbours(edge_type="mentions")] == [c.pk]
+        assert len(await a.neighbours()) == 2
+
+    async def test_neighbours_dedupes_and_excludes_self(self) -> None:
+        a, b = await self._pair()
+        await a.connect(b)
+        await b.connect(a)
+        peers = await a.neighbours()
+        assert [n.pk for n in peers] == [b.pk]
+
+    async def test_neighbours_order_by_ordering_field(self) -> None:
+        hub = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        first = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        second = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        await hub.connect(second)
+        await hub.connect(first)
+        peers = await hub.neighbours()
+        assert [n.pk for n in peers] == sorted([first.pk, second.pk])
+
+    async def test_disconnect_returns_deleted_count(self) -> None:
+        a, b = await self._pair()
+        await a.connect(b, edge_type="cites")
+        await a.connect(b, edge_type="mentions")
+
+        assert await a.disconnect(b) == 2
+        assert await a.neighbours() == []
+        assert await a.disconnect(b) == 0
+
+    async def test_disconnect_can_target_one_edge_type(self) -> None:
+        a, b = await self._pair()
+        await a.connect(b, edge_type="cites")
+        await a.connect(b, edge_type="mentions")
+
+        assert await a.disconnect(b, edge_type="cites") == 1
+        assert [n.pk for n in await a.neighbours()] == [b.pk]
+
+    async def test_cross_namespace_connect_raises(self) -> None:
+        shop_node = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        office_node = await HybridNode.create(
+            namespace="office", depth=0, is_root=True
+        )
+
+        with pytest.raises(GraphError, match="across namespaces"):
+            await shop_node.connect(office_node)
+        assert await HybridEdge.all().count() == 0
+
+    async def test_self_link_raises_without_opt_in(self) -> None:
+        node = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        with pytest.raises(GraphError, match="to itself"):
+            await node.connect(node)
+        assert await HybridEdge.all().count() == 0
+
+    async def test_unknown_edge_attribute_raises(self) -> None:
+        a, b = await self._pair()
+        with pytest.raises(GraphError, match="has no field"):
+            await a.connect(b, colour="red")
+        assert await HybridEdge.all().count() == 0
+
+    async def test_unpersisted_nodes_are_rejected(self) -> None:
+        saved = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        unsaved = HybridNode(namespace="shop", depth=0)
+
+        with pytest.raises(GraphError, match="unpersisted"):
+            await saved.connect(unsaved)
+        with pytest.raises(GraphError, match="unpersisted"):
+            await unsaved.disconnect(saved)
+
+    async def test_uuid_keyed_nodes_link_and_read_back(self) -> None:
+        """The helpers are pk-type agnostic — UUID keys work like BigInt."""
+        a = await UuidNode.create(name="a", namespace="shop", depth=0, is_root=True)
+        b = await UuidNode.create(name="b", namespace="shop", depth=0, is_root=True)
+
+        await a.connect(b, edge_type="cites")
+        peers = await a.neighbours()
+        assert [node.pk for node in peers] == [b.pk]
+        assert isinstance(peers[0].pk, UUID)
+        assert await a.disconnect(b) == 1
+        assert await a.neighbours() == []
+
+    async def test_unconfigured_edge_model_raises(self) -> None:
+        node = await OrderedHybridNode.create(
+            namespace="shop", depth=0, is_root=True
+        )
+        with pytest.raises(GraphError, match="no edge_model configured"):
+            await node.connect(node)
+        with pytest.raises(GraphError, match="no edge_model configured"):
+            await node.neighbours()
 
 
 # ---------------------------------------------------------------------------

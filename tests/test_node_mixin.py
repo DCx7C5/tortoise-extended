@@ -272,3 +272,35 @@ class TestNodeTree:
             current = current.children[0]
             walked += 1
         assert walked == length - 1
+
+
+class TestEdgeModelContract:
+    """edge_model is unset by default and its shape is validated lazily."""
+
+    def test_mixin_defaults_to_no_edge_model(self) -> None:
+        assert NodeMixin.edge_model is None
+
+    def test_without_edge_model_raises(self) -> None:
+        with pytest.raises(GraphError, match="no edge_model configured"):
+            UnitHybridNode._require_edge_model()
+
+    def test_edge_model_missing_peer_columns_raises(self) -> None:
+        class NotAnEdge(BaseModel):
+            """A model that is not usable as an edge table."""
+
+            label = fields.CharField(max_length=10)
+
+            class Meta:
+                table = "node_mixin_unit_not_edge"
+                indexes = ()
+
+        class NodeWithBadEdge(BaseModel, NodeMixin):
+            parent_id = fields.BigIntField(null=True, db_index=True)
+            edge_model = NotAnEdge
+
+            class Meta:
+                table = "node_mixin_unit_bad_edge"
+                indexes = ()
+
+        with pytest.raises(GraphError, match="missing the 'source_id' field"):
+            NodeWithBadEdge._require_edge_model()

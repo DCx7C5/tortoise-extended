@@ -193,6 +193,69 @@ any_edge = await Relationship.between_any(node1.id)
 
 ---
 
+## Node ↔ edge sugar (`connect` / `disconnect` / `neighbours`)
+
+`NodeMixin` can talk to an edge model without importing it. Point a concrete
+node class at one and the three helpers become available:
+
+```python
+class HybridEdge(BaseModel):
+    source_id = fields.BigIntField(db_index=True)
+    target_id = fields.BigIntField(db_index=True)
+    edge_type = fields.CharField(max_length=50, default="link")
+    weight = fields.FloatField(default=1.0)
+    namespace = fields.CharField(max_length=100, default="default")
+
+    class Meta:
+        table = "hybrid_edges"
+        indexes = (("source_id", "target_id"),)
+
+
+class HybridNode(BaseModel, NodeMixin):
+    parent_id = fields.BigIntField(null=True, db_index=True)
+    edge_model = HybridEdge  # duck-typed: no import from models/node.py
+
+    class Meta:
+        table = "hybrid_nodes"
+        indexes = (("namespace", "depth"),)
+```
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `connect(other, *, edge_type?, weight?, **attrs)` | `Model` | Create an edge from this node to `other` |
+| `disconnect(other, *, edge_type?)` | `int` | Delete edges from this node to `other`; returns the count |
+| `neighbours(*, edge_type?, direction="both", namespace?)` | `list[Self]` | Peer nodes reached through `edge_model` |
+
+The edge model is **duck-typed**: only `source_id` and `target_id` are
+required. `namespace`, `edge_type` and `weight` are passed only when the model
+declares them, and any other keyword must name a real field (unknown names
+raise `GraphError`). A node without `edge_model` raises `GraphError` listing
+the missing configuration.
+
+```python
+a = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+b = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+
+edge = await a.connect(b, edge_type="cites", weight=0.5)
+assert [n.pk for n in await a.neighbours(direction="out")] == [b.pk]
+assert [n.pk for n in await b.neighbours(direction="in")] == [a.pk]
+assert await a.disconnect(b, edge_type="cites") == 1
+```
+
+Rules:
+
+- **Directed writes, symmetric reads.** `connect` writes one row
+  `source_id=a, target_id=b`; `disconnect` deletes rows in that direction
+  only. `neighbours(direction="both")` (the default) reads both directions, so
+  a link is visible from either end and peers are deduplicated.
+- **Same namespace only.** A cross-namespace link raises `GraphError`.
+- **No self-links unless declared.** `a.connect(a)` raises `GraphError`; add a
+  plain `allow_self_loops = True` attribute to the edge model to permit it.
+- Both nodes must be persisted, and `neighbours` orders peers by the node's
+  `ordering_field`.
+
+---
+
 ## BaseHierarchyModel
 
 Abstract base class providing tree operations over a PostgreSQL `LTreeField`

@@ -296,6 +296,9 @@ top of the adjacency-list fields. The field tables and the query helpers
 |--------|---------|-------------|
 | `add_child(*, using_db=None, **fields)` | `Self` | Insert a child linked to this node |
 | `move_to(new_parent)` | `None` | Reparent this node and its subtree under `new_parent` (or detach to root with `None`) |
+| `connect(other, *, edge_type?, weight?, **attrs)` | `Model` | Create an edge to `other` through the configured `edge_model` |
+| `disconnect(other, *, edge_type?)` | `int` | Delete edges to `other`; returns the count |
+| `neighbours(*, edge_type?, direction="both", namespace?)` | `list[Self]` | Peer nodes reached through `edge_model` |
 | `root()` | `Self` | Topmost node on this node's parent chain |
 | `is_ancestor_of(other)` | `bool` | `True` when this node is a strict ancestor of `other` |
 | `is_descendant_of(other)` | `bool` | `True` when this node is a strict descendant of `other` |
@@ -355,6 +358,25 @@ assert laptops.depth == kitchen.depth + 1
 
 await laptops.move_to(None)  # detach: depth == 0, is_root is True
 ```
+
+### connect / disconnect / neighbours
+
+`NodeMixin` also carries node → edge sugar. Point a concrete class at an edge
+model (`edge_model = Relationship`) and `connect(other, ...)`,
+`disconnect(other, ...)` and `neighbours(...)` become available; the edge
+model is duck-typed — only `source_id` and `target_id` are required — and is
+never imported by `models/node.py`, so there is no import cycle.
+
+```python
+edge = await laptops.connect(kitchen, edge_type="related", weight=0.5)
+assert [n.pk for n in await laptops.neighbours(direction="out")] == [kitchen.pk]
+assert await laptops.disconnect(kitchen, edge_type="related") == 1
+```
+
+Writes are directed; `neighbours()` defaults to `direction="both"` and
+deduplicates peers. Cross-namespace links and self-links raise `GraphError`
+(a self-link is allowed only when the edge model declares
+`allow_self_loops = True`). Full details: [graph](graph.md).
 
 ### root / is_ancestor_of / is_descendant_of
 

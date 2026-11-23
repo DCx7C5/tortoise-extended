@@ -626,7 +626,9 @@ landed in `1910d44`). `NODE-MOVE-TO` (2977) is shipped in `c6f5711`:
 `select_for_update()` lock order, and the recursive-CTE descendant materialisation
 (`_descendant_ids`, `UNION` so a pre-existing data cycle terminates) with the TOCTOU
 window documented in the method docstring and `docs/api/models.md`. `NODE-EDGE-HYBRID`
-(2965) is next and owns `models/node.py`.
+(2965) is shipped too: `NodeMixin.edge_model` (duck-typed, never imported by
+`models/node.py`) plus `connect` / `disconnect` / `neighbours`, with
+`NodeMixin`'s remaining file contention now free for `NODE-SOFTDELETE` (2968).
 
 **TODO positions:** NODE-ERGO 2964 · NODE-EDGE-HYBRID 2965 · LIFECYCLE-EXTENSIONS 2966 ·
 UNIFIED-NODE 2967 · NODE-SOFTDELETE 2968 · GRAPH-FACADE 2969 · SAMPLE-RECORD-LATEST 2970 ·
