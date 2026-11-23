@@ -1308,3 +1308,34 @@ junction), and the `auto_now` case reuses `TimestampMixin.updated_at` with an ex
 case seeds the `u` group newer-but-smaller so filter-after-grouping would pick a different row — the
 ordering the earlier fixture could not distinguish. Gate: ruff clean, full suite **1938 passed,
 13 skipped**.
+
+**Round 4 (3072-3079, `f9a8ba0` + `7fa61bb`).** The eight LOWs the review left. Both `css-developer`
+dispatches died on the account-wide quota again — the `distinct_on` child had written its four fixes,
+the `versioned` child only one of two doc notes — so the remainder was finished here and every claim
+re-verified by probe on `tortoise_test` rather than trusted.
+
+Shipped: `limit=True` refused by name; a model instance as `distinct_on` target raises `TypeError`
+(the helper takes `type[M] | QuerySet[M] | Model` because strict basedpyright folds an
+`isinstance(target, type)` check once the union is narrowed, and `callable()` is the wrong
+discriminator — a `QuerySet` is not callable); the soft-delete filter resolves the **column** through
+`fields_db_projection`; a non-asyncpg client is refused before a statement is built. Versioned: the
+rollback/`refresh_from_db()` paragraph.
+
+**Disproved — 3079 (`auto_now` vs `use_tz`).** Tortoise 1.1.9 `DatetimeField.to_db_value` only *adds*
+a timezone when `use_tz` is on and the value is naive; it never strips one, so the shipped aware
+`localtime()` stamp stores the right instant under both modes (`use_tz=False` round-trips
+`07:13:27.552513` instance -> column -> reload, exactly). The briefed fix (`to_python_value(localtime())`
+in the payload) was applied, measured, and reverted: the naive value is encoded by asyncpg in the
+**host's** timezone (Europe/Berlin, +01:00, against a UTC project), so the row stored `06:13:27Z`
+while the instance held `07:13:27`. Direct asyncpg probe: naive `07:00` -> `06:00Z`, aware
+`07:00+00:00` -> `07:00Z`. Also corrected a doc claim the dead worker left behind: `Model.get(...)`
+returns a `QuerySet`, so it is refused as carried state (`ValueError`), not `TypeError`.
+
+**New finding — 3080 (LOW).** The CTE builders (`graph_traversal.py:151-152`,
+`graph_vector_search.py:173-174`, `pathfinding.py:196-197`/`:269`, `_edge_filter.py:22`) still probe
+the field **name** and emit a literal `deleted_at`, so a field projected onto that column under
+another name gets no filter — `distinct_on` now disagrees with them, and `docs/api/queryset.md` says
+so instead of implying they match.
+
+Gate: ruff clean, basedpyright **0 errors, 0 warnings, 0 notes**, full suite **1946 passed, 13
+skipped** (56 -> 64 in the two modules; the 8 new items are live-Postgres paths).
