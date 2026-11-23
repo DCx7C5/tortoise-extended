@@ -118,6 +118,17 @@ from tortoise_extended.expressions.pgcrypto import (
     HMACDigest,
 )
 from tortoise_extended.expressions.recursive_cte import RecursiveCTE
+from tortoise_extended.expressions.windows import (
+    avg_over,
+    count_over,
+    dense_rank,
+    max_over,
+    min_over,
+    ntile,
+    rank,
+    row_number,
+    sum_over,
+)
 from tortoise_extended.fields.char import CharField
 from tortoise_extended.fields.citext import CitextField
 from tortoise_extended.fields.inet import InetField
@@ -662,22 +673,31 @@ __all__ = [
     "VectorField",
     "VectorFieldError",
     "all_paths",
+    "avg_over",
     "cached",
     "cached_method",
+    "count_over",
+    "dense_rank",
     "diversity_rerank",
     "ensure_extensions",
     "find_cycles",
     "get_ltree_filters",
     "get_vector_filters",
     "invalidate",
+    "max_over",
+    "min_over",
+    "ntile",
     "paginate",
     "patch",
     "random_ordering",
+    "rank",
     "ranking_from_hits",
     "reciprocal_rank_fusion",
+    "row_number",
     "scores_from_hybrid_rows",
     "setup",
     "shortest_path",
+    "sum_over",
     "vector_encoder",
     "weighted_score_fusion",
 ]

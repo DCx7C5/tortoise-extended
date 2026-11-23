@@ -212,6 +212,7 @@ src/tortoise_extended/
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)
 │   ├── ltree_filters.py     # ltree query operators
 │   ├── pgcrypto.py          # Digest / DigestHex / HMACDigest SQL wrappers
+│   ├── windows.py           # row_number / rank / dense_rank / ntile + windowed aggregates
 │   └── _edge_filter.py      # shared edge-table filter clause (et_clause)
 ├── migrations/
 │   └── operations.py        # CreateHypertable, CreateContinuousAggregate

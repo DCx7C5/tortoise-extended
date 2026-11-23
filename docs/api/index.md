@@ -16,6 +16,7 @@ API documentation for the public modules.
 - **[Hybrid Search](hybrid-search.md)** — Vector + FTS weighted scoring
 - **[Full-Text Search](full-text-search.md)** — upstream `TSVectorField`, `SearchQuery`, `SearchRank`, `SearchHeadline`, `Lexeme` — and the four traps
 - **[Fusion](fusion.md)** — RRF, weighted score fusion, MMR diversity re-ranking (pure Python)
+- **[Window Functions](windows.md)** — `row_number`, `rank`, `dense_rank`, `ntile` and `sum_over`/`avg_over`/`count_over`/`min_over`/`max_over` analytics builders for `annotate()`
 - **[Pagination](pagination.md)** — `QuerySet.paginate(page, page_size)` and the `PageInfo` metadata
 - **[QuerySet helpers](queryset.md)** — `QuerySet.random()` (random ordering), starting here
 - **[pgcrypto](pgcrypto.md)** — pgcrypto query helpers (Digest, DigestHex, HMACDigest)

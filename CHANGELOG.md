@@ -8,6 +8,15 @@ the versions below are the `pyproject.toml` version at the time of the change.
 
 ### Added
 
+- Window-function builders for `annotate()`: `row_number`, `rank`, `dense_rank`, `ntile(n)` and the
+  windowed aggregates `sum_over`, `avg_over`, `count_over`, `min_over`, `max_over`, each taking
+  field **names** — `partition_by` / `order_by` accept one name or a sequence, and a leading `-`
+  means `DESC`. The builders construct the pypika `Field` terms themselves, so Tortoise's `F()`
+  can no longer be stringified raw into `OVER(...)` (`PARTITION BY <F object …>`) — the trap the
+  module docstring records. `count_over()` with no field emits `COUNT(*)`; `ntile` rejects a
+  bucket count below 1 with `ValueError`; frame clauses are documented as out of scope, with a
+  verified direct-pypika recipe for callers who need `ROWS BETWEEN`. Exported from
+  `tortoise_extended` and `tortoise_extended.expressions`, with `docs/api/windows.md`.
 - `QuerySet.random()` and the free `random_ordering(queryset)` it is installed from — a clone of the
   queryset annotated with `RANDOM()` and ordered by it, so it composes with `filter` / `values` /
   `limit` / `paginate` and leaves `count()` untouched. Installed at import time as **patch site 6**

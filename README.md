@@ -134,6 +134,7 @@ src/tortoise_extended/
 │   ├── pathfinding.py       # shortest_path, all_paths, find_cycles
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)
 │   ├── ltree_filters.py     # ltree query operators
+│   ├── windows.py           # row_number / rank / dense_rank / ntile + windowed aggregates
 │   └── pgcrypto.py          # pgcrypto helpers (Digest, DigestHex, HMACDigest)
 ├── migrations/
 │   └── operations.py        # CreateHypertable, CreateContinuousAggregate

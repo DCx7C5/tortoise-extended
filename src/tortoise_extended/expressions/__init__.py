@@ -31,6 +31,17 @@ from tortoise_extended.expressions.pgcrypto import (
     HMACDigest,
 )
 from tortoise_extended.expressions.recursive_cte import RecursiveCTE
+from tortoise_extended.expressions.windows import (
+    avg_over,
+    count_over,
+    dense_rank,
+    max_over,
+    min_over,
+    ntile,
+    rank,
+    row_number,
+    sum_over,
+)
 
 __all__ = [
     "CosineDistance",
@@ -49,9 +60,18 @@ __all__ = [
     "NeighborNode",
     "RecursiveCTE",
     "TraversalNode",
+    "avg_over",
+    "count_over",
+    "dense_rank",
     "diversity_rerank",
+    "max_over",
+    "min_over",
+    "ntile",
+    "rank",
     "ranking_from_hits",
     "reciprocal_rank_fusion",
+    "row_number",
     "scores_from_hybrid_rows",
+    "sum_over",
     "weighted_score_fusion",
 ]
