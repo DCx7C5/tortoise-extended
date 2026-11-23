@@ -456,6 +456,140 @@ class TestAddChild:
 
 
 # ---------------------------------------------------------------------------
+# move_to: subtree reparenting, depth shift and child_count maintenance
+# ---------------------------------------------------------------------------
+
+
+class TestMoveTo:
+    """move_to() reparents a subtree and recomputes depths in bulk."""
+
+    async def test_moves_subtree_with_correct_depths(self) -> None:
+        electronics = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        laptops = await HybridNode.create(
+            namespace="shop", depth=1, parent_id=electronics.pk
+        )
+        macbook = await HybridNode.create(
+            namespace="shop", depth=2, parent_id=laptops.pk
+        )
+        charger = await HybridNode.create(
+            namespace="shop", depth=3, parent_id=macbook.pk
+        )
+        kitchen = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        shelf = await HybridNode.create(namespace="shop", depth=1, parent_id=kitchen.pk)
+
+        # Move a root with a three-node subtree under a depth-1 parent.  The
+        # depth delta is +2 for every node in the moved subtree.
+        await electronics.move_to(shelf)
+
+        # The moved instance reflects its new position — no stale attributes.
+        assert electronics.parent_id == shelf.pk
+        assert electronics.depth == 2
+        assert electronics.is_root is False
+        assert electronics.child_count == 1
+
+        moved_laptops = await HybridNode.get(pk=laptops.pk)
+        moved_macbook = await HybridNode.get(pk=macbook.pk)
+        moved_charger = await HybridNode.get(pk=charger.pk)
+        assert (moved_laptops.parent_id, moved_laptops.depth) == (
+            electronics.pk,
+            3,
+        )
+        assert (moved_macbook.parent_id, moved_macbook.depth) == (laptops.pk, 4)
+        assert (moved_charger.parent_id, moved_charger.depth) == (macbook.pk, 5)
+
+        # Counters: the old parent loses the moved node, the new parent gains
+        # it, and the moved node keeps its own child.
+        assert (await HybridNode.get(pk=shelf.pk)).child_count == 1
+        assert (await HybridNode.get(pk=kitchen.pk)).child_count == 1
+
+    async def test_moved_node_is_the_only_child_moved(self) -> None:
+        """Moving one branch leaves its siblings under the old parent."""
+        old_root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        branch = await HybridNode.create(
+            namespace="shop", depth=1, parent_id=old_root.pk
+        )
+        sibling = await HybridNode.create(
+            namespace="shop", depth=1, parent_id=old_root.pk
+        )
+        new_parent = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+
+        await branch.move_to(new_parent)
+
+        assert (await HybridNode.get(pk=old_root.pk)).child_count == 1
+        assert (await HybridNode.get(pk=sibling.pk)).parent_id == old_root.pk
+        assert (await HybridNode.get(pk=new_parent.pk)).child_count == 1
+
+    async def test_detach_to_root_resets_depth_and_is_root(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        child = await HybridNode.create(namespace="shop", depth=1, parent_id=root.pk)
+        grandchild = await HybridNode.create(
+            namespace="shop", depth=2, parent_id=child.pk
+        )
+
+        await child.move_to(None)
+
+        assert child.parent_id is None
+        assert child.depth == 0
+        assert child.is_root is True
+        assert (await HybridNode.get(pk=grandchild.pk)).depth == 1
+        assert (await HybridNode.get(pk=root.pk)).child_count == 0
+
+    async def test_move_into_own_descendant_raises(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        child = await HybridNode.create(namespace="shop", depth=1, parent_id=root.pk)
+        grandchild = await HybridNode.create(
+            namespace="shop", depth=2, parent_id=child.pk
+        )
+
+        with pytest.raises(GraphError, match="own descendant"):
+            await root.move_to(grandchild)
+
+        # The transaction rolled back: nothing moved.
+        assert (await HybridNode.get(pk=root.pk)).parent_id is None
+        assert (await HybridNode.get(pk=grandchild.pk)).depth == 2
+
+    async def test_move_into_self_raises(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+
+        with pytest.raises(GraphError, match="under itself"):
+            await root.move_to(root)
+
+    async def test_cross_namespace_move_raises(self) -> None:
+        shop_node = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        office_node = await HybridNode.create(namespace="office", depth=0, is_root=True)
+
+        with pytest.raises(GraphError, match="across namespaces"):
+            await shop_node.move_to(office_node)
+
+        # Rolled back: the source is untouched and no counter moved.
+        stored = await HybridNode.get(pk=shop_node.pk)
+        assert stored.parent_id is None
+        assert stored.is_root is True
+        assert (await HybridNode.get(pk=office_node.pk)).child_count == 0
+
+    async def test_move_to_current_parent_keeps_child_count(self) -> None:
+        parent = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        child = await HybridNode.create(namespace="shop", depth=1, parent_id=parent.pk)
+
+        await child.move_to(parent)
+
+        assert child.parent_id == parent.pk
+        assert child.depth == 1
+        assert (await HybridNode.get(pk=parent.pk)).child_count == 1
+
+    async def test_unpersisted_nodes_are_rejected(self) -> None:
+        saved = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        unsaved_parent = HybridNode(namespace="shop", depth=0)
+
+        with pytest.raises(GraphError, match="unpersisted parent"):
+            await saved.move_to(unsaved_parent)
+
+        unsaved = HybridNode(namespace="shop", depth=0)
+        with pytest.raises(GraphError, match="unpersisted"):
+            await unsaved.move_to(None)
+
+
+# ---------------------------------------------------------------------------
 # root() and strict ancestry
 # ---------------------------------------------------------------------------
 

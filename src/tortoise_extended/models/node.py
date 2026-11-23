@@ -32,7 +32,7 @@ Usage::
 
 from collections import deque
 from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING, ClassVar, Self, override
+from typing import TYPE_CHECKING, ClassVar, Self, cast, override
 from uuid import UUID
 
 import msgspec
@@ -41,7 +41,8 @@ from tortoise.expressions import F
 from tortoise.models import Model
 from tortoise.transactions import in_transaction
 
-from tortoise_extended._types import CacheValue
+from tortoise_extended._quote import quote_ident
+from tortoise_extended._types import CacheValue, RowValue
 from tortoise_extended.exceptions import GraphError
 from tortoise_extended.fields import CharField
 from tortoise_extended.fields.uuid import UUID7Field
@@ -50,6 +51,53 @@ from tortoise_extended.models.mixins import TimestampMixin
 if TYPE_CHECKING:
     from tortoise.backends.base.client import BaseDBAsyncClient
     from tortoise.queryset import QuerySet
+
+
+async def _descendant_ids(
+    model: type[Model],
+    root_pk: UUID | int,
+    using_db: BaseDBAsyncClient,
+) -> list[UUID | int]:
+    """Materialise the primary keys of every descendant of *root_pk*.
+
+    A single recursive CTE walks the ``parent_id`` adjacency list, so the
+    result is link-exact (unlike the depth-range :meth:`NodeMixin.descendants`
+    approximation) and needs no per-level round trip.  ``UNION`` rather than
+    ``UNION ALL`` also terminates on a pre-existing parent cycle in the data.
+
+    The query reads **unlocked** rows: a caller that needs the set to be
+    consistent with its own writes must hold the relevant locks itself.
+
+    Args:
+        model: Concrete node model whose table is traversed.
+        root_pk: Primary key of the subtree root (excluded from the result).
+        using_db: Connection — pass the transaction handle so the read joins
+            the caller's transaction.
+
+    Returns:
+        Primary keys of all nodes reachable through live ``parent_id`` links,
+        in no particular order.
+    """
+    table = quote_ident(model._meta.db_table)
+    pk_column = quote_ident(model._meta.db_pk_column)
+    # ``source_field`` is None unless the concrete class renamed the column;
+    # Tortoise falls back to the model-field name for the DB column.
+    parent_field = model._meta.fields_map["parent_id"]
+    parent_column = quote_ident(
+        parent_field.source_field or parent_field.model_field_name
+    )
+    sql = (
+        f"WITH RECURSIVE subtree(nid) AS ("
+        f"SELECT {pk_column} FROM {table} WHERE {parent_column} = $1 "
+        "UNION "
+        f"SELECT child.{pk_column} FROM {table} AS child "
+        f"JOIN subtree ON child.{parent_column} = subtree.nid"
+        ") SELECT nid FROM subtree"
+    )
+    # ``RowValue`` does not model UUID — an asyncpg wire-type gap in the stub
+    # overlay; the cast is confined to this DB boundary.
+    rows = await using_db.execute_query_dict(sql, cast(list[RowValue], [root_pk]))
+    return [cast(UUID | int, row["nid"]) for row in rows]
 
 
 class NodeTree[ModelT: Model](msgspec.Struct):
@@ -410,6 +458,155 @@ class NodeMixin(Model):
         # here too would double-count. Keep only the local copy in sync.
         self.child_count += 1
         return child
+
+    async def move_to(self, new_parent: Self | None) -> None:
+        """Move this node and its whole subtree under *new_parent*.
+
+        Reparents the node in place and shifts every descendant's ``depth`` by
+        the same delta in one bulk ``UPDATE`` — no per-node writes::
+
+            await laptops.move_to(kitchen)  # kitchen.depth == 1
+            # laptops.depth: 1 -> 2, macbook.depth: 2 -> 3
+
+        Passing ``None`` detaches the node to a root: ``parent_id = None``,
+        ``depth = 0``, ``is_root = True``, with descendants shifted relative to
+        it.  The previous parent's ``child_count`` is decremented and the new
+        parent's incremented; a move to the node's current parent (or a
+        detach that changes nothing) leaves both counters untouched.
+
+        The source and target rows are re-read with ``SELECT ... FOR UPDATE``
+        in a deterministic, sorted-primary-key order at the start of the
+        transaction, and every guard runs against those locked, fresh rows.
+        This closes the TOCTOU window on this node's and the new parent's own
+        columns, and makes concurrent ``A -> B`` / ``B -> A`` moves contend on
+        the same first row instead of deadlocking.
+
+        .. warning::
+
+            The cycle guard is a point-in-time check.  The descendant set is
+            materialised with a recursive CTE over **unlocked** rows and the
+            bulk ``UPDATE`` does not re-check it: a concurrent write that
+            moves a node into or out of this subtree between that read and the
+            update can defeat the guard (a cycle) or leave the moved-in node
+            with a stale ``depth``.  Serialise concurrent writers per tree
+            (for example with a PostgreSQL advisory lock on the namespace)
+            when that race matters.
+
+        Args:
+            new_parent: The target parent node, or ``None`` to detach this
+                node and make it a root.
+
+        Raises:
+            GraphError: If either node is unpersisted, the move crosses
+                namespaces, targets this node itself, or targets one of this
+                node's own descendants.
+        """
+        if self.pk is None:
+            raise GraphError(
+                f"Cannot move unpersisted {type(self).__name__}: save it first."
+            )
+        if new_parent is not None and new_parent.pk is None:
+            raise GraphError(
+                "Cannot move a node under an unpersisted parent: save the parent first."
+            )
+        self_pk = cast(UUID | int, self.pk)
+        target_pk = cast(UUID | int, new_parent.pk) if new_parent is not None else None
+
+        async with in_transaction() as raw_conn:
+            # The stub types the yielded connection as ``Any``; annotate it as
+            # the concrete transactional client (no runtime cast needed).
+            db: BaseDBAsyncClient = raw_conn
+
+            # Deterministic lock order: both moves of an A <-> B pair take the
+            # sorted-first row first, so they serialise instead of deadlocking
+            # on opposite acquisition orders.  A self-move locks one row.
+            lock_pks: list[UUID | int] = [self_pk]
+            if target_pk is not None and target_pk != self_pk:
+                lock_pks.append(target_pk)
+            lock_pks.sort(key=str)
+            locked: dict[UUID | int, Self] = {}
+            for pk in lock_pks:
+                locked[pk] = await type(self).select_for_update(using_db=db).get(pk=pk)
+            locked_self = locked[self_pk]
+            locked_parent = locked[target_pk] if target_pk is not None else None
+
+            if locked_parent is not None:
+                # Namespace guard — a parent from another tenant would move
+                # this subtree into that tenant's tree.
+                if locked_parent.namespace != locked_self.namespace:
+                    raise GraphError(
+                        "Cannot move a node across namespaces: "
+                        f"source namespace {locked_self.namespace!r}, "
+                        f"target namespace {locked_parent.namespace!r}"
+                    )
+                # Self-move — a cycle by definition, and the descendant check
+                # below cannot see it (the subtree read excludes self).
+                if locked_parent.pk == self_pk:
+                    raise GraphError("Cannot move a node under itself")
+
+            # Cycle guard: adjacency lists carry no path column, so the
+            # descendant set has to be materialised and tested explicitly.
+            descendant_ids = await _descendant_ids(type(self), self_pk, db)
+            if locked_parent is not None and locked_parent.pk in descendant_ids:
+                raise GraphError("Cannot move a node into its own descendant")
+
+            new_parent_id: UUID | int | None = (
+                cast(UUID | int, locked_parent.pk)
+                if locked_parent is not None
+                else None
+            )
+            new_depth = locked_parent.depth + 1 if locked_parent is not None else 0
+            old_parent_id = locked_self.parent_id
+            depth_delta = new_depth - locked_self.depth
+
+            # Update this node (an ORM UPDATE bypasses save(), so the
+            # child_count hook below is the only counter maintenance).
+            _ = (
+                await type(self)
+                .filter(pk=self_pk)
+                .using_db(db)
+                .update(
+                    parent_id=new_parent_id,
+                    depth=new_depth,
+                    is_root=new_parent_id is None,
+                )
+            )
+
+            # One bulk UPDATE shifts the whole subtree: every descendant's
+            # depth moves by the same delta as the moved node's.
+            if descendant_ids and depth_delta != 0:
+                _ = (
+                    await type(self)
+                    .filter(pk__in=descendant_ids)
+                    .exclude(pk=self_pk)
+                    .using_db(db)
+                    .update(depth=F("depth") + depth_delta)
+                )
+
+            # Denormalized degree counters: move one child from the old
+            # parent to the new one.  Atomic F() arithmetic means the counters
+            # stay correct without reading them first; equal old/new parent
+            # (or both ``None``) needs no adjustment at all.
+            if old_parent_id != new_parent_id:
+                if old_parent_id is not None:
+                    _ = (
+                        await type(self)
+                        .filter(pk=old_parent_id)
+                        .using_db(db)
+                        .update(child_count=F("child_count") - 1)
+                    )
+                if new_parent_id is not None:
+                    _ = (
+                        await type(self)
+                        .filter(pk=new_parent_id)
+                        .using_db(db)
+                        .update(child_count=F("child_count") + 1)
+                    )
+
+            # This instance still holds the pre-move parent/depth/is_root —
+            # refresh it (on the transaction connection) so callers see the
+            # node's new tree position.
+            await self.refresh_from_db(using_db=db)
 
     def descendants(self, max_depth: int | None = None) -> QuerySet[Self]:
         """Get descendants of this node by depth range in the same namespace.

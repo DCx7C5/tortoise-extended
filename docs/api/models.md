@@ -295,6 +295,7 @@ top of the adjacency-list fields. The field tables and the query helpers
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `add_child(*, using_db=None, **fields)` | `Self` | Insert a child linked to this node |
+| `move_to(new_parent)` | `None` | Reparent this node and its subtree under `new_parent` (or detach to root with `None`) |
 | `root()` | `Self` | Topmost node on this node's parent chain |
 | `is_ancestor_of(other)` | `bool` | `True` when this node is a strict ancestor of `other` |
 | `is_descendant_of(other)` | `bool` | `True` when this node is a strict descendant of `other` |
@@ -325,6 +326,34 @@ laptops = await root.add_child(name="Laptops")
 assert laptops.parent_id == root.pk
 assert laptops.depth == root.depth + 1
 assert root.child_count == 1  # in-memory copy matches the single DB bump
+```
+
+### move_to
+
+Reparents the node and its entire subtree in one transaction. `parent_id`,
+`depth` and `is_root` are updated on the moved node, every descendant's
+`depth` shifts by the same delta in a single bulk `UPDATE`, and the old and
+new parents' `child_count` counters are adjusted. Passing `None` detaches the
+node to a root (`parent_id=None`, `depth=0`, `is_root=True`). Raises
+`GraphError` for a cross-namespace move, a move under itself, or a move into
+one of its own descendants.
+
+The source and target rows are locked with `SELECT ... FOR UPDATE` in a
+deterministic (sorted primary key) order, so concurrent `A → B` / `B → A`
+moves serialise on the same first row instead of deadlocking. The cycle guard
+itself is a point-in-time check: adjacency lists carry no path column, so the
+descendant set is materialised with a recursive CTE over **unlocked** rows,
+and the bulk `UPDATE` does not re-check it — a concurrent write that changes
+the subtree in between can defeat the guard or leave a moved-in node with a
+stale `depth`. Serialise concurrent writers per tree (for example with a
+PostgreSQL advisory lock on the namespace) when that race matters.
+
+```python
+await laptops.move_to(kitchen)
+assert laptops.parent_id == kitchen.pk
+assert laptops.depth == kitchen.depth + 1
+
+await laptops.move_to(None)  # detach: depth == 0, is_root is True
 ```
 
 ### root / is_ancestor_of / is_descendant_of
