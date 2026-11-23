@@ -29,6 +29,7 @@ Usage::
             )
 """
 
+from collections import deque
 from typing import Self, override
 
 from pypika_tortoise.context import SqlContext
@@ -585,3 +586,61 @@ class BaseHierarchyModel(Model):
                     )
 
         return errors
+
+    @classmethod
+    async def rebuild_paths(cls, *, namespace: str | None = None) -> int:
+        """Recompute ``path`` and ``depth`` for every reachable node.
+
+        The repair path for rows written outside the library — raw SQL, a
+        migration, a bulk load — mirroring django-mptt's ``rebuild()``.  Roots
+        are processed first and children inherit their parent's path, so the
+        rewrite happens in dependency order without recursion limits.
+
+        Nodes unreachable from a root (an orphan whose ``parent_id`` names no
+        row, or a row inside a parent cycle) are skipped; their ``parent_id``
+        gives no path to derive.  ``validate_hierarchy()`` reports them.
+
+        Args:
+            namespace: Restrict the rebuild to one tenant; ``None`` rebuilds
+                every tree in the table.
+
+        Returns:
+            Number of rows whose ``path`` or ``depth`` changed.
+        """
+        query = cls.all()
+        if namespace is not None:
+            query = query.filter(namespace=namespace)
+        nodes = list(await query)
+
+        children: dict[int, list[Self]] = {}
+        roots: list[Self] = []
+        for node in nodes:
+            parent_id = node.parent_id
+            if parent_id is None:
+                roots.append(node)
+            else:
+                children.setdefault(parent_id, []).append(node)
+
+        changed: list[Self] = []
+        seen: set[int] = set()
+        queue: deque[tuple[Self, str, int]] = deque(
+            (root, root.name, 0) for root in roots
+        )
+        while queue:
+            node, path_str, depth = queue.popleft()
+            node_pk = node.pk
+            if node_pk is None or node_pk in seen:
+                # ``seen`` also terminates a parent cycle that happens to be
+                # reachable through a duplicated key.
+                continue
+            seen.add(node_pk)
+            if node.path_str != path_str or node.depth != depth:
+                node.path = path_str
+                node.depth = depth
+                changed.append(node)
+            for child in children.get(node_pk, ()):
+                queue.append((child, f"{path_str}.{child.name}", depth + 1))
+
+        if changed:
+            _ = await cls.bulk_update(changed, fields=["path", "depth"])
+        return len(changed)

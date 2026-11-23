@@ -517,3 +517,54 @@ class TestHierarchyEdgeBranches:
         )
         errors = await bad.validate_hierarchy()
         assert any("is not a prefix" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# rebuild_paths — repair rows written outside the library
+# ---------------------------------------------------------------------------
+
+
+class TestRebuildPaths:
+    """rebuild_paths() rewrites stale path/depth in dependency order."""
+
+    @pytest.mark.asyncio
+    async def test_rebuild_repairs_corrupted_rows(self) -> None:
+        electronics, laptops, macbook, _phones = await _make_tree()
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query(
+            "UPDATE hierarchy_it_categories SET path = 'wrong.branch', depth = 42"
+        )
+
+        changed = await Category.rebuild_paths()
+        assert changed == 4
+
+        for node in (electronics, laptops, macbook):
+            assert await node.validate_hierarchy() == []
+        repaired = await Category.get(pk=macbook.pk)
+        assert repaired.path_str == "electronics.laptops.macbook"
+        assert repaired.depth == 2
+
+        # Idempotent: a second rebuild has nothing to write.
+        assert await Category.rebuild_paths() == 0
+
+    @pytest.mark.asyncio
+    async def test_rebuild_can_be_scoped_to_a_namespace(self) -> None:
+        _electronics, _laptops, macbook, _phones = await _make_tree()
+        other = await Category.create(
+            path="other",
+            name="other",
+            parent_id=None,
+            depth=0,
+            namespace="other",
+        )
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query(
+            "UPDATE hierarchy_it_categories SET path = 'wrong', depth = 9"
+        )
+
+        assert await Category.rebuild_paths(namespace="shop") == 4
+        # The other tenant is untouched by the scoped rebuild.
+        assert (await Category.get(pk=other.pk)).depth == 9
+        assert await Category.rebuild_paths(namespace="other") == 1
+        assert await Category.rebuild_paths() == 0
+        assert (await Category.get(pk=macbook.pk)).depth == 2

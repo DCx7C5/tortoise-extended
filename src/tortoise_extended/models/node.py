@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast, override
 from uuid import UUID
 
 import msgspec
-from tortoise import fields
+from tortoise import connections, fields
 from tortoise.expressions import F, Q
 from tortoise.models import Model
 from tortoise.transactions import in_transaction
@@ -896,6 +896,70 @@ class NodeMixin(Model):
             cursor = step.parent_id
 
         return errors
+
+    @classmethod
+    async def rebuild_derived(cls, *, namespace: str | None = None) -> int:
+        """Recompute ``depth``, ``is_root`` and ``child_count`` from ``parent_id``.
+
+        The repair path for rows written outside the library (raw SQL, a bulk
+        load, a migration): one recursive-CTE ``UPDATE`` walks ``parent_id``
+        from the roots and rewrites the derived columns.  Only rows that
+        actually differ are written, so a second call returns ``0``.
+
+        Nodes unreachable from a root are left untouched: an orphan (its
+        ``parent_id`` names no row) or a row inside a parent cycle has no
+        depth to derive.  :meth:`validate_node` reports both cases.
+
+        Args:
+            namespace: Restrict the rebuild to one tenant; ``None`` rebuilds
+                every tree in the table.
+
+        Returns:
+            Number of rows whose derived columns changed.
+        """
+        table = quote_ident(cls._meta.db_table)
+        pk_column = quote_ident(cls._meta.db_pk_column)
+        parent_field = cls._meta.fields_map["parent_id"]
+        parent_column = quote_ident(
+            parent_field.source_field or parent_field.model_field_name
+        )
+
+        params: list[RowValue] = []
+        root_filter = ""
+        if namespace is not None:
+            params.append(namespace)
+            root_filter = f" AND {quote_ident('namespace')} = $1"
+
+        # ``RETURNING`` makes this a query, so the client reports the count
+        # from the fetched rows; the ``IS DISTINCT FROM`` filter keeps that
+        # count honest (a blind UPDATE would count every row).
+        sql = (
+            f"WITH RECURSIVE tree(nid, depth) AS ("
+            f"SELECT {pk_column}, 0 FROM {table} "
+            f"WHERE {parent_column} IS NULL{root_filter} "
+            "UNION "
+            f"SELECT child.{pk_column}, tree.depth + 1 FROM {table} AS child "
+            f"JOIN tree ON child.{parent_column} = tree.nid"
+            "), counted AS ("
+            "SELECT tree.nid, tree.depth, (tree.depth = 0) AS is_root, "
+            f"(SELECT count(*) FROM {table} AS c "
+            f"WHERE c.{parent_column} = tree.nid) AS child_count "
+            "FROM tree"
+            ") "
+            f"UPDATE {table} AS node SET "
+            "depth = counted.depth, "
+            "is_root = counted.is_root, "
+            "child_count = counted.child_count "
+            f"FROM counted WHERE node.{pk_column} = counted.nid "
+            "AND (node.depth IS DISTINCT FROM counted.depth "
+            "OR node.is_root IS DISTINCT FROM counted.is_root "
+            "OR node.child_count IS DISTINCT FROM counted.child_count) "
+            f"RETURNING node.{pk_column}"
+        )
+        affected, _rows = await connections.get("default").execute_query(
+            sql, params or None
+        )
+        return affected
 
     def descendants(self, max_depth: int | None = None) -> QuerySet[Self]:
         """Get descendants of this node by depth range in the same namespace.

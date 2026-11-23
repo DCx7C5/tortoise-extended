@@ -300,6 +300,7 @@ top of the adjacency-list fields. The field tables and the query helpers
 | `disconnect(other, *, edge_type?)` | `int` | Delete edges to `other`; returns the count |
 | `neighbours(*, edge_type?, direction="both", namespace?)` | `list[Self]` | Peer nodes reached through `edge_model` |
 | `validate_node()` | `list[str]` | Check this node's own invariants; empty list when valid |
+| `rebuild_derived(*, namespace?)` | `int` | Recompute `depth`/`is_root`/`child_count` from `parent_id`; returns rows changed |
 | `root()` | `Self` | Topmost node on this node's parent chain |
 | `is_ancestor_of(other)` | `bool` | `True` when this node is a strict ancestor of `other` |
 | `is_descendant_of(other)` | `bool` | `True` when this node is a strict descendant of `other` |
@@ -395,6 +396,19 @@ assert await laptops.validate_node() == []
 `bulk_create` / `bulk_update` do not run `save()`, so a bulk-seeded tree can
 fail these checks — that is what the method is for. It validates a single
 node; call it in a loop to survey a whole tree.
+
+### rebuild_derived
+
+The repair path for rows written outside the library (raw SQL, a migration, a
+bulk load): one recursive-CTE `UPDATE` walks `parent_id` from the roots and
+rewrites `depth`, `is_root` and `child_count`. Only rows that differ are
+written, so a second call returns `0`; `namespace=` scopes it to one tenant.
+Nodes unreachable from a root (an orphan, or inside a parent cycle) are left
+alone — `validate_node()` reports them.
+
+```python
+assert await HybridNode.rebuild_derived() == 0   # already consistent
+```
 
 ### root / is_ancestor_of / is_descendant_of
 

@@ -834,6 +834,53 @@ class TestValidateNode:
 
 
 # ---------------------------------------------------------------------------
+# rebuild_derived — repair derived columns from parent_id
+# ---------------------------------------------------------------------------
+
+
+class TestRebuildDerived:
+    """rebuild_derived() recomputes depth/is_root/child_count in one pass."""
+
+    async def test_rebuild_repairs_corrupted_columns(self) -> None:
+        root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        child = await root.add_child()
+        grandchild = await child.add_child()
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query(
+            "UPDATE node_mixin_it_hybrid "
+            "SET depth = 42, is_root = true, child_count = 9"
+        )
+
+        assert await HybridNode.rebuild_derived() == 3
+
+        for node in (root, child, grandchild):
+            assert await node.validate_node() == []
+        repaired = await HybridNode.get(pk=grandchild.pk)
+        assert repaired.depth == 2
+        assert repaired.is_root is False
+
+        # Idempotent: nothing left to rewrite.
+        assert await HybridNode.rebuild_derived() == 0
+
+    async def test_rebuild_can_be_scoped_to_a_namespace(self) -> None:
+        shop_root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
+        _ = await shop_root.add_child()
+        office_root = await HybridNode.create(
+            namespace="office", depth=0, is_root=True
+        )
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query(
+            "UPDATE node_mixin_it_hybrid SET depth = 7, is_root = true, child_count = 5"
+        )
+
+        assert await HybridNode.rebuild_derived(namespace="shop") == 2
+        assert (await HybridNode.get(pk=office_root.pk)).depth == 7
+        assert await HybridNode.rebuild_derived(namespace="office") == 1
+        assert await HybridNode.rebuild_derived() == 0
+        assert (await HybridNode.get(pk=shop_root.pk)).depth == 0
+
+
+# ---------------------------------------------------------------------------
 # root() and strict ancestry
 # ---------------------------------------------------------------------------
 

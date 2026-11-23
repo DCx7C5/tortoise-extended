@@ -293,6 +293,23 @@ so `await node.get_ancestors()` executes the query:
 | `get_path_to_root()` | `list` | Nodes from root to this node (async) |
 | `move_to(new_parent)` | `None` | Move subtree to new parent (async, atomic) |
 | `validate_hierarchy()` | `list[str]` | Integrity check — list of errors (async) |
+| `rebuild_paths(*, namespace?)` | `int` | Recompute `path`/`depth` for the tree; returns rows changed (async) |
+
+### Repairing a hierarchy
+
+`validate_hierarchy()` detects drift; `rebuild_paths()` repairs it. It walks
+the tree from the roots (parents before children) and rewrites `path` and
+`depth`, writing only rows that differ — so it is idempotent and safe to run
+after a raw-SQL migration or a bulk load.
+
+```python
+changed = await Category.rebuild_paths(namespace="shop")  # 0 when consistent
+assert await category.validate_hierarchy() == []
+```
+
+Nodes unreachable from a root (an orphan, or a parent cycle) are skipped:
+their `parent_id` gives no path to derive, and `validate_hierarchy()` reports
+them per node.
 
 ### Usage
 
