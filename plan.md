@@ -710,10 +710,19 @@ carries a non-`None` `default`, otherwise the call raises. `SAMPLE-GAPFILL` (297
 `gapfill()` over `time_bucket_gapfill` with `locf` / `interpolate` / no fill: `start`/`end` are
 required because TimescaleDB derives the synthetic buckets from the range, unlike `downsample()`
 which infers them. Two follow-ups were filed out of these
-rows rather than folded in: `LIFECYCLE-SETUP-EXPORT` (3021 — `setup` is public in
-`tortoise_extended.lifecycle` but not yet re-exported from the top-level `__init__.py`), and `3010`,
+rows rather than folded in: `LIFECYCLE-SETUP-EXPORT` (3021 — `setup` was public in
+`tortoise_extended.lifecycle` but not re-exported from the top-level `__init__.py`; shipped
+`227f77b`, so `from tortoise_extended import setup` is the documented entry point), and `3010`,
 which needs one `pyproject.toml` line the user has agreed to add (the tool-level edit denial stands;
 do not work around it).
+
+**P3 second hybrid and P4 facade — shipped 2026-11-23.** `NODE-SOFTDELETE` (2968, `b9e4f35`)
+composes `BaseSoftDeleteModel` with `NodeMixin`: instance and queryset deletes both hide the whole
+live subtree in one transaction, `restore()` mirrors it, and `child_count` counts **live** children
+throughout (internal counters are zeroed on delete and recomputed from live children on restore —
+leaving them intact double-counts a partial restore). The subtree walk is an ORM loop, not raw SQL,
+and the CTE builders' `deleted_at IS NULL` auto-filter is pinned by a test rather than inherited
+silently. `GRAPH-FACADE` (2969) shipped in `c57344e`; see the search-signature note above.
 
 **`GRAPH-FACADE` search signature (2026-11-23, planner decision).** The row specced`search(vector, *, k, max_hops, metric, min_distance)` with no seed, but `GraphVectorSearch` is
 graph-scoped by construction — its constructor takes `seed_id` and `max_hops`
