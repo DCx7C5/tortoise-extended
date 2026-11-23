@@ -39,6 +39,19 @@ the versions below are the `pyproject.toml` version at the time of the change.
   is safe on every application start. `EXTENSIONS` is the public tuple it iterates; a refusal
   (typically missing privilege) raises `SetupError` with the server error chained, never
   swallowed. `SetupReport` is the struct the `setup()` fan-out fills.
+- `SampleMixin.record(*, stream=None, at=None, **fields)` — one-row create with the partition
+  columns mapped from the `stream=` / `at=` shorthands. A shorthand that collides with an
+  explicit field raises `TimescaleError` instead of one silently winning. `at=None` has no
+  universal fallback (`BaseSample` declares no time column, and `Field.default` stays `None`
+  for `auto_now` / `auto_now_add`), so the value is omitted only when the subclass's time column
+  carries a non-`None` `default` — otherwise the call raises and names the field.
+- `SampleMixin.latest(stream)` — newest row for one stream, a wrapper over
+  `latest_per_stream(stream_ids=[stream], limit=1)` with no new SQL. It shadows
+  `Model.latest(*orderings)`, which the method documents.
+- `SampleMixin.downsample(interval, *, agg="avg", field=None, stream=None, start=None, end=None)`
+  — rollup over the whole series, delegating to `time_series()`; an unknown `field` raises
+  `TimescaleError`, and open bounds are widened to the series' own first and last row (the upper
+  bound is exclusive, so `end` becomes last + 1 µs).
 
 ### Changed
 

@@ -9,12 +9,15 @@ Turns any subclass into a multi-stream time-series table:
   retention policies.
 * **Ingestion** — :meth:`SampleMixin.bulk_insert` loads model instances
   through asyncpg ``COPY`` (3-10x faster than ``bulk_create`` for high-rate
-  streams).
+  streams); :meth:`SampleMixin.record` creates a single row with ``stream=``
+  / ``at=`` shorthands for the partition columns.
 * **Queries** — the ORM-style helpers wrap the raw SQL that Tortoise cannot
   express (``DISTINCT ON``, ``time_bucket``, ``first``/``last``):
 
   - :meth:`SampleMixin.latest_per_stream` — newest event per stream.
+  - :meth:`SampleMixin.latest` — newest event for one stream.
   - :meth:`SampleMixin.time_series` — typed per-stream rollups.
+  - :meth:`SampleMixin.downsample` — one-stream rollup over the whole series.
   - :meth:`SampleMixin.in_range` — pure-ORM time/stream filter.
 
 :class:`SampleMixin` is pk-free so it combines with any identity base;
@@ -76,9 +79,9 @@ Usage::
     await Event.in_range(now - timedelta(hours=1), now, stream_ids=[1]).all()
 """
 
-from collections.abc import Callable, Sequence
-from datetime import datetime
-from typing import TYPE_CHECKING, ClassVar, Self, cast, override
+from collections.abc import Awaitable, Callable, Sequence
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast, override
 
 from tortoise import connections
 from tortoise.exceptions import OperationalError
@@ -86,7 +89,8 @@ from tortoise.fields.base import DatabaseDefault
 from tortoise.models import Model
 
 from tortoise_extended._quote import quote_ident
-from tortoise_extended._types import CoercedValue
+from tortoise_extended._types import CoercedValue, RowValue
+from tortoise_extended.exceptions import TimescaleError
 from tortoise_extended.models.base import BaseModel
 from tortoise_extended.timescale.compression import CompressionManager
 from tortoise_extended.timescale.hypertable import HypertableManager
@@ -94,13 +98,13 @@ from tortoise_extended.timescale.retention import RetentionPolicy
 from tortoise_extended.timescale.stream import (
     Aggregate,
     TimeBucketRow,
-    _SQLParam,
     _bucket_datetime,
     _bucket_to_timedelta,
     _fetch_rows,
     _field_db_column,
     _init_from_db,
     _row_to_model_kwargs,
+    _SQLParam,
     _table_field,
 )
 
@@ -383,6 +387,75 @@ class SampleMixin(Model):
             setattr(inst, "_saved_in_db", True)
         return len(instances)
 
+    @classmethod
+    async def record(
+        cls,
+        *,
+        stream: str | int | None = None,
+        at: datetime | None = None,
+        **fields: RowValue,
+    ) -> Self:
+        """Create and persist one row, mapping the partition shorthands.
+
+        ``stream`` is stored in :attr:`stream_field` and ``at`` in
+        :attr:`time_field`; every other keyword is forwarded unchanged to
+        :meth:`~tortoise.models.Model.create`.
+
+        Args:
+            stream: Value for the stream partition column.
+            at: Value for the time partition column.
+            **fields: Remaining model field values.
+
+        Returns:
+            The created model instance.
+
+        Raises:
+            TimescaleError: If ``stream`` / ``at`` collides with an explicit
+                field of the same name, or if ``at`` is omitted and the time
+                column carries no usable default.
+
+        Note:
+            ``at=None`` has no universal fallback: :class:`BaseSample`
+            declares no time column, and tortoise-orm 1.1.x exposes no
+            Python-level default for ``auto_now`` / ``auto_now_add``
+            (``Field.default`` stays ``None``). The value is therefore
+            omitted only when the declared time field carries a non-``None``
+            ``default`` — otherwise the call raises, because "the database
+            default applies" is a property of the subclass, not of this
+            helper.
+        """
+        create_kwargs: dict[str, CoercedValue] = dict(fields)
+
+        if stream is not None:
+            if cls.stream_field in create_kwargs:
+                raise TimescaleError(
+                    f"record() got both stream= and an explicit "
+                    f"{cls.stream_field!r} value; pass only one"
+                )
+            _ = _table_field(cls, cls.stream_field, what="stream")
+            create_kwargs[cls.stream_field] = stream
+
+        if at is not None:
+            if cls.time_field in create_kwargs:
+                raise TimescaleError(
+                    f"record() got both at= and an explicit "
+                    f"{cls.time_field!r} value; pass only one"
+                )
+            create_kwargs[cls.time_field] = at
+        elif cls.time_field not in create_kwargs:
+            time_field = cls._meta.fields_map.get(cls.time_field)
+            if time_field is None or time_field.default is None:
+                raise TimescaleError(
+                    f"{cls.__name__}.{cls.time_field} has no default value, "
+                    f"so record() cannot leave it unset; pass at=..."
+                )
+
+        # ``create(using_db=..., **kwargs)`` makes pyright reject a
+        # ``**dict[str, CoercedValue]`` spread (it cannot rule out a
+        # ``using_db`` key); the cast names the real call shape.
+        create = cast(Callable[..., Awaitable[Self]], cls.create)
+        return await create(**create_kwargs)
+
     # ── Queries ───────────────────────────────────────────────────────────
 
     @classmethod
@@ -468,6 +541,29 @@ class SampleMixin(Model):
             cast(Self, _init_from_db(cls, _row_to_model_kwargs(cls, row)))
             for row in rows
         ]
+
+    @classmethod
+    @override
+    # Model.latest(*orderings) is a queryset factory; on stream tables the
+    # useful "latest" is the newest row for one stream.  The name collision
+    # is deliberate — the stream lookup replaces the inherited helper.
+    async def latest(  # pyright: ignore[reportIncompatibleMethodOverride]
+        cls, stream: str | int
+    ) -> Self | None:
+        """Return the newest row for one stream, or ``None`` when empty.
+
+        Thin wrapper over :meth:`latest_per_stream` — no additional SQL.
+
+        Note:
+            Shadows :meth:`tortoise.models.Model.latest` (``*orderings``)
+            on sample models; use :meth:`latest_per_stream` to fetch the
+            newest row for several streams at once.
+
+        Args:
+            stream: The stream partition value to look up.
+        """
+        rows = await cls.latest_per_stream(stream_ids=[stream], limit=1)
+        return rows[0] if rows else None
 
     @classmethod
     async def time_series(
@@ -565,6 +661,91 @@ class SampleMixin(Model):
                 )
             )
         return result
+
+    @classmethod
+    async def _time_bounds(
+        cls, stream: str | int | None
+    ) -> tuple[datetime, datetime] | None:
+        """Return the earliest and latest time-column values, or ``None``.
+
+        Used by :meth:`downsample` to widen an open-ended range to the whole
+        series (optionally scoped to one stream).
+        """
+        qs = cls.all()
+        if stream is not None:
+            qs = cls.filter(**{cls.stream_field: stream})
+        earliest = await qs.order_by(cls.time_field).first()
+        if earliest is None:
+            return None
+        latest = await qs.order_by(f"-{cls.time_field}").first()
+        if latest is None:  # pragma: no cover — earliest implies latest
+            return None
+        return (
+            cast(datetime, getattr(earliest, cls.time_field)),
+            cast(datetime, getattr(latest, cls.time_field)),
+        )
+
+    @classmethod
+    async def downsample(
+        cls,
+        interval: str,
+        *,
+        agg: Literal["avg", "min", "max", "sum", "count"] = "avg",
+        field: str | None = None,
+        stream: str | int | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[TimeBucketRow]:
+        """Return per-stream rollups via :meth:`time_series`.
+
+        Args:
+            interval: Bucket width (e.g. ``"1 hour"``, ``"30 minutes"``).
+            agg: Aggregate — ``avg``, ``min``, ``max``, ``sum`` or ``count``.
+                ``first`` / ``last`` stay on :meth:`time_series`.
+            field: Value column for every aggregate except ``count``.
+            stream: Restrict to one stream (all streams when ``None``).
+            start: Inclusive lower bound; defaults to the earliest row.
+            end: Exclusive upper bound; defaults to the latest row plus one
+                microsecond, so the newest row is included.
+
+        Returns:
+            One :class:`TimeBucketRow` per (stream, bucket), ordered by
+            stream then bucket ascending. Empty when the series has no rows.
+
+        Raises:
+            TimescaleError: If ``field`` is not declared on the model, or a
+                value aggregate is requested without a ``field``.
+        """
+        if stream is not None:
+            _ = _table_field(cls, cls.stream_field, what="stream")
+        if field is not None and field not in cls._meta.fields_map:
+            raise TimescaleError(
+                f"downsample() got unknown field {field!r} for "
+                f"{cls.__name__}; available: " + ", ".join(sorted(cls._meta.fields_map))
+            )
+        if agg != "count" and field is None:
+            raise TimescaleError(
+                f"downsample(agg={agg!r}) requires a value field; pass field=..."
+            )
+
+        if start is None or end is None:
+            bounds = await cls._time_bounds(stream)
+            if bounds is None:
+                return []
+            first, last = bounds
+            if start is None:
+                start = first
+            if end is None:
+                end = last + timedelta(microseconds=1)
+
+        return await cls.time_series(
+            interval,
+            aggregate=agg,
+            field=field,
+            start=start,
+            end=end,
+            stream_ids=[stream] if stream is not None else None,
+        )
 
 
 class BaseSample(BaseModel, SampleMixin):

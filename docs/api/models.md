@@ -493,3 +493,65 @@ def walk(tree: NodeTree[Category], level: int = 0) -> None:
     for child in tree.children:
         walk(child, level + 1)
 ```
+
+---
+
+## SampleMixin
+
+Pk-free mixin behind `BaseSample` for TimescaleDB stream tables. The full
+surface — hypertable DDL (`setup()`), COPY ingestion (`bulk_insert()`) and the
+query helpers (`latest_per_stream()`, `time_series()`, `in_range()`) — lives in
+[Event Streams](event-streams.md); the three ergonomic classmethods below cover
+the common single-row / single-stream cases.
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `record(*, stream=None, at=None, **fields)` | `Self` | Create one row; maps `stream` → `stream_field`, `at` → `time_field` |
+| `latest(stream)` | `Self \| None` | Newest row for one stream (wraps `latest_per_stream()`) |
+| `downsample(interval, *, agg="avg", field=None, stream=None, start=None, end=None)` | `list[TimeBucketRow]` | Per-stream `time_bucket` rollup; open bounds default to the whole series |
+
+### Usage
+
+```python
+from datetime import UTC, datetime
+
+import tortoise_extended  # noqa: F401 — apply patches
+from tortoise import fields
+from tortoise_extended import BaseSample
+
+
+class Event(BaseSample):
+    created_at = fields.DatetimeField(use_tz=True)
+    stream_id = fields.IntField()
+    value = fields.FloatField()
+
+    class Meta:
+        table = "events"
+
+
+event = await Event.record(stream=7, at=datetime.now(UTC), value=0.5)
+
+newest = await Event.latest(7)  # Event | None
+
+buckets = await Event.downsample(
+    "1 hour", agg="avg", field="value", stream=7
+)
+# → [TimeBucketRow(stream_id=7, bucket=..., value=..., count=...)]
+```
+
+`record()` takes its time value from `at=` (or an explicit `created_at=`
+field). With `at=None` it only falls back to the time column's Python-level
+`default`: `BaseSample` declares no time column, so a subclass whose time
+column has no default raises `TimescaleError` instead of inserting a row
+without a timestamp. A mapped shorthand that collides with an explicit field
+(`record(stream=1, stream_id=2)`) also raises `TimescaleError`.
+
+`latest()` deliberately shadows `Model.latest(*orderings)` on sample models —
+the stream lookup is the useful "latest" here; use `latest_per_stream()` for
+several streams at once.
+
+`downsample()` validates `field` against the model and raises `TimescaleError`
+for an unknown name; `start` / `end` default to the earliest row and the latest
+row plus one microsecond (the upper bound is exclusive).

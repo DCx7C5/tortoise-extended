@@ -17,6 +17,7 @@ from tortoise.exceptions import OperationalError
 from tortoise.models import Model
 
 import tortoise_extended  # noqa: F401 — apply patches
+from tortoise_extended.exceptions import TimescaleError
 from tortoise_extended.fields import CharField
 from tortoise_extended.models import BaseSample
 from tortoise_extended.timescale import (
@@ -139,6 +140,31 @@ AUTO_STREAM_DDL = """
 """
 
 
+class DefaultedStreamEvent(BaseSample):
+    """Stream model whose time column carries a Python-level default."""
+
+    created_at = fields.DatetimeField(
+        default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        use_tz=True,
+    )
+    stream_id = fields.IntField()
+    value = fields.FloatField()
+
+    class Meta:
+        table = "test_defaulted_stream_events"
+
+
+DEFAULTED_STREAM_DDL = """
+    CREATE TABLE test_defaulted_stream_events (
+        id BIGINT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        stream_id INT NOT NULL,
+        value DOUBLE PRECISION NOT NULL,
+        PRIMARY KEY (id, created_at, stream_id)
+    )
+"""
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -149,6 +175,7 @@ _TABLES = (
     "test_timescale_probe",
     "test_stream_events",
     "test_auto_stream_events",
+    "test_defaulted_stream_events",
 )
 
 
@@ -806,3 +833,170 @@ class TestBulkInsertDefaults:
                     AutoStreamEvent(id=2, stream_id=1, value=2.0, kind="custom"),
                 ]
             )
+
+
+# ---------------------------------------------------------------------------
+# 6. SAMPLE-RECORD-LATEST — record() / latest() / downsample()
+# ---------------------------------------------------------------------------
+
+
+class TestSampleErgonomics:
+    """TODO 2970 — ergonomic classmethods on ``SampleMixin``."""
+
+    @pytest.fixture(autouse=True)
+    async def _fresh(self) -> AsyncGenerator[None, None]:
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query("DROP TABLE IF EXISTS test_stream_events CASCADE")
+        await conn.execute_query(STREAM_DDL)
+        await conn.execute_query(
+            "DROP TABLE IF EXISTS test_defaulted_stream_events CASCADE"
+        )
+        await conn.execute_query(DEFAULTED_STREAM_DDL)
+        yield
+
+    @pytest.mark.asyncio
+    async def test_record_maps_partition_shorthands(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        row = await StreamEvent.record(
+            id=1,
+            stream=7,
+            at=base,
+            value=1.5,
+            token_count=3,
+        )
+        assert row.id == 1
+        assert row.stream_id == 7
+        assert row.created_at == base
+        assert row.value == 1.5
+        assert row.token_count == 3
+
+    @pytest.mark.asyncio
+    async def test_record_rejects_mapped_key_collisions(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        with pytest.raises(TimescaleError, match="stream="):
+            await StreamEvent.record(id=1, stream=1, stream_id=2, at=base, value=1.0)
+        with pytest.raises(TimescaleError, match="at="):
+            await StreamEvent.record(
+                id=1, stream=1, at=base, created_at=base, value=1.0
+            )
+
+    @pytest.mark.asyncio
+    async def test_record_without_at_requires_time_default(self) -> None:
+        with pytest.raises(TimescaleError, match="created_at.*at="):
+            await StreamEvent.record(id=1, stream=1, value=1.0)
+
+    @pytest.mark.asyncio
+    async def test_record_ignores_insert_hook_only_time_column(self) -> None:
+        """``auto_now_add`` is not a ``Field.default`` — the decided rule raises."""
+        with pytest.raises(TimescaleError, match="created_at.*at="):
+            await AutoStreamEvent.record(id=1, stream=1, value=1.0)
+
+    @pytest.mark.asyncio
+    async def test_record_uses_time_field_default(self) -> None:
+        row = await DefaultedStreamEvent.record(id=1, stream=1, value=1.0)
+        assert row.created_at is not None
+        assert row.stream_id == 1
+        assert row.value == 1.0
+
+    @pytest.mark.asyncio
+    async def test_record_accepts_explicit_time_field_without_at(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        row = await StreamEvent.record(id=1, stream=1, created_at=base, value=1.0)
+        assert row.created_at == base
+
+    @pytest.mark.asyncio
+    async def test_latest_returns_newest_row_for_one_stream(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        await StreamEvent.record(id=1, stream=1, at=base, value=1.0)
+        await StreamEvent.record(
+            id=2,
+            stream=1,
+            at=base + datetime.timedelta(minutes=5),
+            value=2.0,
+        )
+        await StreamEvent.record(
+            id=3,
+            stream=1,
+            at=base + datetime.timedelta(minutes=10),
+            value=3.0,
+        )
+        await StreamEvent.record(id=4, stream=2, at=base, value=9.0)
+
+        newest = await StreamEvent.latest(1)
+        assert newest is not None
+        assert newest.id == 3
+        assert newest.value == 3.0
+
+        other = await StreamEvent.latest(2)
+        assert other is not None
+        assert other.id == 4
+
+        assert await StreamEvent.latest(99) is None
+
+    @pytest.mark.asyncio
+    async def test_downsample_avg_matches_hand_computed(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        await StreamEvent.record(id=1, stream=1, at=base, value=2.0)
+        await StreamEvent.record(
+            id=2,
+            stream=1,
+            at=base + datetime.timedelta(minutes=10),
+            value=4.0,
+        )
+        await StreamEvent.record(
+            id=3,
+            stream=1,
+            at=base + datetime.timedelta(minutes=20),
+            value=6.0,
+        )
+
+        rows = await StreamEvent.downsample(
+            "1 hour",
+            agg="avg",
+            field="value",
+            stream=1,
+        )
+        assert len(rows) == 1
+        assert isinstance(rows[0], TimeBucketRow)
+        assert rows[0].stream_id == 1
+        assert rows[0].bucket == base
+        assert rows[0].value == 4.0  # (2 + 4 + 6) / 3
+        assert rows[0].count == 3
+
+    @pytest.mark.asyncio
+    async def test_downsample_respects_explicit_range(self) -> None:
+        base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        await StreamEvent.record(id=1, stream=1, at=base, value=1.0)
+        await StreamEvent.record(
+            id=2,
+            stream=1,
+            at=base + datetime.timedelta(minutes=30),
+            value=2.0,
+        )
+        await StreamEvent.record(
+            id=3,
+            stream=1,
+            at=base + datetime.timedelta(minutes=90),
+            value=4.0,
+        )
+
+        rows = await StreamEvent.downsample(
+            "1 hour",
+            agg="sum",
+            field="value",
+            stream=1,
+            start=base,
+            end=base + datetime.timedelta(hours=1),
+        )
+        assert len(rows) == 1
+        assert rows[0].value == 3.0  # 1 + 2; the 13:30 row is outside
+        assert rows[0].count == 2
+
+    @pytest.mark.asyncio
+    async def test_downsample_rejects_unknown_field(self) -> None:
+        with pytest.raises(TimescaleError, match="nope"):
+            await StreamEvent.downsample("1 hour", agg="avg", field="nope")
+
+    @pytest.mark.asyncio
+    async def test_downsample_empty_series_returns_empty(self) -> None:
+        assert await StreamEvent.downsample("1 hour", agg="count") == []
