@@ -19,15 +19,14 @@ DB_USER_2="${DB_USER_2:-}"
 DB_PASS_2="${DB_PASS_2:-}"
 DB_NAME_2="${DB_NAME_2:-}"
 
-DB_USER_3="${DB_USER_3:-postgres}"
-DB_PASS_3="${DB_PASS_3:-postgres}"
-DB_NAME_3="${DB_NAME_3:-postgres}"
+DB_USER_3="${DB_USER_3:-}"
+DB_PASS_3="${DB_PASS_3:-}"
+DB_NAME_3="${DB_NAME_3:-}"
 
 # psql reads these with ``\getenv``, i.e. from the process environment — so the
-# effective values, including the group-3 defaults above, must be exported.
-# Without this line the ``\getenv user_3 DB_USER_3`` lines fail silently when the
-# variable is unset in the container environment and the literal ``:'user_3'``
-# reaches the server ("syntax error at or near \":\"").
+# effective values must be exported before the official entrypoint runs psql.
+# Without this the ``\getenv`` lines fail silently when a variable is unset and
+# the literal ``:'user_3'`` reaches the server ("syntax error at or near \":\"").
 export DB_USER_1 DB_PASS_1 DB_NAME_1 \
        DB_USER_2 DB_PASS_2 DB_NAME_2 \
        DB_USER_3 DB_PASS_3 DB_NAME_3

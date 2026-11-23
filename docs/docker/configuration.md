@@ -12,13 +12,17 @@ This page documents the Docker Compose dev stack in `docker-compose.dev.yml`.
 ## Environment File
 
 `docker-compose.dev.yml` reads `env_file: .env`. Create `.env` at the repo
-root before starting the stack:
+root before starting the stack (`cp .env.example .env`):
 
 ```
 POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-POSTGRES_DB=tortoise_extended
+POSTGRES_PASSWORD=CHANGEME     # required — compose refuses to configure without it
+POSTGRES_DB=tortoise_test
 ```
+
+`POSTGRES_PASSWORD` is required: compose interpolates it with `${…:?}`, so an
+unset or empty value fails the stack instead of falling back to a committed
+`postgres/postgres` login. The same applies to `REDIS_PASSWORD`.
 
 `REDIS_*` variables are used if you override the Redis service settings.
 `REDIS_PASSWORD` is **mandatory**: `redis-ext` refuses to start without it and

@@ -389,9 +389,11 @@ docker compose -f docker-compose.dev.yml down        # stop
 - The Postgres base image is **digest-pinned** (`postgres:18@sha256:...`); pgvector and TimescaleDB
   are **commit-pinned** via ARG. Bump version + pin together, deliberately, when upgrading.
 - `docker-compose.dev.yml` uses `env_file: .env` — the `.env` file must exist locally with
-  `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`; `REDIS_PASSWORD` is **mandatory**
-  (the Redis entrypoint refuses to start without it and compose fails configuration when it is
-  empty — an unauthenticated Redis accepts `CONFIG SET dir` + `SAVE`, i.e. arbitrary file writes).
+  `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`; `POSTGRES_PASSWORD` and `REDIS_PASSWORD`
+  are both **mandatory** (compose interpolates them with `${…:?}`, so an unset or empty value
+  fails the stack rather than inheriting a committed `postgres/postgres` login; the Redis
+  entrypoint also refuses to start without its secret — an unauthenticated Redis accepts
+  `CONFIG SET dir` + `SAVE`, i.e. arbitrary file writes).
 - Postgres listens on the host only at `127.0.0.1:5434` (never exposed publicly).
 
 ## Dependencies

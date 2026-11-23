@@ -9,6 +9,11 @@ services:
       - "127.0.0.1:5434:5432"
     env_file:
       - .env
+    environment:
+      # Fail closed. Compose interpolates this from the project env file and
+      # refuses to configure the stack when it is missing or empty, so an unset
+      # variable never silently becomes the committed postgres/postgres login.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the project env file (see .env.example)}
     tty: true
     depends_on:
       - redis-ext
