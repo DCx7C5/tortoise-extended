@@ -192,6 +192,8 @@
 > - The single remaining warning is `reportImplicitOverride` in
 >   `cache/base.py:173` (`find_class` overrides `Unpickler`); it predates
 >   this work and is below the earlier 11-warning baseline.
+>   **Closed 2026-11-23 (`73aa766`):** the method carries `@override` now, so
+>   the gate is **0 errors, 0 warnings, 0 notes** — the first fully clean run.
 >
 > **Re-measured (2026-11-22):** 11 `# pyright: ignore` comments in total —
 > 6 in `src/` (`models/soft_delete.py` ×5, all
@@ -744,8 +746,9 @@ The AGENTS.md §Testing drift the row expected (`test_pathfinding.py`, `test_gra
 was already gone — measured before editing. Every documented symbol was checked importable, and
 nothing describes `Meta.timescale`, which D8 cancelled.
 
-**Gate after the ergonomics slice (2026-11-23):** ruff clean, basedpyright **0 errors / 1 warning**
-(`cache/base.py:173`, pre-existing), full suite **1711 passed, 13 skipped** against
+**Gate after the ergonomics slice (2026-11-23):** ruff clean, basedpyright **0 errors, 0 warnings**
+(the last one, `cache/base.py:173`, was closed in `73aa766`), full suite **1711 passed, 13
+skipped** against
 `tortoise_test_push` — the 13 are the 12 live-Redis cases (AUTH secret absent in this worktree) plus
 the `test_all.py` aggregator. Baseline before this slice was 1563 passed.
 
