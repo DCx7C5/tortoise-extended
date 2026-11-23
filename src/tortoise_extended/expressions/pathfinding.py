@@ -3,10 +3,12 @@
 Provides shortest path, all paths, and cycle detection for graphs
 stored in separate node and edge tables.
 
-Soft-delete aware: when the node model (or the edge model) declares a
-``deleted_at`` column, every walk term requires ``deleted_at IS NULL`` on that
-alias, so soft-deleted nodes and edges are never walked through. Models
-without the column generate unchanged SQL.
+Soft-delete aware: when the node model (or the edge model) projects a
+``deleted_at`` column — as a field of that name, or as another field mapped
+onto it (``removed_at = fields.DatetimeField(source_field="deleted_at")``) —
+every walk term requires ``<column> IS NULL`` on that alias, so soft-deleted
+nodes and edges are never walked through. Models without the column generate
+unchanged SQL.
 
 Usage (illustrative; needs async context + configured DB)::
 
@@ -26,6 +28,9 @@ from tortoise_extended._types import RowMapping
 from tortoise_extended.exceptions import GraphTraversalError
 from tortoise_extended.expressions._edge_filter import et_clause as _et_clause
 from tortoise_extended.expressions._edge_filter import live_predicate as _live_predicate
+from tortoise_extended.expressions._soft_delete import (
+    soft_delete_column as _soft_delete_column,
+)
 
 if TYPE_CHECKING:
     from tortoise.models import Model
@@ -80,7 +85,7 @@ def _walk_cte(
     source_field: str,
     target_field: str,
     et_clause: str,
-    node_soft_delete: bool = False,
+    node_soft_delete_column: str | None = None,
 ) -> str:
     """Build the shared recursive-CTE walk used by pathfinding queries.
 
@@ -94,14 +99,20 @@ def _walk_cte(
     :param source_field: Edge field holding the source node id.
     :param target_field: Edge field holding the target node id.
     :param et_clause: Optional edge-type filter fragment (empty when unused).
-    :param node_soft_delete: Add the node live-row predicate
-        (``n.deleted_at IS NULL``) to both the anchor and the recursive term
-        — set when the node model declares a ``deleted_at`` column.
+    :param node_soft_delete_column: The node model's soft-delete column, as
+        :func:`tortoise_extended.expressions._soft_delete.soft_delete_column`
+        resolves it, or ``None`` when the model projects none. When set, the
+        node live-row predicate (``n.<column> IS NULL``) is added to both the
+        anchor and the recursive term.
     :returns: The ``WITH RECURSIVE paths AS (...)`` statement body.
     """
     src = quote_ident(source_field)
     tgt = quote_ident(target_field)
-    node_live = f" AND {_live_predicate('n')}" if node_soft_delete else ""
+    node_live = (
+        f" AND {_live_predicate('n', node_soft_delete_column)}"
+        if node_soft_delete_column is not None
+        else ""
+    )
     return f"""
         WITH RECURSIVE paths AS (
             SELECT
@@ -193,9 +204,9 @@ async def shortest_path(
     _validate_edge_fields(edge_model, source_field, target_field)
     node_table = node_model._meta.db_table
     edge_table = edge_model._meta.db_table
-    node_soft_delete = "deleted_at" in node_model._meta.fields_map
-    edge_soft_delete = "deleted_at" in edge_model._meta.fields_map
-    et_clause, et_params = _et_clause(edge_type, 4, edge_soft_delete)
+    node_soft_delete_column = _soft_delete_column(node_model)
+    edge_soft_delete_column = _soft_delete_column(edge_model)
+    et_clause, et_params = _et_clause(edge_type, 4, edge_soft_delete_column)
 
     walk_sql = _walk_cte(
         node_table,
@@ -203,7 +214,7 @@ async def shortest_path(
         source_field,
         target_field,
         et_clause,
-        node_soft_delete,
+        node_soft_delete_column,
     )
     sql = f"""
         {walk_sql}
@@ -266,9 +277,9 @@ async def all_paths(
     _validate_edge_fields(edge_model, source_field, target_field)
     node_table = node_model._meta.db_table
     edge_table = edge_model._meta.db_table
-    node_soft_delete = "deleted_at" in node_model._meta.fields_map
-    edge_soft_delete = "deleted_at" in edge_model._meta.fields_map
-    et_clause, et_params = _et_clause(edge_type, 5, edge_soft_delete)
+    node_soft_delete_column = _soft_delete_column(node_model)
+    edge_soft_delete_column = _soft_delete_column(edge_model)
+    et_clause, et_params = _et_clause(edge_type, 5, edge_soft_delete_column)
 
     walk_sql = _walk_cte(
         node_table,
@@ -276,7 +287,7 @@ async def all_paths(
         source_field,
         target_field,
         et_clause,
-        node_soft_delete,
+        node_soft_delete_column,
     )
     sql = f"""
         {walk_sql}
@@ -331,15 +342,21 @@ async def find_cycles(
     _validate_edge_fields(edge_model, source_field, target_field)
     node_table = node_model._meta.db_table
     edge_table = edge_model._meta.db_table
-    node_soft_delete = "deleted_at" in node_model._meta.fields_map
-    edge_soft_delete = "deleted_at" in edge_model._meta.fields_map
-    et_clause, et_params = _et_clause(edge_type, 2, edge_soft_delete)
+    node_soft_delete_column = _soft_delete_column(node_model)
+    edge_soft_delete_column = _soft_delete_column(edge_model)
+    et_clause, et_params = _et_clause(edge_type, 2, edge_soft_delete_column)
     # The anchor term selects every node (no WHERE today); the live-row
-    # predicate adds one only when the node model is soft-delete aware.
+    # predicate adds one only when the node model projects a soft-delete column.
     node_anchor = (
-        f"\n            WHERE {_live_predicate('n')}" if node_soft_delete else ""
+        f"\n            WHERE {_live_predicate('n', node_soft_delete_column)}"
+        if node_soft_delete_column is not None
+        else ""
     )
-    node_live = f" AND {_live_predicate('n')}" if node_soft_delete else ""
+    node_live = (
+        f" AND {_live_predicate('n', node_soft_delete_column)}"
+        if node_soft_delete_column is not None
+        else ""
+    )
 
     if max_cycles is None:
         limit_clause = ""

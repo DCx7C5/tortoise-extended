@@ -4,12 +4,15 @@ CTE-based graph traversal for edge table patterns.
 
 ## Soft-delete awareness
 
-When the node model (or the edge model) declares a `deleted_at` column — for
-example by inheriting `BaseSoftDeleteModel` — every CTE term additionally
-requires `deleted_at IS NULL` on that alias: soft-deleted nodes are neither
-returned nor walked through, and soft-deleted edges are not traversable. This
-matches the visibility rule `SoftDeleteQuerySet` applies to ordinary queries.
-Models without the column are unaffected (identical SQL).
+When the node model (or the edge model) projects a `deleted_at` column — as a
+field of that name (for example by inheriting `BaseSoftDeleteModel`), or as
+another field mapped onto it
+(`removed_at = fields.DatetimeField(source_field="deleted_at")`) — every CTE
+term additionally requires `<column> IS NULL` on that alias: soft-deleted nodes
+are neither returned nor walked through, and soft-deleted edges are not
+traversable. The rule keys on the **column**, not the field name, so it is the
+same rule `distinct_on()` applies. Models without the column are unaffected
+(identical SQL).
 
 ## Import
 

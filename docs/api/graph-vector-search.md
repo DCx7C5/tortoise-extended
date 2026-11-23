@@ -8,10 +8,15 @@ model instances.
 
 ## Soft-delete awareness
 
-When the node model (or the edge model) declares a `deleted_at` column, the
-CTE anchor, the recursive step and the edge join additionally require
-`deleted_at IS NULL`, so soft-deleted nodes and edges are neither returned nor
-walked through. Models without the column are unaffected (identical SQL).
+When the node model (or the edge model) projects a `deleted_at` column — as a
+field of that name (for example by inheriting `BaseSoftDeleteModel`), or as
+another field mapped onto it
+(`removed_at = fields.DatetimeField(source_field="deleted_at")`) — the CTE
+anchor, the recursive step and the edge join additionally require
+`<column> IS NULL`, so soft-deleted nodes and edges are neither returned nor
+walked through. The rule keys on the **column**, not the field name, so it is
+the same rule `distinct_on()` applies. Models without the column are unaffected
+(identical SQL).
 
 ## Import
 

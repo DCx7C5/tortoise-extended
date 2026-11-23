@@ -4,10 +4,14 @@ BFS-based shortest path, all paths, and cycle detection via recursive CTE.
 
 ## Soft-delete awareness
 
-When the node model (or the edge model) declares a `deleted_at` column, every
-walk term additionally requires `deleted_at IS NULL` on that alias, so
-soft-deleted nodes and edges are never walked through. Models without the
-column are unaffected (identical SQL).
+When the node model (or the edge model) projects a `deleted_at` column — as a
+field of that name (for example by inheriting `BaseSoftDeleteModel`), or as
+another field mapped onto it
+(`removed_at = fields.DatetimeField(source_field="deleted_at")`) — every walk
+term additionally requires `<column> IS NULL` on that alias, so soft-deleted
+nodes and edges are never walked through. The rule keys on the **column**, not
+the field name, so it is the same rule `distinct_on()` applies. Models without
+the column are unaffected (identical SQL).
 
 ## Import
 

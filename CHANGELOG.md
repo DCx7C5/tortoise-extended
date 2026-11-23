@@ -180,6 +180,13 @@ the versions below are the `pyproject.toml` version at the time of the change.
 
 ### Fixed
 
+- The recursive-CTE modules (`pathfinding`, `GraphTraversal`, `GraphVectorSearch`) now detect
+  soft delete by the **projected column**, matching `distinct_on()`: a node or edge that projects
+  `deleted_at` through a renamed field
+  (`removed_at = fields.DatetimeField(source_field="deleted_at")`) is filtered like a
+  `deleted_at` field, and a field *named* `deleted_at` but mapped elsewhere no longer emits a
+  phantom identifier. Generated SQL for the ordinary `deleted_at` shape is unchanged
+  (`n.deleted_at IS NULL` / `e.deleted_at IS NULL`).
 - `distinct_on()` no longer trusts its arguments into a driver error: `limit=True` is refused with
   `ValueError` naming the value (`bool` is an `int`, so `LIMIT true` used to reach PostgreSQL and
   come back as `argument of LIMIT must be type bigint, not type boolean`), a model **instance** or a

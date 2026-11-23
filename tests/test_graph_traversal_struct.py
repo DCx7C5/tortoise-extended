@@ -75,6 +75,12 @@ class _FakeMeta:
     def __init__(self, table: str, fields_map: dict[str, object]) -> None:
         self.db_table = table
         self.fields_map = fields_map
+        # The soft-delete probe resolves the *column* a model projects, so the
+        # double must carry the projection a real ``MetaInfo`` always has.
+        # These fakes declare no ``source_field`` mapping, so field name and
+        # column coincide; none of them is ``deleted_at``, which is what makes
+        # the assertions prove the untouched-SQL path.
+        self.fields_db_projection = {name: name for name in fields_map}
 
 
 class _FakeNodeModel:

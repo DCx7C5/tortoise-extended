@@ -32,6 +32,9 @@ from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import GraphTraversalError
 from tortoise_extended.expressions._edge_filter import et_clause as _et_clause
 from tortoise_extended.expressions._edge_filter import live_predicate as _live_predicate
+from tortoise_extended.expressions._soft_delete import (
+    soft_delete_column as _soft_delete_column,
+)
 
 if TYPE_CHECKING:
     from tortoise.models import Model
@@ -94,11 +97,13 @@ class GraphTraversal:
     - ``e.edge_type`` — string column on the edge table; required only when
       ``edge_type`` filtering is used
 
-    Soft-delete aware: when the node model (or the edge model) declares a
-    ``deleted_at`` column, every CTE term additionally requires
-    ``deleted_at IS NULL`` on that alias, so soft-deleted nodes and edges are
-    never traversed — the same visibility rule ``SoftDeleteQuerySet`` applies
-    to ordinary queries. Models without the column generate unchanged SQL.
+    Soft-delete aware: when the node model (or the edge model) projects a
+    ``deleted_at`` column — as a field of that name, or as another field mapped
+    onto it (``removed_at = fields.DatetimeField(source_field="deleted_at")``)
+    — every CTE term additionally requires ``<column> IS NULL`` on that alias,
+    so soft-deleted nodes and edges are never traversed: the same visibility
+    rule ``SoftDeleteQuerySet`` applies to ordinary queries. Models without the
+    column generate unchanged SQL.
 
     Usage (illustrative; needs async context + configured DB)::
 
@@ -145,13 +150,17 @@ class GraphTraversal:
         self._edge_table = quote_ident(edge_model._meta.db_table)
         self._source_field = quote_ident(source_field)
         self._target_field = quote_ident(target_field)
-        # Soft-delete awareness: a model that declares ``deleted_at`` gets the
-        # live-row predicate in every CTE term; a model without the column
-        # keeps the exact SQL it generated before this flag existed.
-        self._node_soft_delete = "deleted_at" in node_model._meta.fields_map
-        self._edge_soft_delete = "deleted_at" in edge_model._meta.fields_map
+        # Soft-delete awareness: the projected column decides, so a renamed
+        # field mapped onto ``deleted_at`` is filtered like the ordinary field
+        # and a ``deleted_at``-named field mapped elsewhere never emits a
+        # phantom identifier. A model that projects no such column keeps the
+        # exact SQL it generated before this check existed.
+        node_delete_column = _soft_delete_column(node_model)
+        self._edge_delete_column = _soft_delete_column(edge_model)
         self._node_live = (
-            f" AND {_live_predicate('n')}" if self._node_soft_delete else ""
+            f" AND {_live_predicate('n', node_delete_column)}"
+            if node_delete_column is not None
+            else ""
         )
 
     async def ancestors(
@@ -171,7 +180,7 @@ class GraphTraversal:
         :returns: List of :class:`TraversalNode` ordered by depth ascending
             (root first).
         """
-        et_clause, et_params = _et_clause(edge_type, 3, self._edge_soft_delete)
+        et_clause, et_params = _et_clause(edge_type, 3, self._edge_delete_column)
 
         sql = f"""
             WITH RECURSIVE ancestors AS (
@@ -243,7 +252,7 @@ class GraphTraversal:
         :returns: List of :class:`TraversalNode` ordered by depth ascending
             (children first).
         """
-        et_clause, et_params = _et_clause(edge_type, 3, self._edge_soft_delete)
+        et_clause, et_params = _et_clause(edge_type, 3, self._edge_delete_column)
 
         sql = f"""
             WITH RECURSIVE descendants AS (
@@ -321,7 +330,7 @@ class GraphTraversal:
                 f"Unsupported direction {direction!r}; "
                 f"expected one of {', '.join(self._DIRECTIONS)}"
             )
-        et_clause, et_params = _et_clause(edge_type, 3, self._edge_soft_delete)
+        et_clause, et_params = _et_clause(edge_type, 3, self._edge_delete_column)
 
         if direction == "outgoing":
             edge_join = (
@@ -412,12 +421,12 @@ class GraphTraversal:
         :param max_depth: Maximum traversal depth to check.
         :returns: True if a cycle is detected.
         """
-        et_clause, et_params = _et_clause(edge_type, 2, self._edge_soft_delete)
+        et_clause, et_params = _et_clause(edge_type, 2, self._edge_delete_column)
         anchor_conditions: list[str] = []
         if edge_type is not None:
             anchor_conditions.append("e.edge_type = $2")
-        if self._edge_soft_delete:
-            anchor_conditions.append(_live_predicate("e"))
+        if self._edge_delete_column is not None:
+            anchor_conditions.append(_live_predicate("e", self._edge_delete_column))
         anchor_filter = (
             f"WHERE {' AND '.join(anchor_conditions)}" if anchor_conditions else ""
         )

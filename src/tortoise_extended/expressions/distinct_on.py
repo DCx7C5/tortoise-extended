@@ -72,6 +72,7 @@ from tortoise.queryset import QuerySet
 
 from tortoise_extended._quote import quote_ident
 from tortoise_extended._types import CoercedValue
+from tortoise_extended.expressions._soft_delete import soft_delete_column
 
 _PARAMETER = re.compile(r"\$(\d+)")
 """Bound-parameter placeholder, e.g. ``$1``; applied only outside quoted text."""
@@ -262,29 +263,6 @@ def _connection_for[M: Model](
         client = model._choose_db()
     _assert_asyncpg_backend(client)
     return client
-
-
-def _soft_delete_column(model: type[Model]) -> str | None:
-    """Return the column that marks a row soft-deleted, when the model has one.
-
-    The filter is decided by the **column**, not by a field name: a model
-    declares the ``deleted_at`` column either through a field of that name
-    (the ``BaseSoftDeleteModel`` shape — its ``source_field`` decides the
-    column) or through a field named something else projected onto it
-    (``removed_at = fields.DatetimeField(source_field="deleted_at")``). Both
-    shapes yield the column; a field named ``deleted_at`` wins if a model ever
-    declares both.
-
-    :param model: The model the statement selects from.
-    :returns: The ``deleted_at`` column name, or ``None`` when the model
-        projects no such column.
-    """
-    projection = model._meta.fields_db_projection
-    if "deleted_at" in projection:
-        return projection["deleted_at"]
-    if "deleted_at" in projection.values():
-        return "deleted_at"
-    return None
 
 
 def _db_column(model: type[Model], name: str, *, argument: str) -> str:
@@ -533,7 +511,7 @@ async def distinct_on[M: Model](
     if where:
         conditions.append(f"({where})")
     if not include_deleted:
-        deleted_column = _soft_delete_column(model)
+        deleted_column = soft_delete_column(model)
         if deleted_column is not None:
             conditions.append(f"{quote_ident(deleted_column)} IS NULL")
 

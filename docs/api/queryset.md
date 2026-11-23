@@ -78,7 +78,7 @@ recent = await distinct_on(
 | `limit` | Optional maximum number of groups, an integer of at least 1. A `bool` is refused by name: `bool` is an `int` in Python, but PostgreSQL rejects `LIMIT true` with `argument of LIMIT must be type bigint, not type boolean`. |
 | `where` | Optional `WHERE` fragment — **trusted SQL text**, concatenated into the statement exactly as written. Never pass user input here; put every value behind a `$1`-style placeholder. |
 | `params` | Values bound to those placeholders, in order — sent as query parameters, never inlined. |
-| `include_deleted` | When the model projects a **`deleted_at` column**, soft-deleted rows are excluded unless this is `True`. The rule keys on the column, not on a field name: a field named `deleted_at` (whose `source_field` decides the column) and a differently named field mapped onto the column — e.g. `removed_at = fields.DatetimeField(source_field="deleted_at")` — are both honoured. The CTE builders (`pathfinding`, `GraphTraversal`, `GraphVectorSearch`) still probe the field *name* and emit a literal `deleted_at` identifier, so a renamed field gets no filter there. |
+| `include_deleted` | When the model projects a **`deleted_at` column**, soft-deleted rows are excluded unless this is `True`. The rule keys on the column, not on a field name: a field named `deleted_at` (whose `source_field` decides the column) and a differently named field mapped onto the column — e.g. `removed_at = fields.DatetimeField(source_field="deleted_at")` — are both honoured. The CTE builders (`pathfinding`, `GraphTraversal`, `GraphVectorSearch`) apply the same column rule, so a renamed soft-delete field is filtered there too. |
 
 Emitted SQL (measured):
 

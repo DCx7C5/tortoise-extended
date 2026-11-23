@@ -47,6 +47,9 @@ from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import GraphTraversalError
 from tortoise_extended.expressions._edge_filter import et_clause as _et_clause
 from tortoise_extended.expressions._edge_filter import live_predicate as _live_predicate
+from tortoise_extended.expressions._soft_delete import (
+    soft_delete_column as _soft_delete_column,
+)
 from tortoise_extended.expressions.graph_filters import vector_encoder
 
 if TYPE_CHECKING:
@@ -102,11 +105,13 @@ class GraphVectorSearch:
     :raises GraphTraversalError: If *distance_metric* or *direction* is
         unsupported, or a referenced field is not declared on the model.
 
-    Soft-delete aware: when the node model (or the edge model) declares a
-    ``deleted_at`` column, the CTE anchor, the recursive step and the edge join
-    additionally require ``deleted_at IS NULL``, so soft-deleted nodes and
-    edges are neither returned nor walked through. Models without the column
-    generate unchanged SQL.
+    Soft-delete aware: when the node model (or the edge model) projects a
+    ``deleted_at`` column — as a field of that name, or as another field
+    mapped onto it (``removed_at = fields.DatetimeField(source_field="deleted_at")``)
+    — the CTE anchor, the recursive step and the edge join additionally
+    require ``<column> IS NULL``, so soft-deleted nodes and edges are neither
+    returned nor walked through. Models without the column generate unchanged
+    SQL.
     """
 
     _METRICS: tuple[str, ...] = ("l2", "cosine", "inner_product")
@@ -167,11 +172,13 @@ class GraphVectorSearch:
         self._source_field = quote_ident(source_field)
         self._target_field = quote_ident(target_field)
         self._has_bidirectional = "is_bidirectional" in edge_model._meta.fields_map
-        # Soft-delete awareness: a model that declares ``deleted_at`` gets the
-        # live-row predicate in every CTE term; a model without the column
-        # keeps the exact SQL it generated before this flag existed.
-        self._node_soft_delete = "deleted_at" in node_model._meta.fields_map
-        self._edge_soft_delete = "deleted_at" in edge_model._meta.fields_map
+        # Soft-delete awareness: the projected column decides, so a renamed
+        # field mapped onto ``deleted_at`` is filtered like the ordinary field
+        # and a ``deleted_at``-named field mapped elsewhere never emits a
+        # phantom identifier. A model that projects no such column keeps the
+        # exact SQL it generated before this check existed.
+        self._node_delete_column: str | None = _soft_delete_column(node_model)
+        self._edge_delete_column: str | None = _soft_delete_column(edge_model)
         self._seed_id: int | str | UUID = seed_id
         self._max_hops = max_hops
         self._direction = direction
@@ -284,18 +291,22 @@ class GraphVectorSearch:
 
         # Parameter layout: $1 seed, $2 max_hops, $3 max_results, $4 vector,
         # then optionally $5 edge_type and/or $6 min_distance (sequential).
-        et_clause, et_params = _et_clause(self._edge_type, 5, self._edge_soft_delete)
-        node_anchor = f" AND {_live_predicate('n')}" if self._node_soft_delete else ""
+        et_clause, et_params = _et_clause(self._edge_type, 5, self._edge_delete_column)
+        node_anchor = (
+            f" AND {_live_predicate('n', self._node_delete_column)}"
+            if self._node_delete_column is not None
+            else ""
+        )
         # The recursive step has no node join today; a soft-delete-aware node
         # model gets one so the walk cannot enter a tombstoned node (and the
         # reached id is guaranteed to exist in the node table).
         node_join = ""
         node_live = ""
-        if self._node_soft_delete:
+        if self._node_delete_column is not None:
             node_join = (
                 f"\n                JOIN {self._node_table} nn ON nn.{pk} = {nxt}"
             )
-            node_live = f"\n                  AND {_live_predicate('nn')}"
+            node_live = f"\n                  AND {_live_predicate('nn', self._node_delete_column)}"
         threshold_index = 5 + len(et_params)
         if self._min_distance is not None:
             threshold_clause = f"AND {dist} {threshold_op} ${threshold_index}"
