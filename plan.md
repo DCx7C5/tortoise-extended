@@ -855,7 +855,25 @@ apply production-readiness judgement.**
 | `e7b8de3` | `CHANGELOG.md` + `CONTRIBUTING.md` |
 
 Gate after `aa6baf1`: ruff clean, basedpyright **0 errors / 1 warning**, **1538 passed, 1
-skipped**. A regression introduced by the new parser was caught in planner review and filed as
-row 3008: a mixed-case `source_table` (`"Events"` against an unquoted `FROM Events`) is now
-rejected because the declared name is quoted while the parser returns the folded `events` — the
-old regex accepted it and the emitted DDL works.
+skipped**.
+
+**Slice complete 2026-11-23** — the remaining rows landed:
+
+| Commit | Row | What |
+|---|---|---|
+| `028e72b` | 3006, 3007, 3009 | codec freshness proof (H4 **confirmed**: a post-patch pool decodes `vector` as `list[float]`), edge-base index guard test, opclass/filter doc-consistency test |
+| `fb696aa` | 3003 | soft-delete predicate in all three CTE builders; 56 captured statements diffed byte-identical for models without `deleted_at`; 10 regression tests |
+| `2a0ea53` | 3008 | mixed-case `source_table` matches by PostgreSQL folding (the regression `aa6baf1` introduced) |
+
+Two of the tester's tests were **wrong before they were right**: `Comparator` members are enums
+(`.value`, not `.strip()`), and `AsyncpgDBClient` needs `connection_name` positionally. Both
+failed before reaching their assertions, so the codec proof had been vacuous until fixed.
+
+**H3 behaviour choice (one sentence):** traversal, pathfinding and `GraphVectorSearch` exclude
+rows whose model declares `deleted_at`, in both the anchor and the recursive term, for nodes and
+edges alike; models without the column generate byte-identical SQL.
+
+**Final gate:** ruff clean, basedpyright **0 errors / 1 warning**, **1563 passed, 1 skipped**.
+
+**H1 is closed as won't-fix** (row 3002 cancelled): the repository is not executed on GitHub, so a
+workflow would never run. The local CLI gate is the accepted control.
