@@ -804,3 +804,58 @@ warnings, which AGENTS.md forbids.
 **Remaining from §I.4 is item 2's sibling**: the `2980` cagg injection fix (HIGH) ships `pglast`
 as a hard dependency — decided 2026-11-23, with the cp314 manylinux wheel measured as real. Its
 validator replacement is the last security item of the review batch.
+
+### I.6 Production-readiness slice — prompt reconciliation (2026-11-23)
+
+A second external prompt ("production-readiness slice") arrived written against a stale snapshot.
+Nine of its claims contradict the tree; each was measured, then either settled by best practice or
+put to the user. The rule the user set for this pass: **do not follow the prompt blindly — ask, or
+apply production-readiness judgement.**
+
+| # | Prompt claim | Reality | Resolution |
+|---|---|---|---|
+| 1 | `from __future__ import annotations` on every new module | `src/` has zero; PEP 649 makes annotations lazy on 3.14 by default | **Rejected** — the import would re-stringify and is a no-op for the gate. User: "deprecated, we don't use that" |
+| 2 | "gate of roughly 1010 passed, 1 skipped" | Actual 1538 / 1 | Use the measured count; AGENTS.md forbids stale numbers |
+| 3 | Add `.github/workflows/ci.yml` (H1) | No `.github/` | **Won't fix** — user: "wont be executed on github". Local CLI gate is the accepted control |
+| 4 | New runtime dependencies out of scope | `pglast` added as a hard dep for 2980 | Accepted by prior ruling; pin **bounded `<9`** because the code depends on its AST |
+| 5 | "Fusion does not exist — do not add" | Shipped `38c72f9` | Read as "add no more" |
+| 6 | "`UnifiedIdModel` is still todo" | Exists (`models/unified.py:51`), exported, documented | Stale |
+| 7 | "`bulk_copy` is private to `BaseEventStreamModel`" | `bulk_insert` is public on `SampleMixin`; the event-stream base is a deprecated alias | plan.md entry corrected (`a949927`) |
+| 8 | A subclass omitting `Meta.indexes` shows them "absent" | The base **raises `NotImplementedError`** at class creation; `indexes = ()` opts out | Test the raise, not absence |
+| 9 | H4: codec "only at import" | `AsyncpgDBClient.create_pool` is already patched per connection | H4 structurally satisfied; a proof test remains |
+
+**Decisions recorded:**
+
+- **CI — won't fix.** The repo is not executed on GitHub; building a workflow is dead work. Row
+  3002 cancelled. The Dockerfile compiles pgvector + TimescaleDB from source (15–25 min first
+  build), which is why a full-stack CI was never cheap.
+- **`pglast` pinned `>=8.9,<9`** — the validator depends on `SelectStmt`, `RangeVar`,
+  `referenced_relations` and scanner token names; an unbounded pin lets a parser major break the
+  security fix silently. AGENTS.md §Dependencies updated (it had been missed).
+- **Docker pins repinned** to full SHAs: pgvector `159b79aa…`, TimescaleDB `4a77ff5c…`. Versions
+  unchanged; base image digest untouched; image build is the verification step and was not run.
+- **M2 (opclass/filter mismatch)** — document + consistency test (user ruling), not document-only.
+  `docs/api/indexes.md` now carries the operator column and the silent-seq-scan warning; a test
+  keeps the table honest (row 3009).
+- **H3 (soft-delete vs CTE)** — auto-filter when `deleted_at` is in `_meta.fields_map`, in both
+  the anchor and recursive terms, for nodes and edges; no new flag. Models without the column
+  must emit byte-identical SQL.
+- **No version bump** — 0.1.0 is untagged and unreleased, so a behaviour change inside it needs a
+  CHANGELOG entry, not a bump.
+
+**Shipped 2026-11-23 (this slice so far):**
+
+| Commit | What |
+|---|---|
+| `aa6baf1` | 2980 — cagg validator rewritten on `pglast`; +12 tests; `pglast>=8.9` added |
+| `d67324b` | pglast bound `<9`; AGENTS.md §Dependencies corrected |
+| `0c89953` | pgvector / TimescaleDB commit pins refreshed (full SHAs) |
+| `a949927` | plan.md `bulk_insert` entry corrected |
+| `456c018` | README import-order/patching section; `Meta.indexes` names all three bases; `docs/api/indexes.md` operator table |
+| `e7b8de3` | `CHANGELOG.md` + `CONTRIBUTING.md` |
+
+Gate after `aa6baf1`: ruff clean, basedpyright **0 errors / 1 warning**, **1538 passed, 1
+skipped**. A regression introduced by the new parser was caught in planner review and filed as
+row 3008: a mixed-case `source_table` (`"Events"` against an unquoted `FROM Events`) is now
+rejected because the declared name is quoted while the parser returns the folded `events` — the
+old regex accepted it and the emitted DDL works.
