@@ -1339,3 +1339,32 @@ so instead of implying they match.
 
 Gate: ruff clean, basedpyright **0 errors, 0 warnings, 0 notes**, full suite **1946 passed, 13
 skipped** (56 -> 64 in the two modules; the 8 new items are live-Postgres paths).
+
+**Round 5 (3080).** The disagreement round 4 documented is now gone: `distinct_on`'s column rule
+became the shared `expressions/_soft_delete.py::soft_delete_column` and the three CTE builders call
+it, so `live_predicate(alias, column="deleted_at")` and `et_clause(..., soft_delete_column=...)`
+emit the column the model actually projects. The helper was moved verbatim (AST-compared against
+`HEAD`'s private copy: body and signature identical), so `distinct_on` cannot drift.
+
+Measured on `tortoise_test` with real models, four shapes: `deleted_at` field -> `deleted_at`
+(SQL byte-identical to `HEAD`), `removed_at` mapped onto the column -> `deleted_at` (was: no filter,
+tombstones leaked), `deleted_at` field mapped onto `gone` -> `gone` (was: emitted a column the table
+does not have), no such column -> `None` (unchanged SQL).
+
+Two test-double consequences, both fixed in the tests rather than the library: the struct suite's
+`_FakeMeta` gained a `fields_db_projection` (a real `MetaInfo` always has one; a `getattr` fallback
+in the library would silently disable tombstone filtering), and the two `et_clause` unit tests moved
+from the boolean flag to the column argument. A `ruff format` pass was reverted — `HEAD`'s
+`graph_traversal.py` was never format-clean, and formatting it produced 45 unrelated line changes in
+the row-mapping blocks.
+
+The regression tests live in `tests/test_soft_delete_traversal.py` and pin all four shapes at DB
+level: a renamed-field node (`removed_at`) hidden from `descendants`/`ancestors`/`neighbors` and
+blocking `shortest_path`; a renamed-field edge not traversed; the renamed field through
+`GraphVectorSearch`; and a `deleted_at` field mapped onto `gone` now running (it used to raise
+`UndefinedColumn`) and filtering on `gone` on both the node and the edge side. The three API pages
+that described the field-name rule (`graph-traversal.md`, `pathfinding.md`,
+`graph-vector-search.md`) were corrected with the fix.
+
+Gate: ruff clean, basedpyright **0 errors, 0 warnings, 0 notes**, full suite **1956 passed, 13
+skipped** (1948 -> 1956: the 8 new cases are live-Postgres paths).
