@@ -602,6 +602,30 @@ Gaps that motivate the work:
   wins over the existing ClassVars, read via `cls.__dict__["Meta"]` because Tortoise's
   `MetaInfo` carries only known keys. **Spike before implementing** — whether `MetaInfo`
   tolerates an unknown `Meta` attribute is unverified.
+  **Spike verdict (2026-11-23, measured — every claim cited):** the mechanism *works*, but as a
+  design it is strictly worse than the ClassVars, so 2973 is closed and the ClassVars stay.
+  - `MetaInfo` is slot-only: `__slots__` is a fixed 40-name tuple
+    (`tortoise/models.py:180-220`) and `__init__` reads a fixed key list through
+    `getattr(meta, ..., default)` (`:222-232`). An unknown `Meta.timescale` therefore raises
+    nothing at class creation, is never validated, and is never stored — measured:
+    `child._meta.timescale` → `AttributeError: 'MetaInfo' object has no attribute 'timescale'`,
+    and assigning it raises too ("no `__dict__` for setting new attributes").
+  - **No inheritance.** `ModelMeta.__new__` reads `attrs.get("Meta", type("Meta", (), {}))`
+    (`:509`) — the class's *own* dict only. A concrete subclass must redeclare `timescale` on
+    every model, which is the one thing the ClassVars exist to avoid. Worse, the obvious read is
+    a trap: a subclass with no `Meta` of its own has `cls.__dict__["Meta"] is None` while
+    `cls.Meta` resolves through the MRO to the *abstract base's* Meta (measured), so
+    `getattr(cls, "Meta")` would silently return the base's config that Tortoise did not use.
+    Any read must be `cls.__dict__.get("Meta")`.
+  - **Typing.** The stub overlay declares `MetaInfo` as an explicit attribute list with no
+    `__getattr__` (`src/tortoise_extended/stubs/tortoise-stubs/models/__init__.pyi:45-62`) and
+    `Model` declares no nested `Meta` (`:67+`), so `cls._meta.timescale` is
+    `reportAttributeAccessIssue` and `cls.__dict__["Meta"]` is untyped. A typed read needs a
+    `TypedDict` plus a `cast` at each site — allowed, but it is per-read ceremony that a ClassVar
+    does not need.
+  - **Verdict:** not viable as a replacement for the ClassVars (no inheritance, no validation,
+    two config surfaces, a cast per read). It would only be worth revisiting if a *runtime*
+    consumer needed to read the config from outside the model class, which nothing does.
 - **D9 — parked.** Splitting `BaseNode`'s forced `name` field into a `NamedNodeMixin` was
   discussed but **not selected**; it stays a parked low-priority row.
 
@@ -646,6 +670,25 @@ drift class on both bases. Option (a) was rejected: recomputing the path in
 `save()` duplicates `move_to`'s cycle guard outside a transaction, which is
 exactly the TOCTOU shape 2977 documents. A partial `save(update_fields=[...])`
 that omits `parent_id` still writes through.
+
+**Repair and parity (3013 + 3014, 2026-11-23).** `BaseHierarchyModel.rebuild_paths()` and
+`NodeMixin.rebuild_derived()` (both `*, namespace: str | None = None`) recompute the affected
+tree in dependency order and return the number of rows changed — the escape hatch for rows
+written outside the library. `NodeMixin.validate_node()` mirrors `validate_hierarchy()`
+(`list[str]`, empty when clean) and checks one node's invariants: `depth`, `is_root`,
+`child_count`, parent namespace and the parent chain. Shipped `d834fd9` / `d3801a6`; both
+shared-list rows still read `pending` afterwards and were closed on 2026-11-23 after the
+symbols were re-read in the tree.
+
+**Security rows from 2976, 2026-11-23.** 2981 + 2985 (Docker) and 2986 + 2987 (credentials) are
+shipped in `2b33972` / `b854059`: the Postgres init SQL is generated from `\getenv` +
+`format(%I/%L)` + `\gexec` (measured end to end with `DB_USER_1=we"ird'user`), both source
+dependencies are pinned to full shas with a build-time format check *and* a post-checkout
+`git rev-parse HEAD` assertion, Redis AUTH is mandatory (entrypoint exits non-zero; compose
+`${…:?}`), and `POSTGRES_PASSWORD` / `REDIS_PASSWORD` ship as `CHANGEME` with compose refusing
+an empty value. `REDIS_PASSWORD` also gates the live cache tests (`tests/_redis_env.py`
+authenticates and percent-encodes), so the three cache modules skip — visibly — when the secret
+is absent. 2963 (SQLite doc claims) was already resolved by `4bd5d8c`; measured, not assumed.
 
 **TODO positions:** NODE-ERGO 2964 · NODE-EDGE-HYBRID 2965 · LIFECYCLE-EXTENSIONS 2966 ·
 UNIFIED-NODE 2967 · NODE-SOFTDELETE 2968 · GRAPH-FACADE 2969 · SAMPLE-RECORD-LATEST 2970 ·
