@@ -63,12 +63,19 @@ and Tortoise reads those registrations when it initializes. Importing after `Tor
 - **`GraphTraversal` + pathfinding helpers** — ancestors, descendants, neighbors, shortest path, all paths, cycle detection
 - **`GraphVectorSearch`** — single-query graph + vector compositor with typed results
 - **`HybridSearch`** — weighted vector + full-text search scoring
+- **`Graph` facade** — model-class API over traversal, pathfinding and graph-scoped vector search
+  (`link` / `unlink` / `neighbours` / `shortest_path` / `find_cycles` / `search(seed=...)`)
+- **Fusion utilities** — reciprocal rank fusion, weighted score fusion, MMR diversity re-ranking
+- **Startup helpers** — `ensure_extensions()` and `setup(models=None, *, generate_schemas=False)`:
+  extensions → schemas → each stream model's `setup()`, in that order
 - **Model base classes** — `BaseModel` (BigInt pk), `UnifiedIdModel` (BigInt pk + UUID7 `uid`
   for cross-table refs), `TimestampMixin` (`created_at`/`updated_at`), `BaseSoftDeleteModel` +
   `SoftDeleteQuerySet` (auto-filtered soft delete), `BaseUserModel` (Django-style email/password
   auth with argon2id hashing), `NodeMixin` / `BaseNode` (pk-free adjacency list + UUID7 identity),
   `BaseGraphEdgeModel` / `BaseHierarchyModel`, `BaseCacheableModel`, `SampleMixin` / `BaseSample`
-  (TimescaleDB streams); `BaseGraphNodeModel` / `BaseEventStreamModel` are deprecated aliases
+  (TimescaleDB streams), `BaseUnifiedNode` (integer `parent_id` + UUID7 `uid`),
+  `BaseSoftDeleteNode` (subtree soft delete); `BaseGraphNodeModel` / `BaseEventStreamModel` are
+  deprecated aliases
 - **`LTreeField` + ltree filters** — PostgreSQL `ltree` hierarchical column type
 - **TimescaleDB** — hypertable/compression/retention/continuous-aggregate managers, `BaseSample`, migration operations
 - **pgcrypto query helpers** — `Digest`/`DigestHex`/`HMACDigest` (hash and HMAC expressions)
