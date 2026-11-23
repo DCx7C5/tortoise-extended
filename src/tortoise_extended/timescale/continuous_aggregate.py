@@ -43,6 +43,16 @@ from tortoise_extended._types import RowMapping, RowValue
 from tortoise_extended.exceptions import TimescaleError
 
 
+def _one_line(exc: BaseException) -> str:
+    """Render *exc* on a single line.
+
+    PostgreSQL echoes statement identifiers inside its own error text, so an
+    identifier containing a newline could otherwise forge extra log lines in
+    anything that records the message.
+    """
+    return str(exc).replace("\r", " ").replace("\n", " ")
+
+
 _INVALID_SHAPE = (
     "Continuous aggregate query must be a single bare "
     "SELECT (or WITH ... SELECT) statement; got "
@@ -182,7 +192,7 @@ def validate_cagg_query(query: str, source_table: str | None = None) -> str:
         statements = pglast.parse_sql(inner)
         slices = pglast.split(inner, only_slices=True)
     except pglast.Error as exc:
-        msg = f"Continuous aggregate query is not valid SQL: {exc}"
+        msg = f"Continuous aggregate query is not valid SQL: {_one_line(exc)}"
         raise ValueError(msg) from exc
     if len(statements) != 1 or len(slices) != 1:
         raise ValueError(f"{_INVALID_SHAPE}{len(statements)} statements")
@@ -302,7 +312,7 @@ class ContinuousAggregateManager:
         try:
             _ = await conn.execute_query(query)
         except Exception as exc:
-            msg = f"Failed to create continuous aggregate {view_name!r}: {exc}"
+            msg = f"Failed to create continuous aggregate {view_name!r}: {_one_line(exc)}"
             raise TimescaleError(msg) from exc
 
     @staticmethod
@@ -333,7 +343,7 @@ class ContinuousAggregateManager:
         try:
             _ = await conn.execute_query(sql)
         except Exception as exc:
-            msg = f"Failed to drop continuous aggregate {view_name!r}: {exc}"
+            msg = f"Failed to drop continuous aggregate {view_name!r}: {_one_line(exc)}"
             raise TimescaleError(msg) from exc
 
     @staticmethod
@@ -383,7 +393,7 @@ class ContinuousAggregateManager:
         try:
             _ = await conn.execute_query(sql)
         except Exception as exc:
-            msg = f"Failed to refresh continuous aggregate {view_name!r}: {exc}"
+            msg = f"Failed to refresh continuous aggregate {view_name!r}: {_one_line(exc)}"
             raise TimescaleError(msg) from exc
 
     @staticmethod
@@ -431,7 +441,7 @@ class ContinuousAggregateManager:
         try:
             _ = await conn.execute_query(sql)
         except Exception as exc:
-            msg = f"Failed to set refresh policy on {view_name!r}: {exc}"
+            msg = f"Failed to set refresh policy on {view_name!r}: {_one_line(exc)}"
             raise TimescaleError(msg) from exc
 
     @staticmethod
@@ -456,7 +466,7 @@ class ContinuousAggregateManager:
         try:
             _ = await conn.execute_query(sql)
         except Exception as exc:
-            msg = f"Failed to remove refresh policy from {view_name!r}: {exc}"
+            msg = f"Failed to remove refresh policy from {view_name!r}: {_one_line(exc)}"
             raise TimescaleError(msg) from exc
 
     @staticmethod
@@ -484,7 +494,7 @@ class ContinuousAggregateManager:
         try:
             _ = await conn.execute_query(sql)
         except Exception as exc:
-            msg = f"Failed to enable realtime aggregation on {view_name!r}: {exc}"
+            msg = f"Failed to enable realtime aggregation on {view_name!r}: {_one_line(exc)}"
             raise TimescaleError(msg) from exc
 
     @staticmethod

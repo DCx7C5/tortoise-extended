@@ -531,6 +531,21 @@ class TestSqlHardening:
         assert '"weird name"' in conn.sqls[0]
 
     @pytest.mark.asyncio
+    async def test_error_message_is_single_line(self, monkeypatch) -> None:
+        """A newline echoed from PostgreSQL cannot forge extra log lines."""
+        _patch_error_connections(
+            monkeypatch,
+            Exception('relation "a\nb" does not exist\r\nDETAIL: forged line'),
+        )
+        with pytest.raises(TimescaleError) as excinfo:
+            await ContinuousAggregateManager.refresh("a\nb")
+        message = str(excinfo.value)
+        assert "\n" not in message
+        assert "\r" not in message
+        # The text itself is preserved — only the line breaks are flattened.
+        assert "DETAIL: forged line" in message
+
+    @pytest.mark.asyncio
     async def test_is_hypertable_uses_public_view(self, monkeypatch) -> None:
         conn = self._recording_conn(monkeypatch)
         await HypertableManager.is_hypertable("events")
