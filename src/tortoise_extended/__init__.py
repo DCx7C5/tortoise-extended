@@ -126,7 +126,7 @@ from tortoise_extended.fields.uuid import UUID4Field, UUID7Field
 from tortoise_extended.fields.vector import VectorField
 from tortoise_extended.indexes.hnsw_index import HNSWIndex, IVFFlatIndex
 from tortoise_extended.indexes.ltree_index import GiSTIndex
-from tortoise_extended.lifecycle import SetupReport, ensure_extensions
+from tortoise_extended.lifecycle import SetupReport, ensure_extensions, setup
 from tortoise_extended.migrations.operations import (
     CreateContinuousAggregate,
     CreateHypertable,
@@ -626,6 +626,7 @@ __all__ = [
     "ranking_from_hits",
     "reciprocal_rank_fusion",
     "scores_from_hybrid_rows",
+    "setup",
     "shortest_path",
     "vector_encoder",
     "weighted_score_fusion",

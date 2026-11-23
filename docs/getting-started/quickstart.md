@@ -19,7 +19,7 @@ import tortoise_extended  # Must be first import — applies monkey-patches
 
 tortoise_extended.patch()  # Explicit: apply all monkey-patches (idempotent)
 from tortoise import Tortoise
-from tortoise_extended.lifecycle import setup
+from tortoise_extended import setup
 
 # Define your models (see docs/architecture/schema.md for the GraphRAG schema)
 from myapp.models import Entity, Relationship, TextUnit
