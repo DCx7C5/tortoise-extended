@@ -2,10 +2,12 @@
 
 Covers ``BaseModel`` (BigInt pk), ``TimestampMixin``,
 ``TimestampEndMixin``, and ``BaseSoftDeleteModel``/``SoftDeleteQuerySet``
-(auto-filtered soft delete).  Runs against SQLite — soft delete and
-timestamps are backend-agnostic.
+(auto-filtered soft delete).  Runs against the live PostgreSQL test database
+(see ``docker-compose.dev.yml``) — this package is PostgreSQL-only.
 """
 
+import os
+import socket
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
@@ -80,18 +82,64 @@ class FullyStampedThing(BaseModel, BaseSoftDeleteModel, TimestampMixin):  # pyri
         verbose_name_plural = "Fully Stamped Things"
 
 
+# --- Config — skip entire module if PG is not available --------------------
+
+DB_URL = os.environ.get(
+    "TORTOISE_TEST_DB",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
+)
+
+
+def _pg_available() -> bool:
+    """Quick check — can we connect to the test PG?"""
+    try:
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _pg_available(),
+    reason="PostgreSQL not available on localhost:5434",
+)
+
+
 # --- Fixtures -------------------------------------------------------------
+
+_TABLES = (
+    "base_things",
+    "timestamped_things",
+    "soft_things",
+    "ended_things",
+    "fully_stamped_things",
+)
+
+
+@pytest.fixture(scope="module", autouse=True)
+async def _init_db() -> AsyncGenerator[None, None]:  # pyright: ignore[reportUnusedFunction]
+    """Initialize Tortoise ORM against the live PostgreSQL test database."""
+    _ = await Tortoise.init(
+        db_url=DB_URL,
+        modules={"models": ["tests.test_base_models"]},
+    )
+    conn = Tortoise.get_connection("default")
+    for table in _TABLES:
+        await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
+    await Tortoise.generate_schemas()
+    yield
+    for table in _TABLES:
+        await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
+    await Tortoise.close_connections()
 
 
 @pytest.fixture(autouse=True)
-async def _db() -> AsyncGenerator[None, None]:  # pyright: ignore[reportUnusedFunction]
-    _ = await Tortoise.init(
-        db_url="sqlite://:memory:",
-        modules={"models": ["tests.test_base_models"]},
-    )
-    await Tortoise.generate_schemas()
+async def _clean_tables() -> AsyncGenerator[None, None]:
+    """Truncate every table before each test."""
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query(f"TRUNCATE {', '.join(_TABLES)} CASCADE")
     yield
-    await Tortoise.close_connections()
 
 
 # --- Tests -----------------------------------------------------------------

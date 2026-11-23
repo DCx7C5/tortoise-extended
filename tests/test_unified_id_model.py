@@ -1,9 +1,12 @@
 """Tests for ``UnifiedIdModel`` — BigInt pk + UUID7 unified identifier.
 
-Runs against SQLite (in-memory).  ``UnifiedIdModel`` is a pure model-layer
-abstract base; no PostgreSQL-specific features are needed for these tests.
+Runs against the live PostgreSQL test database (see ``docker-compose.dev.yml``).
+``UnifiedIdModel`` is a pure model-layer abstract base; the assertions below
+pin its contract, not a backend quirk.
 """
 
+import os
+import socket
 from collections.abc import AsyncGenerator
 from uuid import UUID
 
@@ -27,18 +30,54 @@ class UnifiedThing(UnifiedIdModel):
         verbose_name_plural = "Unified Things"
 
 
+# --- Config — skip entire module if PG is not available --------------------
+
+DB_URL = os.environ.get(
+    "TORTOISE_TEST_DB",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
+)
+
+
+def _pg_available() -> bool:
+    """Quick check — can we connect to the test PG?"""
+    try:
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _pg_available(),
+    reason="PostgreSQL not available on localhost:5434",
+)
+
+
 # --- Fixtures --------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
-async def _db() -> AsyncGenerator[None, None]:
+@pytest.fixture(scope="module", autouse=True)
+async def _init_db() -> AsyncGenerator[None, None]:
+    """Initialize Tortoise ORM against the live PostgreSQL test database."""
     _ = await Tortoise.init(
-        db_url="sqlite://:memory:",
+        db_url=DB_URL,
         modules={"models": ["tests.test_unified_id_model"]},
     )
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query("DROP TABLE IF EXISTS unified_things CASCADE")
     await Tortoise.generate_schemas()
     yield
+    await conn.execute_query("DROP TABLE IF EXISTS unified_things CASCADE")
     await Tortoise.close_connections()
+
+
+@pytest.fixture(autouse=True)
+async def _clean_tables() -> AsyncGenerator[None, None]:
+    """Truncate the table before each test."""
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query("TRUNCATE unified_things CASCADE")
+    yield
 
 
 # --- Tests -----------------------------------------------------------------

@@ -7,10 +7,31 @@ known under basedpyright strict mode. These tests pin the runtime surface
 that the overlay mirrors.
 """
 
+import os
+import socket
+from collections.abc import AsyncGenerator
+
+import pytest
 import tortoise_extended  # noqa: F401 — apply patches
-from tortoise import fields, models
+from tortoise import Tortoise, fields, models
 
 from tortoise_extended.fields import CharField
+
+
+DB_URL = os.environ.get(
+    "TORTOISE_TEST_DB",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
+)
+
+
+def _pg_available() -> bool:
+    """Quick check — can we connect to the test PG?"""
+    try:
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
+        sock.close()
+        return True
+    except OSError:
+        return False
 
 
 class BooleanPage(models.Model):
@@ -34,9 +55,6 @@ class TestBooleanFieldDefinition:
 
     def test_sql_type_is_bool(self) -> None:
         assert fields.BooleanField.SQL_TYPE == "BOOL"
-
-    def test_sqlite_sql_type_is_int(self) -> None:
-        assert fields.BooleanField._db_sqlite.SQL_TYPE == "INT"
 
     def test_null_defaults_to_false(self) -> None:
         assert fields.BooleanField().null is False
@@ -76,44 +94,52 @@ class TestBooleanFieldCoercion:
         assert field.to_db_value(0, None) is False
 
 
+@pytest.fixture(scope="module")
+async def _pg_db() -> AsyncGenerator[None, None]:
+    """Initialize Tortoise ORM against the live PostgreSQL test database."""
+    _ = await Tortoise.init(
+        db_url=DB_URL,
+        modules={"models": [__name__]},
+    )
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query("DROP TABLE IF EXISTS boolean_pages CASCADE")
+    await Tortoise.generate_schemas()
+    yield
+    await conn.execute_query("DROP TABLE IF EXISTS boolean_pages CASCADE")
+    await Tortoise.close_connections()
+
+
+@pytest.mark.skipif(
+    not _pg_available(),
+    reason="PostgreSQL not available on localhost:5434",
+)
 class TestBooleanFieldModel:
-    """SQLite round-trip: insert / fetch / filter / update through Tortoise."""
+    """PostgreSQL round-trip: insert / fetch / filter / update through Tortoise."""
 
-    async def test_round_trip(self, tmp_path) -> None:
-        from tortoise import Tortoise
+    async def test_round_trip(self, _pg_db: None) -> None:
+        page = await BooleanPage.create(title="alpha", published=True)
+        assert page.published is True
+        assert page.archived is None
 
-        db_file = tmp_path / "boolean.db"
-        await Tortoise.init(
-            db_url=f"sqlite://{db_file}",
-            modules={"models": [__name__]},
-        )
-        await Tortoise.generate_schemas()
-        try:
-            page = await BooleanPage.create(title="alpha", published=True)
-            assert page.published is True
-            assert page.archived is None
+        fetched = await BooleanPage.get(id=page.id)
+        assert fetched.published is True
+        assert fetched.archived is None
 
-            fetched = await BooleanPage.get(id=page.id)
-            assert fetched.published is True
-            assert fetched.archived is None
+        # Default applied on create without an explicit value.
+        page2 = await BooleanPage.create(title="beta")
+        assert page2.published is False
 
-            # Default applied on create without an explicit value.
-            page2 = await BooleanPage.create(title="beta")
-            assert page2.published is False
+        # Filtering on the boolean column (alpha=True, beta=False).
+        assert await BooleanPage.filter(published=True).count() == 1
+        assert await BooleanPage.filter(published=False).count() == 1
 
-            # Filtering on the boolean column (alpha=True, beta=False).
-            assert await BooleanPage.filter(published=True).count() == 1
-            assert await BooleanPage.filter(published=False).count() == 1
+        # Nullable boolean round-trips to None.
+        page3 = await BooleanPage.create(title="gamma", archived=None)
+        assert page3.archived is None
 
-            # Nullable boolean round-trips to None.
-            page3 = await BooleanPage.create(title="gamma", archived=None)
-            assert page3.archived is None
-
-            # Update path.
-            page2.published = True
-            await page2.save(update_fields=["published"])
-            assert (await BooleanPage.get(id=page2.id)).published is True
-            assert await BooleanPage.filter(published=True).count() == 2
-            assert await BooleanPage.filter(published=False).count() == 1
-        finally:
-            await Tortoise.close_connections()
+        # Update path.
+        page2.published = True
+        await page2.save(update_fields=["published"])
+        assert (await BooleanPage.get(id=page2.id)).published is True
+        assert await BooleanPage.filter(published=True).count() == 2
+        assert await BooleanPage.filter(published=False).count() == 1

@@ -1,10 +1,12 @@
 """Tests for ``BaseUserModel`` — Django-style email/password auth.
 
 Covers user creation (email normalization, role flags), argon2id password
-hashing, DB persistence round-trips, and login bookkeeping. Runs against
-SQLite — hashing and auth are backend-agnostic.
+hashing, DB persistence round-trips, and login bookkeeping. Runs against the
+live PostgreSQL test database (see ``docker-compose.dev.yml``).
 """
 
+import os
+import socket
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
@@ -25,18 +27,54 @@ class User(BaseUserModel):
         table = "users"
 
 
+# --- Config — skip entire module if PG is not available --------------------
+
+DB_URL = os.environ.get(
+    "TORTOISE_TEST_DB",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
+)
+
+
+def _pg_available() -> bool:
+    """Quick check — can we connect to the test PG?"""
+    try:
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _pg_available(),
+    reason="PostgreSQL not available on localhost:5434",
+)
+
+
 # --- Fixtures -------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
-async def _db() -> AsyncGenerator[None, None]:  # pyright: ignore[reportUnusedFunction]
+@pytest.fixture(scope="module", autouse=True)
+async def _init_db() -> AsyncGenerator[None, None]:  # pyright: ignore[reportUnusedFunction]
+    """Initialize Tortoise ORM against the live PostgreSQL test database."""
     _ = await Tortoise.init(
-        db_url="sqlite://:memory:",
+        db_url=DB_URL,
         modules={"models": ["tests.test_user_model"]},
     )
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query("DROP TABLE IF EXISTS users CASCADE")
     await Tortoise.generate_schemas()
     yield
+    await conn.execute_query("DROP TABLE IF EXISTS users CASCADE")
     await Tortoise.close_connections()
+
+
+@pytest.fixture(autouse=True)
+async def _clean_tables() -> AsyncGenerator[None, None]:
+    """Truncate the table before each test."""
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query("TRUNCATE users CASCADE")
+    yield
 
 
 # --- Tests -----------------------------------------------------------------
