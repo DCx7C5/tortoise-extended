@@ -387,6 +387,8 @@ docker compose -f docker-compose.dev.yml down        # stop
 - `msgspec>=0.21.0` — fast serialization
 - `pypika-tortoise>=0.6.5,<0.7` — query builder used by expressions
 - `argon2-cffi>=25.1.0` — argon2id password hashing for `BaseUserModel` (the only auth runtime dep)
+- `pglast>=8.9` — PostgreSQL's own grammar (C extension) used to validate continuous-aggregate
+  queries in `timescale/continuous_aggregate.py`; replaces the previous regex shape check
 - optional: `redis[hiredis]>=7.0.0` (the `redis` extra)
 - dev: `pytest>=9.0.3`, `pytest-asyncio>=1.4.0`, `coverage>=7.15.2`, `ruff>=0.15.0,<0.16`, `basedpyright>=1.39.9`
 

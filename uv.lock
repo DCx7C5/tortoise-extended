@@ -626,7 +626,7 @@ dev = [
 requires-dist = [
     { name = "argon2-cffi", specifier = ">=25.1.0" },
     { name = "msgspec", specifier = ">=0.21.0" },
-    { name = "pglast", specifier = ">=8.9" },
+    { name = "pglast", specifier = ">=8.9,<9" },
     { name = "pypika-tortoise", specifier = ">=0.6.5,<0.7" },
     { name = "redis", extras = ["hiredis"], marker = "extra == 'redis'", specifier = ">=7.0.0" },
     { name = "tortoise-orm", extras = ["asyncpg"], specifier = ">=1.1.7,<1.2" },
