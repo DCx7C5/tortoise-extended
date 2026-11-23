@@ -16,6 +16,8 @@ the correct SQL.
 
 Usage (illustrative; needs async context + configured DB)::
 
+    from tortoise.expressions import RawSQL
+
     from tortoise_extended.expressions.pgcrypto import (
         Digest,
         DigestHex,
@@ -34,9 +36,15 @@ Usage (illustrative; needs async context + configured DB)::
         digest__isnotnull=True
     )
 
-    # HMAC a value with a shared key.
+    # HMAC a value with a key that stays out of the SQL text: the raw
+    # expression is rendered verbatim and resolved server-side, so the secret
+    # never appears in the statement, ``pg_stat_activity`` or the server log.
     mac = await Document.annotate(
-        tag=HMACDigest("body", "shared-key", "sha256")
+        tag=HMACDigest(
+            "body",
+            RawSQL("current_setting('app.encryption_key')"),
+            "sha256",
+        )
     ).first()
 """
 
@@ -52,9 +60,23 @@ from tortoise_extended.exceptions import PgCryptoError
 # an ``F()`` reference, a combined/plain expression, or a raw pypika term.
 DataArg: TypeAlias = str | F | CombinedExpression | Function | Term
 
-_PGCRYPTO_ALGORITHMS: frozenset[str] = frozenset({
-    "md5", "sha1", "sha256", "sha384", "sha512", "sha224",
-})
+# A value usable as the HMAC ``key`` argument.  A plain ``str`` is rendered as
+# a quoted SQL string literal (the secret then travels in the statement text);
+# any pypika term (``RawSQL``, ``Field``, ...) is rendered verbatim, so the key
+# can be resolved server-side, e.g.
+# ``RawSQL("current_setting('app.encryption_key')")``.
+KeyArg: TypeAlias = DataArg
+
+_PGCRYPTO_ALGORITHMS: frozenset[str] = frozenset(
+    {
+        "md5",
+        "sha1",
+        "sha256",
+        "sha384",
+        "sha512",
+        "sha224",
+    }
+)
 """Built-in pgcrypto hash algorithms.
 
 Only these six are accepted by the ``pgcrypto`` extension's ``digest()``
@@ -83,9 +105,7 @@ class _DigestFunction(PypikaFunction):
     """pypika term emitting ``digest(<data>, '<algorithm>')``."""
 
     def __init__(self, data: Term, algorithm: str) -> None:
-        super().__init__(
-            "DIGEST", data, ValueWrapper(algorithm)
-        )
+        super().__init__("DIGEST", data, ValueWrapper(algorithm))
 
 
 class Digest(Function):
@@ -146,12 +166,15 @@ class DigestHex(Function):
 
 
 class _HMACFunction(PypikaFunction):
-    """pypika term emitting ``hmac(<data>, '<key>', '<algorithm>')``."""
+    """pypika term emitting ``hmac(<data>, <key>, '<algorithm>')``."""
 
-    def __init__(self, data: Term, key: str, algorithm: str) -> None:
-        super().__init__(
-            "HMAC", data, ValueWrapper(key), ValueWrapper(algorithm)
-        )
+    def __init__(self, data: Term, key: Term | str, algorithm: str) -> None:
+        # A plain ``str`` key becomes a quoted SQL string literal (the secret
+        # then travels in the statement text); a term such as ``RawSQL`` or
+        # ``Field`` is rendered verbatim, so the key can be resolved
+        # server-side and never appears in the statement.
+        key_term: Term = ValueWrapper(key) if isinstance(key, str) else key
+        super().__init__("HMAC", data, key_term, ValueWrapper(algorithm))
 
 
 class HMACDigest(Function):
@@ -161,10 +184,21 @@ class HMACDigest(Function):
     *key* and the named algorithm.  Unlike :class:`Digest`, an HMAC binds a
     secret key and is not vulnerable to length-extension attacks.
 
+    .. warning::
+
+        A **plain ``str`` key is rendered as a SQL string literal**, so the
+        secret becomes part of the statement text: it is visible in
+        ``pg_stat_activity.query`` to roles with ``pg_read_all_stats``, and is
+        captured by ``log_statement`` / ``log_min_duration_statement`` /
+        ``auto_explain`` and by connection statement caches.  Pass an
+        expression instead — ``RawSQL("current_setting('app.encryption_key')")``
+        — to resolve the key server-side and keep it out of the statement.
+
     Args:
         data: The value to hash (a field name, ``F()``, or expression).
-        key: The secret key, rendered as a SQL string literal.  Pass an
-            application secret — never hardcode it in the model.
+        key: The secret key.  A ``str`` is quoted as a SQL string literal (see
+            the warning above); any pypika term (``RawSQL``, ``Field``, ...)
+            is rendered verbatim.
         algorithm: Hash algorithm name, e.g. ``"sha256"``.  Rendered as a
             SQL string literal.
 
@@ -174,7 +208,7 @@ class HMACDigest(Function):
 
     database_func = _HMACFunction
 
-    def __init__(self, data: DataArg, key: str, algorithm: str = "sha256") -> None:
+    def __init__(self, data: DataArg, key: KeyArg, algorithm: str = "sha256") -> None:
         _validate_algorithm(algorithm)
         super().__init__(data, key, algorithm)
 

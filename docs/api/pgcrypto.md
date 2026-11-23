@@ -71,11 +71,18 @@ storing or transmitting a digest as text.
 `hmac(data, key, algorithm)` — keyed hash (HMAC).
 
 ```python
+from tortoise.expressions import RawSQL
+
 from tortoise_extended.expressions.pgcrypto import HMACDigest
 
-# HMAC tag as an annotation
+# HMAC tag as an annotation.  The key is resolved server-side, so the secret
+# never enters the statement text (see Security Notes).
 rows = await Document.annotate(
-    tag=HMACDigest("body", "shared-key", "sha256")
+    tag=HMACDigest(
+        "body",
+        RawSQL("current_setting('app.encryption_key')"),
+        "sha256",
+    )
 ).all()
 ```
 
@@ -84,7 +91,7 @@ rows = await Document.annotate(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `data` | `str \| F \| Function \| Term` | Required | Value to hash |
-| `key` | `str` | Required | Secret key (rendered as a SQL literal) |
+| `key` | `str \| F \| Function \| Term` | Required | Secret key — a `str` is quoted as a SQL literal, a term is rendered verbatim |
 | `algorithm` | `str` | `"sha256"` | Hash algorithm |
 
 **Returns:** `bytea`.
@@ -105,9 +112,18 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 ## Security Notes
 
-- **The library never sees or stores keys.**  Keys are rendered as SQL string
-  literals in the query — they travel to PostgreSQL but are not logged or
-  cached by tortoise-extended.
+- **The library never sees or stores keys.**  A `str` key is rendered as a SQL
+  string literal, so it travels to PostgreSQL **inside the statement text**:
+  it is visible in `pg_stat_activity.query` to any role with
+  `pg_read_all_stats`, and is captured by `log_statement`,
+  `log_min_duration_statement` and `auto_explain`, as well as by connection
+  statement caches.  (`pg_stat_statements` normalises constants, so it is not
+  a leak path.)  tortoise-extended itself never logs or caches the key.
+- **Keep keys out of the statement text.**  Pass an expression instead of a
+  literal — `HMACDigest(Field("body"), RawSQL("current_setting('app.encryption_key')"), "sha256")`
+  — so the key is resolved server-side from the session setting and never
+  appears in `pg_stat_activity` or the server log.  Set the GUC per connection
+  (`SET app.encryption_key = ...`) or per role (`ALTER ROLE ... SET`).
 - **Use application-managed keys.**  Store passphrases/secrets in environment
   variables or a secrets manager; do not hardcode them in model definitions.
 - **`Digest` is not HMAC.**  For keyed hashing, prefer `HMACDigest` which is

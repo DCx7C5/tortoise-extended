@@ -134,9 +134,13 @@
 - Encrypted columns are **non-indexable / non-searchable** (non-deterministic
   ciphertext). For searchable encrypted values, derive a blind index with
   `HMACDigest`/`DigestHex` in a companion column.
-- Keys are application-supplied and never stored by the library. Prefer
-  `current_setting('app.encryption_key')` or env/secret-manager injection over
-  hardcoded in queries, to keep keys out of SQL logs.
+- Keys are application-supplied and never stored by the library. A plain `str`
+  key is rendered as a SQL literal, so it **does** appear in `pg_stat_activity.query`
+  and in server logs (`log_statement` / `auto_explain`). Pass an expression
+  instead — `HMACDigest(Field("body"), RawSQL("current_setting('app.encryption_key')"), "sha256")`
+  — so the key is resolved server-side from a session GUC and stays out of the
+  statement text; never hardcode it in queries. (`KeyArg` = `DataArg`, so any
+  pypika term is accepted.)
 
 ### Tier 1b/4 — Python 3.14 stdlib notes
 - **`UUID7Field`** (Tier 1b) should use `uuid.uuid7()` as its default — Python

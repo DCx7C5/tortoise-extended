@@ -6,6 +6,7 @@ Sections:
 """
 
 import hashlib
+import hmac as hmac_mod
 import os
 import socket
 
@@ -15,7 +16,9 @@ from pypika_tortoise.context import DEFAULT_SQL_CONTEXT
 
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise import Tortoise, fields
+from tortoise.expressions import RawSQL
 from tortoise.models import Model
+from tortoise.transactions import in_transaction
 
 from tortoise_extended.expressions.pgcrypto import (
     Digest,
@@ -95,6 +98,18 @@ class TestPgcryptoSQL:
         # data column is a bare identifier, not a literal
         assert "'data_col'" not in sql
         assert "data_col" in sql
+
+    def test_hmac_string_key_escapes_embedded_quote(self) -> None:
+        """A ``str`` key is a SQL literal: pypika doubles an embedded quote."""
+        sql = _HMACFunction(Field("body"), "a'b", "sha256").get_sql(DEFAULT_SQL_CONTEXT)
+        assert "'a''b'" in sql
+
+    def test_hmac_key_expression_renders_verbatim(self) -> None:
+        """A term key is not quoted — the secret can be resolved server-side."""
+        key = RawSQL("current_setting('app.encryption_key')")
+        sql = _HMACFunction(Field("body"), key, "sha256").get_sql(DEFAULT_SQL_CONTEXT)
+        assert "current_setting('app.encryption_key')" in sql
+        assert "'current_setting" not in sql
 
     def test_outer_function_classes_also_render(self) -> None:
         """Tortoise Function subclasses (Digest, etc.) produce valid SQL when
@@ -259,3 +274,29 @@ class TestPgcryptoIntegration:
             bytes(result.mac) if not isinstance(result.mac, bytes) else result.mac
         )
         assert len(mac_bytes) == 32  # SHA-256 HMAC is 32 bytes
+
+    async def test_hmac_digest_with_expression_key(self) -> None:
+        """A ``RawSQL`` key is resolved server-side and matches Python's HMAC.
+
+        The GUC is set with ``SET LOCAL`` inside the transaction so the
+        annotate query runs on the same connection and the key never appears
+        in the statement text.
+        """
+        plaintext = "expression-key-test"
+        key = "shared-secret"
+        doc = await SimpleDocument.create(plain_text=plaintext)
+
+        async with in_transaction() as conn:
+            await conn.execute_query(
+                "SELECT set_config('app.encryption_key', 'shared-secret', true)"
+            )
+            result = await SimpleDocument.annotate(
+                mac=HMACDigest(
+                    "plain_text",
+                    RawSQL("current_setting('app.encryption_key')"),
+                    "sha256",
+                )
+            ).get(id=doc.id)
+
+        expected = hmac_mod.new(key.encode(), plaintext.encode(), "sha256").digest()
+        assert bytes(result.mac) == expected
