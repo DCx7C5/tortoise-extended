@@ -20,7 +20,7 @@ class TestUUID4FieldSQLType:
     """Verify UUID4Field inherits tortoise's UUIDField SQL types."""
 
     def test_sql_type(self) -> None:
-        """Default SQL_TYPE (SQLite/CHAR fallback) should be CHAR(36)."""
+        """Inherited default SQL_TYPE (the non-PostgreSQL mapping) is CHAR(36)."""
         assert UUID4Field.SQL_TYPE == "CHAR(36)"
 
     def test_db_postgres_sql_type(self) -> None:
@@ -129,7 +129,7 @@ class TestUUID7FieldSQLType:
     """Verify UUID7Field inherits tortoise's UUIDField SQL types."""
 
     def test_sql_type(self) -> None:
-        """Default SQL_TYPE (SQLite/CHAR fallback) should be CHAR(36)."""
+        """Inherited default SQL_TYPE (the non-PostgreSQL mapping) is CHAR(36)."""
         assert UUID7Field.SQL_TYPE == "CHAR(36)"
 
     def test_db_postgres_sql_type(self) -> None:

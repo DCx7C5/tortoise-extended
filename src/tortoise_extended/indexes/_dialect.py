@@ -14,11 +14,10 @@ def assert_postgres_dialect(
     """Raise unless the schema generator targets PostgreSQL.
 
     HNSW/IVFFlat/GiST index DDL is PostgreSQL-specific (``USING hnsw``,
-    ``USING ivfflat``, ``USING gist``).  On SQLite/MySQL/MSSQL/Oracle the
-    emitted DDL is invalid and would break ``generate_schemas``, or worse
-    silently produce a non-functional schema.  ``generate_schemas`` is a
-    dev-only convenience; production migrations run on PostgreSQL where
-    these indexes belong.
+    ``USING ivfflat``, ``USING gist``).  On any other dialect the emitted DDL
+    is invalid and would break ``generate_schemas``, or worse silently produce
+    a non-functional schema.  ``generate_schemas`` is a dev-only convenience;
+    production migrations run on PostgreSQL where these indexes belong.
 
     Args:
         schema_generator: The active schema generator (carries ``DIALECT``).

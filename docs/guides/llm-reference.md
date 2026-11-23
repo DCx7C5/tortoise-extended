@@ -80,8 +80,9 @@ Pick the base per model — each is opt-in and independent:
 | User accounts | `BaseUserModel` | extends `BaseModel`; argon2id hashing | stack with `TimestampMixin` |
 
 **Rules:**
-- `BaseModel`/`TimestampMixin`/`BaseSoftDeleteModel` are pure Tortoise — no PG-only
-  behavior (they run on SQLite too).
+- `BaseModel`/`TimestampMixin`/`BaseSoftDeleteModel` are pure Tortoise — they need no
+  PostgreSQL-specific column type, but this package and its test suite are PostgreSQL-only:
+  there is no SQLite harness.
 - Do **not** combine `BaseModel` with `BaseNode`/`BaseGraphEdgeModel`/`BaseHierarchyModel`/
   `BaseSample` — those declare their own primary keys and the two `id`
   definitions collide.

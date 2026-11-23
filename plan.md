@@ -116,8 +116,8 @@
 > **Reconciled (2026-11-22):** item 15 is `done`; item 14
 > (`PGPEncryptedField`) is **`todo`** — `fields/pgcrypto.py` does not exist.
 
-14. **`PGPEncryptedField`** (`fields/pgcrypto.py`) — *`todo`.* Thin `BYTEA` (PG) /
-    `BLOB` (SQLite) storage field subclassing `BinaryField`. Stores ciphertext
+14. **`PGPEncryptedField`** (`fields/pgcrypto.py`) — *`todo`.* Thin `BYTEA` storage
+    field subclassing `BinaryField`. Stores ciphertext
     `bytes` the application produces; does **not** encrypt/decrypt. Pair with
     the `pgp_sym_*` helpers below (or any app-side encryptor).
 15. **pgcrypto query helpers** (`expressions/pgcrypto.py`) — *`done`.* tortoise
@@ -422,7 +422,10 @@ pk) and `FileNode` (§B) at it in one repo-internal change.
   = cross-table/external references.
 - `BaseEventStreamModel` keeps its composite pk (`stream_id`, `time_field`);
   no `uid` on the stream hot path.
-- SQLite fallback (uuid7 stored as string) keeps non-PG tests green.
+- **PostgreSQL-only (ruling 2026-11-23):** the SQLite fallback that once kept
+  non-PG tests green is gone — `UUID7Field` is a native `uuid` column and the
+  suite runs against the Docker PostgreSQL. Anything that only worked on
+  SQLite is deleted, not skipped.
 - New roadmap item: **Tier 1b — `UUID7Field` + `UnifiedIdModel`** (sits
   between Tier 1 and Tier 2; §B `FileNode` derives `UnifiedIdModel`).
 
@@ -877,3 +880,37 @@ edges alike; models without the column generate byte-identical SQL.
 
 **H1 is closed as won't-fix** (row 3002 cancelled): the repository is not executed on GitHub, so a
 workflow would never run. The local CLI gate is the accepted control.
+
+### I.7 PostgreSQL-only — SQLite removal (ruling 2026-11-23)
+
+**User ruling:** *"everything sqlite in tortoise-extended can be removed. everything that is not
+postgres can be removed."* The package advertises PostgreSQL graph/vector capabilities and has no
+shipped SQLite code path, so the SQLite harness was a testing artefact that let modules pass
+without exercising the backend the library actually targets.
+
+**Measured before any edit:** `grep -rn -i sqlite src/` finds **zero code branches** — only
+docstrings (`fields/uuid.py`, `fields/ipv4.py`, `fields/char.py`, `indexes/_dialect.py`,
+`models/node.py`) and the typing overlay. So this was never a `src/` refactor: it is the test
+harness, the docstrings and the policy text.
+
+**Inventory correction.** The first pass counted 14 affected test modules; three never open a
+connection and are *kept*: `test_hnsw_index.py` and `test_indexes.py` use a fake schema generator
+with `DIALECT = "sqlite"` to assert the PostgreSQL-only guard, and `test_pgcrypto.py` is a
+PostgreSQL module whose only mention is a docstring note. Deleting them would delete the guard
+they pin.
+
+**Deletion, not rework.** Anything that only worked on SQLite is deleted, never skipped
+(`test_sqlite_blob_roundtrip_decodes_floats`, `test_sqlite_sql_type_is_int`). The remaining
+modules are re-pointed to the Docker database using the established integration-module pattern:
+module-level `DB_URL` (env override `TORTOISE_TEST_DB`), a `_pg_available()` socket probe behind
+`pytestmark = skipif`, `DROP TABLE ... CASCADE` at the module boundary and `TRUNCATE` between
+tests — because `sqlite://:memory:` used to provide isolation and teardown for free.
+
+**Scope split (rows):** 2962 umbrella + policy; 3015 cache cluster (4 modules); 3016 graph
+cluster (3 modules + 1 deleted test); 3017 models cluster (4 modules + 1 deleted test).
+
+**Consequences:** the suite now needs the Docker stack for every database-backed module, and the
+`redis` extra must be installed for `basedpyright` to see a clean `src/` (an un-synced venv
+produces three spurious `cache/redis.py` errors). AGENTS.md §Testing, `docs/docker/setup.md`,
+`docs/guides/llm-reference.md`, `docs/api/fields.md` and the affected docstrings were corrected
+in the same pass.

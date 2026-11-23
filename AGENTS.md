@@ -356,10 +356,13 @@ bootstrap when the MCP server is unreachable. Never rewrite the whole list with 
 - Tests are organized into `Test*` classes per concern.
 - Target: **zero warnings** — `filterwarnings = ["error"]` is set, so any warning fails the run.
   Do not add tests that emit deprecation/async warnings.
-- Non-PostgreSQL-specific tests may run against SQLite, but only for generic ORM logic.
-  PostgreSQL-only types (`VectorField`/pgvector, `LTreeField`, the pgvector index types,
-  pgcrypto/`ts_rank` expressions) are **not** exercised on SQLite — they have no fallback.
-- `test_pg_integration.py` requires the Docker database (see below).
+- **PostgreSQL-only — there is no SQLite harness.** The package targets PostgreSQL, and the
+  suite exercises that backend rather than a portable subset. A database-backed module points at
+  `postgres://postgres:postgres@localhost:5434/tortoise_test` (override with `TORTOISE_TEST_DB`),
+  drops its tables at the module boundary and `TRUNCATE`s between tests, and carries
+  `pytestmark = pytest.mark.skipif(not _pg_available(), ...)` so the pure unit tests still run on
+  a machine without Docker. Anything that only works on SQLite is **deleted, never skipped**.
+  `test_pg_integration.py` and the `*_integration.py` modules require the Docker database.
 
 ## Docker
 

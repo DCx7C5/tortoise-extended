@@ -33,8 +33,8 @@ from tortoise_extended._types import FieldDefaultValue, FieldInitKwargs
 class UUID4Field(UUIDField[UUID]):
     """PostgreSQL ``uuid`` column auto-populated with a random UUID4.
 
-    Inherits tortoise's ``UUIDField`` SQL types: ``UUID`` on PostgreSQL
-    (via ``_db_postgres``) and ``CHAR(36)`` on SQLite. When no ``default``
+    Inherits tortoise's ``UUIDField`` SQL type: a native ``UUID`` column on
+    PostgreSQL (via ``_db_postgres``). When no ``default``
     is supplied, ``uuid4`` is injected — this overrides tortoise's
     pk-only default injection, so non-primary-key columns also
     auto-generate values.
@@ -70,16 +70,14 @@ class UUID4Field(UUIDField[UUID]):
     ) -> None:
         if default is None:
             default = uuid4
-        super().__init__(
-            null=null, default=default, description=description, **kwargs
-        )
+        super().__init__(null=null, default=default, description=description, **kwargs)
 
 
 class UUID7Field(UUIDField[UUID]):
     """PostgreSQL ``uuid`` column auto-populated with a time-ordered UUID7.
 
-    Inherits tortoise's ``UUIDField`` SQL types: ``UUID`` on PostgreSQL
-    (via ``_db_postgres``) and ``CHAR(36)`` on SQLite. UUID7 values embed a
+    Inherits tortoise's ``UUIDField`` SQL type: a native ``UUID`` column on
+    PostgreSQL (via ``_db_postgres``). UUID7 values embed a
     Unix timestamp, which keeps index locality good for insert-heavy
     tables. When no ``default`` is supplied, ``uuid7`` is injected.
 
@@ -107,6 +105,4 @@ class UUID7Field(UUIDField[UUID]):
     ) -> None:
         if default is None:
             default = uuid7
-        super().__init__(
-            null=null, default=default, description=description, **kwargs
-        )
+        super().__init__(null=null, default=default, description=description, **kwargs)

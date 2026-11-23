@@ -29,7 +29,7 @@ CharField(max_length: int, *, null: bool = False, default=None,
 
 ### SQL Type
 
-`TEXT` on every backend.
+`TEXT`.
 
 ### Usage
 
@@ -91,7 +91,6 @@ ipaddress.IPv4Address | None
 ### SQL Type
 
 - **PostgreSQL:** `inet`
-- **SQLite:** `VARCHAR(15)`
 
 ### Usage
 
@@ -161,7 +160,6 @@ pathlib.PurePosixPath | None
 ### SQL Type
 
 - **PostgreSQL:** `TEXT`
-- **SQLite:** `TEXT`
 
 ### Usage
 
@@ -232,7 +230,6 @@ str | None
 ### SQL Type
 
 - **PostgreSQL:** `TEXT`
-- **SQLite:** `TEXT`
 
 ### Usage
 
@@ -309,7 +306,6 @@ UUID | None
 ### SQL Type
 
 - **PostgreSQL:** `UUID` (inherited from tortoise `UUIDField._db_postgres`)
-- **SQLite:** `CHAR(36)`
 
 ### Usage
 
@@ -377,7 +373,6 @@ UUID | None
 ### SQL Type
 
 - **PostgreSQL:** `UUID` (inherited from tortoise `UUIDField._db_postgres`)
-- **SQLite:** `CHAR(36)`
 
 ### Usage
 

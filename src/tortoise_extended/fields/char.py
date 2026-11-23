@@ -5,7 +5,7 @@ performance. The only difference is that ``VARCHAR(n)`` enforces a max
 length at the database level — a constraint that PostgreSQL 18 now warns
 about as a non-best-practice.
 
-This ``CharField`` replaces ``VARCHAR(N)`` with ``TEXT`` on all backends
+This ``CharField`` maps ``VARCHAR(N)`` to ``TEXT``
 while keeping Tortoise's ``MaxLengthValidator`` for Python-side safety.
 Application-layer validation remains the primary guard; the DB-level
 ``VARCHAR(n)`` check is redundant when the ORM already validates.

@@ -70,8 +70,8 @@ class IPv4Field(Field[ipaddress.IPv4Address]):
     ) -> ipaddress.IPv4Address | None:
         """Convert a database value to an ``ipaddress.IPv4Address``.
 
-        :param value: Raw value from the driver (asyncpg returns ``str``;
-            SQLite returns the text form), or ``None``.
+        :param value: Raw value from the driver (asyncpg returns ``str``),
+            or ``None``.
         :returns: An ``IPv4Address``, or ``None``.
         :raises ValueError: If the string is not a valid IPv4 address.
         """

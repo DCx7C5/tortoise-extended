@@ -189,11 +189,12 @@ class TestPgcryptoIntegration:
     """Live PostgreSQL tests for pgcrypto hash/digest functions.
 
     Skipped (entire class) when PostgreSQL is not available on
-    ``localhost:5434``, so unit/sqlite tests still run on non-PG machines.
+    ``localhost:5434``, so the pure unit tests still run on machines without
+    PostgreSQL.
 
-    The ``_init_pg_db`` fixture is ``function``-scoped because each SQLite
-    unit test in this module calls ``Tortoise.init``/``close_connections``
-    itself, so a module-scoped PG connection would be torn down mid-suite.
+    The ``_init_pg_db`` fixture is ``function``-scoped so every test starts
+    from an empty ``test_simple_documents`` table: it creates the schema and
+    drops it again on teardown.
     """
 
     pytestmark = pytest.mark.skipif(
@@ -221,9 +222,9 @@ class TestPgcryptoIntegration:
         assert len(expected_hex) == 64
 
         doc = await SimpleDocument.create(plain_text=plaintext)
-        result = await SimpleDocument.annotate(
-            h=DigestHex("plain_text", "sha256")
-        ).get(id=doc.id)
+        result = await SimpleDocument.annotate(h=DigestHex("plain_text", "sha256")).get(
+            id=doc.id
+        )
 
         assert result.h is not None
         assert len(str(result.h)) == 64
@@ -233,13 +234,15 @@ class TestPgcryptoIntegration:
         """Digest returns a bytea value (raw binary hash)."""
         plaintext = "binary-test"
         doc = await SimpleDocument.create(plain_text=plaintext)
-        result = await SimpleDocument.annotate(
-            raw=Digest("plain_text", "sha256")
-        ).get(id=doc.id)
+        result = await SimpleDocument.annotate(raw=Digest("plain_text", "sha256")).get(
+            id=doc.id
+        )
 
         # Raw digest is bytes-like; sha256 produces 32 bytes
         assert result.raw is not None
-        raw_bytes = bytes(result.raw) if not isinstance(result.raw, bytes) else result.raw
+        raw_bytes = (
+            bytes(result.raw) if not isinstance(result.raw, bytes) else result.raw
+        )
         assert len(raw_bytes) == 32
 
     async def test_hmac_digest(self) -> None:
@@ -252,5 +255,7 @@ class TestPgcryptoIntegration:
         ).get(id=doc.id)
 
         assert result.mac is not None
-        mac_bytes = bytes(result.mac) if not isinstance(result.mac, bytes) else result.mac
+        mac_bytes = (
+            bytes(result.mac) if not isinstance(result.mac, bytes) else result.mac
+        )
         assert len(mac_bytes) == 32  # SHA-256 HMAC is 32 bytes

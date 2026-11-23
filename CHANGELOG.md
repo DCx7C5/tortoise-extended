@@ -29,6 +29,14 @@ the versions below are the `pyproject.toml` version at the time of the change.
   nodes and edges when the model declares a `deleted_at` column, matching `SoftDeleteQuerySet`.
   Models without the column generate identical SQL.
 
+### Removed
+
+- The SQLite test harness. The package is PostgreSQL-only, so every database-backed test module
+  now runs against the Docker PostgreSQL (`127.0.0.1:5434`, override with `TORTOISE_TEST_DB`),
+  dropping its tables at the module boundary and truncating between tests. Tests that only made
+  sense on SQLite — the raw-BLOB pgvector round-trip and the `BooleanField._db_sqlite` type
+  assertion — were deleted, not skipped.
+
 ### Fixed
 
 - Continuous-aggregate SQL injection: two quotes inside a `/* */` comment could hide a statement

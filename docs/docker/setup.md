@@ -108,5 +108,7 @@ uv sync --all-extras
 uv run pytest tests/ -v
 ```
 
-`tests/test_pg_integration.py` requires the Docker database (`postgres-ext`).
-The remaining suite runs against SQLite and needs no container.
+`tests/test_pg_integration.py` and the `*_integration.py` modules require the Docker
+database (`postgres-ext`); so does every module that registers models. The database-backed
+modules skip themselves when `localhost:5434` is unreachable, so the pure unit tests still run
+without a container.
