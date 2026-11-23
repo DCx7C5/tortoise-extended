@@ -10,6 +10,9 @@ convention and lives under ``tortoise_extended.models``:
 * :class:`~tortoise_extended.models.soft_delete.BaseSoftDeleteModel` +
   :class:`~tortoise_extended.models.soft_delete.SoftDeleteQuerySet` — soft
   delete with an auto-filtering queryset.
+* :class:`~tortoise_extended.models.soft_delete_node.BaseSoftDeleteNode` +
+  :class:`~tortoise_extended.models.soft_delete_node.SoftDeleteNodeQuerySet` —
+  subtree-aware soft delete over the adjacency list.
 * :class:`~tortoise_extended.models.node.NodeMixin` +
   :class:`~tortoise_extended.models.node.BaseNode` — pk-free adjacency-list
   mixin and UUID7-identity graph node base, plus
@@ -48,6 +51,7 @@ from .mixins import TimestampEndMixin, TimestampMixin
 from .node import BaseNode, NodeMixin, NodeTree
 from .sample import BaseSample, SampleMixin
 from .soft_delete import BaseSoftDeleteModel, SoftDeleteQuerySet
+from .soft_delete_node import BaseSoftDeleteNode, SoftDeleteNodeQuerySet
 from .unified import UnifiedIdModel
 from .unified_node import BaseUnifiedNode
 from .user import BaseUserModel
@@ -62,11 +66,13 @@ __all__ = [
     "BaseNode",
     "BaseSample",
     "BaseSoftDeleteModel",
+    "BaseSoftDeleteNode",
     "BaseUnifiedNode",
     "BaseUserModel",
     "NodeMixin",
     "NodeTree",
     "SampleMixin",
+    "SoftDeleteNodeQuerySet",
     "SoftDeleteQuerySet",
     "TimestampEndMixin",
     "TimestampMixin",

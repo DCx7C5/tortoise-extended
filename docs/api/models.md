@@ -15,6 +15,8 @@ from tortoise_extended import (
     TimestampEndMixin,
     BaseSoftDeleteModel,
     SoftDeleteQuerySet,
+    BaseSoftDeleteNode,
+    SoftDeleteNodeQuerySet,
     BaseNode,
     BaseUnifiedNode,
     BaseGraphNodeModel,
@@ -35,6 +37,7 @@ from tortoise_extended import (
 | 64-bit JOIN-fast primary key | `BaseModel` | internal-only tables |
 | `created_at` / `updated_at` columns | `TimestampMixin` | stackable with any base |
 | Soft delete (`deleted_at`, auto-filtered) | `BaseSoftDeleteModel` | pairs with `SoftDeleteQuerySet` |
+| Soft-deleted graph nodes (whole subtree) | `BaseSoftDeleteNode` | `BaseSoftDeleteModel` + `NodeMixin`, see below |
 | Cross-table / external refs | `UnifiedIdModel` | BigInt pk + UUID7 `uid`, see below |
 | Graph nodes / edges | `BaseNode` / `BaseGraphEdgeModel` | `BaseGraphNodeModel` is the deprecated alias, see [Graph](graph.md) |
 | BigInt-keyed graph nodes | `BaseUnifiedNode` | `NodeMixin` + UUID7 `uid`, integer `parent_id`, see below |
@@ -282,6 +285,88 @@ await Account.with_deleted().hard_delete()  # physical delete
   indexes on every concrete subclass. `NodeMixin`, `BaseGraphEdgeModel`, and
   `BaseHierarchyModel` enforce this at class-creation time
   (`NotImplementedError`); opt out deliberately with `indexes = ()`.
+
+---
+
+## BaseSoftDeleteNode + SoftDeleteNodeQuerySet
+
+Subtree-aware soft delete: `BaseSoftDeleteModel` (the `deleted_at` column and
+the live-only manager surface) layered over `NodeMixin` (adjacency list,
+`child_count`, traversal helpers). Declare an identity base in front of it —
+`class Category(BaseSoftDeleteNode, BaseNode)` — and redeclare `Meta.indexes`.
+
+A plain `class X(BaseSoftDeleteModel, NodeMixin)` would bypass
+`NodeMixin.delete()` (the MRO reaches `BaseSoftDeleteModel.delete()`, which
+only stamps `deleted_at`), so neither the parent `child_count` nor the
+children themselves would be handled. This base replaces both halves.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `deleted_at` | `DatetimeField(null=True, default=None, db_index=True)` | `NULL` = live row (from `BaseSoftDeleteModel`) |
+| `parent_id` | declared by the concrete class | Adjacency-list parent key |
+| `depth` / `is_root` / `child_count` / `namespace` / `metadata_json` | — | from `NodeMixin` |
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `instance.delete(using_db=None)` | `None` | Soft-delete the node **and its live subtree** in one transaction |
+| `instance.restore()` | `None` | Restore the node and its soft-deleted subtree |
+| `qs.delete()` | `int` | Soft-delete the matched rows **and their subtrees** |
+| `qs.restore()` | `int` | Restore the matched soft-deleted rows and their subtrees |
+| `qs.hard_delete()` | `int` | Physical delete of the matched rows only (base behaviour) |
+
+`delete()` / `restore()` are no-ops on a row already in the target state.
+Siblings are never touched; the subtree is the set of rows reachable through
+`parent_id` links in the queryset's visibility mode (live rows for a delete,
+soft-deleted rows for a restore).
+
+### `child_count`
+
+`child_count` counts **live** children. A subtree soft delete zeroes the
+counters inside the subtree and decrements each **live** parent by the number
+of children it lost — exactly one for the usual single-root delete;
+`restore()` recomputes every restored node's counter from its live children
+and re-increments each live parent. A hidden row's counter reads `0` until it
+is restored.
+
+### Notes
+
+- `_block_orphan_delete` is a **hard**-delete guard and never fires for a soft
+  delete: children are hidden, not orphaned.
+- The subtree write is one bulk `UPDATE`, so no per-row `pre_save`/`post_save`
+  signals fire; the instance's `deleted_at` is updated in memory.
+- The CTE builders (`GraphTraversal`, `shortest_path`, `GraphVectorSearch`)
+  auto-filter `deleted_at IS NULL`, so soft-deleted nodes disappear from
+  traversal and pathfinding without extra calls.
+- `rebuild_derived()` is a raw-SQL hard-delete repair that counts deleted
+  children too — do not use it on a soft-delete node tree.
+
+### Usage
+
+```python
+from tortoise_extended import BaseNode, BaseSoftDeleteNode
+
+
+class Category(BaseSoftDeleteNode, BaseNode):
+    class Meta:
+        table = "categories"
+        indexes = (("namespace", "depth"),)
+
+
+root = await Category.create(name="Electronics")
+laptops = await root.add_child(name="Laptops")
+macbooks = await laptops.add_child(name="MacBooks")
+phones = await root.add_child(name="Phones")
+
+await laptops.delete()   # Laptops + MacBooks hidden, Phones untouched
+await laptops.restore()  # both live again
+
+await Category.filter(name="Electronics").delete()  # root + whole subtree
+await Category.only_deleted().filter(name="Electronics").restore()
+```
 
 ---
 

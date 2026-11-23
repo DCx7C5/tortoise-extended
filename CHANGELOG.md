@@ -81,6 +81,13 @@ the versions below are the `pyproject.toml` version at the time of the change.
   required `seed` node, because a graph+vector search has no meaning without one; the constructor
   rejects an edge model lacking the source / target / edge-type column, and every node argument is
   checked for class, namespace and persistence before a query runs.
+- `BaseSoftDeleteNode` + `SoftDeleteNodeQuerySet` — soft delete and the tree contract at once.
+  Deleting a node hides its whole **live** subtree in one transaction; `restore()` brings the
+  subtree back and recomputes each restored node's `child_count` from its live children, so a
+  partial restore cannot leave a stale count. The queryset path (`filter(...).delete()` /
+  `.restore()`) applies the same subtree semantics rather than hiding the matched rows alone, and
+  `hard_delete()` keeps the base physical-delete behaviour. `child_count` keeps counting live
+  children throughout, and `_block_orphan_delete` — a hard-delete guard — never fires here.
 
 ### Changed
 
