@@ -19,6 +19,7 @@ import tortoise_extended  # Must be first import — applies monkey-patches
 
 tortoise_extended.patch()  # Explicit: apply all monkey-patches (idempotent)
 from tortoise import Tortoise
+from tortoise_extended.lifecycle import setup
 
 # Define your models (see docs/architecture/schema.md for the GraphRAG schema)
 from myapp.models import Entity, Relationship, TextUnit
@@ -29,11 +30,19 @@ async def main():
         db_url="postgres://postgres:postgres@127.0.0.1:5434/tortoise_extended",
         modules={"models": ["myapp.models"]},
     )
-    await Tortoise.generate_schemas()
+    report = await setup(generate_schemas=True)
 
 
 asyncio.run(main())
 ```
+
+> **Note:** `setup()` runs the bootstrap in dependency order — the PostgreSQL extensions
+> (`vector`, `ltree`, `timescaledb`, ...), then the model schemas when `generate_schemas=True`,
+> then the TimescaleDB hypertable DDL for every registered `SampleMixin` stream model. The
+> order is load-bearing: a hypertable is converted from a table that must already exist. The
+> call is idempotent, so run it on every application start; pass
+> `models={"models": ["myapp.models"]}` to restrict the stream scan to those app labels.
+> `report.extensions`, `report.streams` and `report.schemas_generated` record what ran.
 
 ## 3. Insert Data
 

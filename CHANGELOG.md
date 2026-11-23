@@ -46,6 +46,12 @@ the versions below are the `pyproject.toml` version at the time of the change.
   base, so concrete subclasses still redeclare the `(namespace, depth)` index — the base
   redeclares it as documentation, and the guard's error message is what a forgetful subclass
   hits.
+- `setup(models=None, *, generate_schemas=False)` — the startup fan-out: `ensure_extensions()`,
+  then `Tortoise.generate_schemas()` when asked, then `model.setup()` for every non-abstract
+  `SampleMixin` subclass, returning a `SetupReport`. The order is load-bearing —
+  `create_hypertable` needs the table to exist, and the test proves it by measuring that the
+  reversed order raises. `models` restricts the stream scan by app label; it is not forwarded
+  to `Tortoise.init()`. Raises `SetupError` before `Tortoise.init()` has run.
 - `SampleMixin.record(*, stream=None, at=None, **fields)` — one-row create with the partition
   columns mapped from the `stream=` / `at=` shorthands. A shorthand that collides with an
   explicit field raises `TimescaleError` instead of one silently winning. `at=None` has no
