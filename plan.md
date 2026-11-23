@@ -72,11 +72,26 @@
 ### Tier 3 — QuerySet/API gaps — `wip`
 7. **Window functions** (`row_number()`, `rank()`, `dense_rank()`) —
    verified no window support in `QuerySet`; pypika supports it; home in
-   `expressions/`.
+   `expressions/`. **Shipped 2026-11-23** (`4a96a1b` implementation, `8c514ec`
+   tests): `expressions/windows.py` — `row_number`, `rank`, `dense_rank`,
+   `ntile(n)` and the windowed aggregates `sum_over` / `avg_over` /
+   `count_over` / `min_over` / `max_over`, taking field **names** (a leading `-`
+   means `DESC`), with `docs/api/windows.md`.
 8. **`.distinct_on(*fields)`** — `DISTINCT ON` today is raw-SQL-only
-   (documented in design-decisions); graduate into QuerySet.
-9. **`.random()`** — `ORDER BY RANDOM()`; verified absent. Useful for
-   sampling/ab-tests.
+   (documented in design-decisions); graduate into QuerySet. **Shipped
+   2026-11-23** (`085d7d2`): `expressions/distinct_on.py` ships the free async
+   `distinct_on(model_or_queryset, *on, order_by=(), limit=None, where=None,
+   params=(), include_deleted=False)` helper — Tortoise cannot express the SQL
+   (pypika's `distinct()` takes no arguments), so it is one sanitised statement
+   plus hydration into real instances. Not a `QuerySet` method; documented in
+   `docs/api/queryset.md`.
+9. **`.random()`** — **shipped 2026-11-23** (`de826ed`, `cabf3bc` tests):
+   `queryset.py` + `QuerySet.random` as patch site 6, `docs/api/queryset.md`,
+   `tests/test_queryset_random.py` (13 cases). Implementation is
+   `annotate(_tortoise_extended_random=Random()).order_by(<alias>)` on a clone, so it
+   composes with `filter`/`values_list`/`limit`/`paginate` and leaves `count()`
+   untouched; an existing annotation of the alias raises `ValueError` instead of being
+   silently overwritten, documented in `docs/api/queryset.md`.
 10. **`.paginate(page, page_size)` → `PageInfo`** — Tortoise has only
     `offset`/`limit`; return items + total + total_pages. **Shipped 2026-11-23**
     (`1fd2e95` implementation, `5446be1` tests): `pagination.py`, `QuerySet.paginate`
@@ -100,7 +115,11 @@
     per-role tables via abstract kit + one concrete subclass each.
 13. **Optimistic locking** — `version` BigIntField; `save()` guarded by
     `WHERE version = <stored>`; raises `VersionMismatchError` on conflict.
-    Tortoise has no optimistic locking.
+    Tortoise has no optimistic locking. **Shipped 2026-11-23** (`3e48756`):
+    `models/versioned.py` — abstract `VersionMixin` + guarded `save()` as one
+    queryset `UPDATE` with `version = version + 1`, exported
+    `VersionMismatchError`, `docs/api/models.md` section; bulk paths documented
+    as bypassing the guard.
 
 ### Implemented features not previously tracked — `done`
 > These shipped and are exported in `__init__.py` `__all__` but were absent
@@ -842,6 +861,45 @@ and `ts_rank` is not a match indicator under `~SearchQuery(...)` (the matching r
 non-matching rows score > 0 — negated queries belong in `filter(<col>__search=...)`).
 `docs/api/hybrid-search.md` now says which half of it is upstream. Docs-only: no Python, so the gate
 is untouched.
+
+**ERGONOMICS slice round 2 (3047-3050).** Tier 3 items 7/8/9 plus Tier 4 item 13, user-selected
+2026-11-23. Four features, three patch sites between them, all verified against the live
+`postgres-ext` cluster before commit:
+- **3047 `QuerySet.random()`** (`de826ed` feat, `cabf3bc` tests, 13 cases) — **patch site 6**;
+  composes with `filter`/`values_list`/`limit`/`paginate`, leaves `count()` untouched, refuses an
+  existing annotation of its alias with `ValueError`.
+- **3048 window builders** (`4a96a1b` feat, `8c514ec` tests, 32 cases) — nine builders in
+  `expressions/windows.py`, field **names** only; `count_over()` with no field emits `COUNT(*)`;
+  `ntile(n < 1)` and non-identifier names raise `ValueError`. The live test run found a real defect
+  the probe had missed: a tortoise `F("x")` fell through to iteration and raised `TypeError`
+  instead of the documented `ValueError`; fixed in `8c514ec` (guarded `tuple()`), along with a bare
+  `order_by="-"` now naming `"-"` rather than the stripped `""`.
+- **3049 `distinct_on()`** (`085d7d2`) — no patch site: pypika-tortoise's `Query.distinct()` takes
+  no arguments and `QuerySet.distinct()` is a bool, so this is one sanitised statement plus
+  hydration through `execute_query_dict` + `Model._init_from_db` (the only supported path, and the
+  reason the select list aliases every column to its own db name). `order_by` must lead with the
+  `on` columns (PostgreSQL's rule) and defaults to them ascending; ten refused inputs raise
+  `ValueError` instead of reaching the server.
+- **3050 `VersionMixin`** (`3e48756`) — abstract base, `version` BigInt default 0, guarded
+  `save()` as one `UPDATE … WHERE <pk> = $1 AND version = $2` with `version = version + 1` through
+  the queryset API (AGENTS.md rule 3, so no raw SQL), rowcount decides the outcome, new exported
+  `VersionMismatchError` carries `model`/`pk`/`expected`/`current` and leaves the instance
+  untouched. Two findings shaped it: `auto_now` never fires through `QuerySet.update()` (the
+  executor converts without an instance), so the mixin stamps it explicitly; and the guard uses a
+  **plain** `QuerySet`, which is what makes it work on soft-delete models — `SoftDeleteQuerySet`
+  would hide the row from the version check. Bulk paths bypass it by design, documented in the
+  docstring, `docs/api/models.md` and the CHANGELOG rather than refused.
+
+**Deviation recorded:** both workers for this round died on the account-wide free-tier quota
+(several times, in sequence), so after the user's "Planner implements directly" approval the
+planner wrote the four implementations and probed them himself; tests stayed with `css-tester`
+(`8c514ec` landed; `tests/test_distinct_on.py` and `tests/test_versioned.py` were dispatched last
+and are the only outstanding pieces of the round). Stub-overlay additions were required and are
+part of the same commits: `MetaInfo.basetable` / `fields_db_projection[_reverse]`,
+`execute_query_dict(Sequence[CoercedValue])`, `Field.generated` / `Field.auto_now`,
+`Model._saved_in_db` / `_partial` / `_set_async_default_field` / `_pre_save` / `_post_save`, and a
+new `tortoise.timezone` stub. Gate at the end of the round: ruff clean, basedpyright
+**0 errors, 0 warnings, 0 notes**, `tests/test_windows.py` 32 passed.
 
 **Wheel payload (3010, `50910f0`).** The user added the one line —
 `exclude = ["src/tortoise_extended/stubs"]` under `[tool.hatch.build.targets.wheel]` — and the
