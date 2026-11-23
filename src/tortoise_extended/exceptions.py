@@ -15,6 +15,8 @@ onto the feature areas:
 - :class:`HybridSearchError` — hybrid vector + FTS search
 - :class:`TimescaleError` — TimescaleDB managers and migrations
 - :class:`MigrationOperationError` — migration operations
+- :class:`SetupError` — database lifecycle/bootstrap failures (e.g. a
+  required PostgreSQL extension cannot be created)
 - :class:`CacheError` — caching layer (plus ``CacheKeyError``,
   ``CacheSerializationError``, ``CacheDataError``,
   ``CacheBackendNotInitializedError``, ``RedisCacheError``)
@@ -100,6 +102,19 @@ class TimescaleError(TortoiseExtendedError):
 
 class MigrationOperationError(TortoiseExtendedError):
     """Invalid migration operation configuration."""
+
+
+class SetupError(TortoiseExtendedError):
+    """The database is not ready for ``tortoise-extended``.
+
+    Raised by the lifecycle layer when a required PostgreSQL extension cannot
+    be created — most commonly because the connecting role lacks the
+    privilege ``CREATE EXTENSION`` needs (superuser for a non-trusted
+    extension such as ``vector`` or ``timescaledb``; database ``CREATE`` for a
+    trusted one), or because the server does not ship the extension at all.
+    The message names the failing extension and the original server error is
+    chained as the cause.
+    """
 
 
 class CacheError(TortoiseExtendedError):

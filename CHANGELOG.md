@@ -33,6 +33,12 @@ the versions below are the `pyproject.toml` version at the time of the change.
 - `pglast`-based validation of continuous-aggregate queries.
 - `HMACDigest` accepts a pypika expression as its `key`, so the secret can be resolved
   server-side (`current_setting('app.key')`) instead of being inlined as a literal.
+- `ensure_extensions()` — creates the six PostgreSQL extensions every feature of the package
+  stands on (`vector`, `ltree`, `timescaledb`, `pgcrypto`, `pg_trgm`, `uuid-ossp`) with
+  `CREATE EXTENSION IF NOT EXISTS`, in creation order, and returns the names. Idempotent, so it
+  is safe on every application start. `EXTENSIONS` is the public tuple it iterates; a refusal
+  (typically missing privilege) raises `SetupError` with the server error chained, never
+  swallowed. `SetupReport` is the struct the `setup()` fan-out fills.
 
 ### Changed
 

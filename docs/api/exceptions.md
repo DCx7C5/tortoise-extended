@@ -28,6 +28,7 @@ TortoiseExtendedError
 ├── HybridSearchError
 ├── TimescaleError
 ├── MigrationOperationError
+├── SetupError
 └── CacheError
     ├── CacheKeyError
     ├── CacheSerializationError
@@ -49,6 +50,7 @@ TortoiseExtendedError
 | `HybridSearchError` | `HybridSearch` gets an unsupported `distance_metric` |
 | `TimescaleError` | TimescaleDB manager/migration failures |
 | `MigrationOperationError` | a migration operation is misconfigured |
+| `SetupError` | a required PostgreSQL extension cannot be created (typically a missing privilege) |
 | `CacheKeyError` | a `CacheKey` cannot be built from the given parts |
 | `CacheSerializationError` | a value cannot be serialized/deserialized |
 | `CacheDataError` | cached data has an unexpected shape |

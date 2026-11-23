@@ -72,6 +72,7 @@ from tortoise_extended.exceptions import (
     PatchConflictError,
     RecursiveCTEError,
     RedisCacheError,
+    SetupError,
     TimescaleError,
     TortoiseExtendedError,
     TortoiseVersionError,
@@ -124,6 +125,7 @@ from tortoise_extended.fields.uuid import UUID4Field, UUID7Field
 from tortoise_extended.fields.vector import VectorField
 from tortoise_extended.indexes.hnsw_index import HNSWIndex, IVFFlatIndex
 from tortoise_extended.indexes.ltree_index import GiSTIndex
+from tortoise_extended.lifecycle import SetupReport, ensure_extensions
 from tortoise_extended.migrations.operations import (
     CreateContinuousAggregate,
     CreateHypertable,
@@ -587,6 +589,8 @@ __all__ = [
     "RedisCacheBackend",
     "RedisCacheError",
     "SampleMixin",
+    "SetupError",
+    "SetupReport",
     "SoftDeleteQuerySet",
     "TimeBucketRow",
     "TimescaleError",
@@ -605,6 +609,7 @@ __all__ = [
     "cached",
     "cached_method",
     "diversity_rerank",
+    "ensure_extensions",
     "find_cycles",
     "get_ltree_filters",
     "get_vector_filters",
