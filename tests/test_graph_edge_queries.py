@@ -1,10 +1,17 @@
-"""Integration tests for BaseGraphEdgeModel query classmethods against SQLite.
+"""Integration tests for BaseGraphEdgeModel query classmethods against PostgreSQL.
 
 Covers ``between``, ``between_any``, ``outgoing`` and ``incoming`` including the
 optional ``edge_type`` branches (lines previously uncovered).
+
+Requires the docker stack (see ``docker-compose.dev.yml``): PostgreSQL on
+``127.0.0.1:5434``, database ``tortoise_test``.  The module is skipped when that
+database is not reachable.
 """
 
+import os
+import socket
 import uuid
+from collections.abc import AsyncGenerator
 
 import pytest
 from tortoise import Tortoise
@@ -14,7 +21,7 @@ from tortoise_extended.models import BaseGraphEdgeModel, BaseNode
 
 
 class QueryEdge(BaseGraphEdgeModel):
-    """Concrete BaseGraphEdgeModel subclass used by the SQLite test."""
+    """Concrete BaseGraphEdgeModel subclass used by the query tests."""
 
     class Meta:
         table = "query_edges"
@@ -27,7 +34,7 @@ class QueryEdge(BaseGraphEdgeModel):
 
 
 class QueryNode(BaseNode):
-    """Concrete BaseNode subclass used by the SQLite test."""
+    """Concrete BaseNode subclass used by the query tests."""
 
     class Meta:
         table = "query_nodes"
@@ -44,23 +51,65 @@ class GuardNode(BaseNode):
         indexes = (("namespace", "depth"),)
 
 
+# --- Config — skip entire module if PG is not available --------------------
+
+DB_URL = os.environ.get(
+    "TORTOISE_TEST_DB",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
+)
+
+
+def _pg_available() -> bool:
+    """Quick check — can we connect to the test PG?"""
+    try:
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _pg_available(),
+    reason="PostgreSQL not available on localhost:5434",
+)
+
+
+_TABLES = (
+    "query_edges",
+    "query_nodes",
+    "guard_nodes",
+    # Class-creation probes from TestMetaIndexesGuard.  The tables are never
+    # generated (the classes are function-local, so Tortoise does not discover
+    # them), but they are dropped defensively so a rerun starts clean.
+    "guard_no_indexes_edges",
+    "guard_opted_out_edges",
+)
+
+
 @pytest.fixture(scope="module", autouse=True)
-async def _init_db():
-    """Initialize Tortoise with a shared in-memory SQLite DB."""
-    await Tortoise.init(
-        db_url="sqlite://:memory:",
+async def _init_db() -> AsyncGenerator[None, None]:
+    """Initialize Tortoise against the live PostgreSQL test database."""
+    _ = await Tortoise.init(
+        db_url=DB_URL,
         modules={"models": ["tests.test_graph_edge_queries"]},
     )
+    conn = Tortoise.get_connection("default")
+    for table in _TABLES:
+        await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.generate_schemas()
     yield
+    for table in _TABLES:
+        await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.close_connections()
 
 
 @pytest.fixture(autouse=True)
-async def _clean_table():
-    await QueryEdge.all().delete()
-    await QueryNode.all().delete()
-    await GuardNode.all().delete()
+async def _clean_table() -> AsyncGenerator[None, None]:
+    """Truncate the node/edge tables before each test."""
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query("TRUNCATE query_edges, query_nodes, guard_nodes CASCADE")
+    yield
 
 
 async def _make_edges() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
@@ -203,8 +252,7 @@ class TestOrphanDeleteGuard:
 class TestReparentChildCountSync:
     """M2-FIX regression: reparent keeps ``child_count`` consistent and the
     previous-parent read is performed through ``select_for_update`` on the same
-    connection that writes the node (SQLite ignores FOR UPDATE but the code path
-    must remain valid)."""
+    connection that writes the node."""
 
     @pytest.mark.asyncio
     async def test_reparent_adjusts_both_parent_counts(self) -> None:

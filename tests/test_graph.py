@@ -1,14 +1,19 @@
 """Unit tests for BaseGraphNodeModel, BaseGraphEdgeModel, and BaseHierarchyModel.
 
 Tests model definitions, helper methods, classmethod queries, properties,
-str/repr, and abstract status. No database connection required.
+str/repr, and abstract status — no database connection required.
 
 The ``TestSaveAtomicity`` class at the end is the one exception: it exercises
-the transactional write path of :class:`BaseNode.save()` against an
-in-memory SQLite DB (no PostgreSQL/Docker needed) to prove the atomicity
-guarantee — a failure in the denormalized ``child_count`` maintenance must
-roll back the node row write.
+the transactional write path of :class:`BaseNode.save()` against the live
+PostgreSQL test database (see ``docker-compose.dev.yml``) to prove the
+atomicity guarantee — a failure in the denormalized ``child_count`` maintenance
+must roll back the node row write.  That class is skipped when PostgreSQL is
+not reachable; the rest of the module keeps running without a database.
 """
+
+import os
+import socket
+from collections.abc import AsyncGenerator
 
 import pytest
 from tortoise import Tortoise
@@ -16,6 +21,24 @@ from tortoise import Tortoise
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.models import BaseGraphEdgeModel, BaseGraphNodeModel, BaseNode
 from tortoise_extended.models import BaseHierarchyModel
+
+
+# --- Config — only TestSaveAtomicity needs PG -------------------------------
+
+DB_URL = os.environ.get(
+    "TORTOISE_TEST_DB",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
+)
+
+
+def _pg_available() -> bool:
+    """Quick check — can we connect to the test PG?"""
+    try:
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
+        sock.close()
+        return True
+    except OSError:
+        return False
 
 
 class TestGraphNode:
@@ -266,7 +289,7 @@ class TestHierarchyModelDunder:
 
 
 class RollbackNode(BaseNode):
-    """BaseNode subclass used by the SQLite atomicity test.
+    """BaseNode subclass used by the PostgreSQL atomicity test.
 
     Concrete child of :class:`BaseNode` — the atomic write path under test
     lives on :class:`NodeMixin`, so the deprecated ``BaseGraphNodeModel``
@@ -281,19 +304,22 @@ class RollbackNode(BaseNode):
 
 
 @pytest.fixture(scope="module")
-async def _rollback_db():
-    """Initialize Tortoise with a fresh in-memory SQLite DB for the rollback test.
+async def _rollback_db() -> AsyncGenerator[None, None]:
+    """Initialize Tortoise against the live PostgreSQL test database.
 
     Non-autouse and module-scoped: only the ``TestSaveAtomicity`` tests request
     it, so the remaining tests in this module continue to run without a
     database connection.
     """
-    await Tortoise.init(
-        db_url="sqlite://:memory:",
+    _ = await Tortoise.init(
+        db_url=DB_URL,
         modules={"models": ["tests.test_graph"]},
     )
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query("DROP TABLE IF EXISTS rollback_nodes CASCADE")
     await Tortoise.generate_schemas()
     yield
+    await conn.execute_query("DROP TABLE IF EXISTS rollback_nodes CASCADE")
     await Tortoise.close_connections()
 
 
@@ -312,9 +338,21 @@ class TestSaveAtomicity:
     — a partial failure can never leave ``child_count`` drifted.
     """
 
+    pytestmark = pytest.mark.skipif(
+        not _pg_available(),
+        reason="PostgreSQL not available on localhost:5434",
+    )
+
+    @pytest.fixture(autouse=True)
+    async def _clean_table(self) -> AsyncGenerator[None, None]:
+        """Truncate the node table before each test."""
+        conn = Tortoise.get_connection("default")
+        await conn.execute_query("TRUNCATE rollback_nodes CASCADE")
+        yield
+
     @pytest.mark.asyncio
     async def test_child_count_failure_rolls_back_node_insert(
-        self, _rollback_db, monkeypatch: pytest.MonkeyPatch
+        self, _rollback_db: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A failed counter UPDATE rolls back the child node INSERT."""
         parent = await RollbackNode.create(name="parent", namespace="ns", depth=0)

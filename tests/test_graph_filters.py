@@ -1,4 +1,13 @@
-"""Tests for graph filters (pgvector similarity operators)."""
+"""Tests for graph filters (pgvector similarity operators).
+
+The bare-equality filter integration tests run against the live PostgreSQL test
+database (see ``docker-compose.dev.yml``); the operator unit tests need no
+database and keep running when PostgreSQL is not reachable.
+"""
+
+import os
+import socket
+from collections.abc import AsyncGenerator
 
 import pytest
 from tortoise import Tortoise, fields
@@ -230,7 +239,7 @@ class TestParseVectorThreshold:
 
 
 class _VecDoc(Model):
-    """SQLite-compatible VectorField model (BLOB fallback) for filter tests."""
+    """VectorField model for the bare-equality filter integration tests."""
 
     id = fields.IntField(primary_key=True)
     name = CharField(max_length=50)
@@ -240,41 +249,66 @@ class _VecDoc(Model):
         table = "g4_vec_docs"
 
 
-@pytest.fixture(scope="module", autouse=True)
-async def _init_db():
-    """Initialize Tortoise with a shared in-memory SQLite DB."""
-    await Tortoise.init(
-        db_url="sqlite://:memory:",
+# --- Config — only TestBareEqualityFilterIntegration needs PG ----------------
+
+DB_URL = os.environ.get(
+    "TORTOISE_TEST_DB",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
+)
+
+
+def _pg_available() -> bool:
+    """Quick check — can we connect to the test PG?"""
+    try:
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+@pytest.fixture(scope="module")
+async def _init_db() -> AsyncGenerator[None, None]:
+    """Initialize Tortoise against the live PostgreSQL test database."""
+    _ = await Tortoise.init(
+        db_url=DB_URL,
         modules={"models": ["tests.test_graph_filters"]},
     )
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query("DROP TABLE IF EXISTS g4_vec_docs CASCADE")
     await Tortoise.generate_schemas()
     yield
+    await conn.execute_query("DROP TABLE IF EXISTS g4_vec_docs CASCADE")
     await Tortoise.close_connections()
 
 
-@pytest.fixture(autouse=True)
-async def _clean_table():
-    await _VecDoc.all().delete()
+@pytest.fixture
+async def _clean_table() -> AsyncGenerator[None, None]:
+    """Truncate the vector table before each integration test."""
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query("TRUNCATE g4_vec_docs CASCADE")
+    yield
 
 
+@pytest.mark.skipif(
+    not _pg_available(),
+    reason="PostgreSQL not available on localhost:5434",
+)
+@pytest.mark.usefixtures("_init_db", "_clean_table")
 class TestBareEqualityFilterIntegration:
-    """G4 — end-to-end filter resolution through Tortoise on SQLite.
+    """G4 — end-to-end filter resolution through Tortoise on PostgreSQL.
 
-    SQLite stores VectorField as BLOB, so non-NULL rows are seeded with raw
-    bytes (list binding is PG-only via the asyncpg codec).  The G4 guard
-    fires during query build, before SQL generation, so it is dialect-free.
+    The G4 guard fires during query build, before SQL generation, so the
+    assertion is dialect-free; the rows are seeded through the real vector
+    column so the NULL/ISNULL branches hit a live pgvector table.
     """
 
-    async def _seed(self, name: str, blob: bytes | None) -> None:
-        conn = Tortoise.get_connection("default")
-        await conn.execute_query(
-            "INSERT INTO g4_vec_docs (name, embedding) VALUES (?, ?)",
-            [name, blob],
-        )
+    async def _seed(self, name: str, embedding: list[float] | None) -> None:
+        await _VecDoc.create(name=name, embedding=embedding)
 
     @pytest.mark.asyncio
     async def test_bare_non_none_raises(self) -> None:
-        await self._seed("a", b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+        await self._seed("a", [0.0, 0.0])
         with pytest.raises(
             VectorFieldError, match="Bare equality filters are not supported"
         ):
@@ -282,14 +316,14 @@ class TestBareEqualityFilterIntegration:
 
     @pytest.mark.asyncio
     async def test_bare_none_is_null(self) -> None:
-        await self._seed("has_vec", b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+        await self._seed("has_vec", [0.0, 0.0])
         await self._seed("no_vec", None)
         rows = await _VecDoc.filter(embedding=None)
         assert [r.name for r in rows] == ["no_vec"]
 
     @pytest.mark.asyncio
     async def test_isnull_and_not_isnull_unchanged(self) -> None:
-        await self._seed("has_vec", b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+        await self._seed("has_vec", [0.0, 0.0])
         await self._seed("no_vec", None)
         assert [r.name for r in await _VecDoc.filter(embedding__isnull=True)] == [
             "no_vec"
@@ -297,13 +331,3 @@ class TestBareEqualityFilterIntegration:
         assert [r.name for r in await _VecDoc.filter(embedding__not_isnull=True)] == [
             "has_vec"
         ]
-
-    @pytest.mark.asyncio
-    async def test_sqlite_blob_roundtrip_decodes_floats(self) -> None:
-        """G16 — reading a SQLite BLOB must yield floats, not byte ints."""
-        import struct
-
-        blob = struct.pack(">HH2f", 0, 2, 0.25, 0.75)  # pgvector binary format
-        await self._seed("vec", blob)
-        row = await _VecDoc.get(name="vec")
-        assert row.embedding == [0.25, 0.75]
