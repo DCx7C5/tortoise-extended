@@ -59,7 +59,7 @@ latest = await distinct_on(
     order_by=("sensor_id", "-observed_at"),
 )
 
-# Bounded predicate: values are bound, never inlined.
+# Bounded predicate: the fragment is trusted SQL, its placeholder values are bound.
 recent = await distinct_on(
     Reading,
     "sensor_id",
@@ -72,11 +72,12 @@ recent = await distinct_on(
 
 | Argument | Meaning |
 |---|---|
-| `target` | A model class, or an **unfiltered** queryset (it supplies only the model and the connection, e.g. `.using_db(...)`). |
+| `target` | A model class, or a queryset carrying only its model and connection — `Model.all()`, optionally `.using_db(...)`. On a `BaseSoftDeleteModel`, the `deleted_at IS NULL` condition `SoftDeleteQuerySet` injects into `all()` is accepted, because the helper re-applies that same condition itself (unless `include_deleted=True`); any other carried state raises `ValueError`. |
 | `*on` | Model field name(s) identifying a group. Required. |
-| `order_by` | Model field name(s) picking the winner; a leading `-` means `DESC`. Must begin with the `on` columns — PostgreSQL requires it. Defaults to the `on` columns ascending (so the *first* row per group wins). |
+| `order_by` | Model field name(s) picking the winner; a leading `-` means `DESC`. Must begin with the `on` columns — this helper requires it, so the winning row per group is defined and the output stable. Defaults to the `on` columns ascending (so the *first* row per group wins). |
 | `limit` | Optional maximum number of groups. |
-| `where` / `params` | Optional `WHERE` fragment with `$1`-style placeholders and the values bound to them, in order. |
+| `where` | Optional `WHERE` fragment — **trusted SQL text**, concatenated into the statement exactly as written. Never pass user input here; put every value behind a `$1`-style placeholder. |
+| `params` | Values bound to those placeholders, in order — sent as query parameters, never inlined. |
 | `include_deleted` | When the model declares `deleted_at`, soft-deleted rows are excluded unless this is `True` — the same rule the CTE builders follow. |
 
 Emitted SQL (measured):
@@ -92,9 +93,25 @@ LIMIT 10
 `ValueError` — never a database error, and raised before the connection is resolved, so bad
 arguments fail the same way on an unbound model — for: an empty `on`; a name that is not a field of the model;
 an `order_by` that does not lead with the `on` columns (or is shorter than them); a `limit` below 1;
-placeholders that do not match `params` (missing values, values with no placeholder, skipped
-indices); and a queryset carrying filters, annotations, ordering, grouping, `limit` or `offset` —
-put predicates in `where`/`params`.
+a `$0` or zero-padded (`$01`) placeholder; placeholders that do not match `params` (missing values,
+values with no placeholder, skipped indices); and a queryset carrying filters, annotations, ordering,
+grouping, `DISTINCT`, `select_for_update()`, `prefetch_related()`, `.only()`/`.values()` field
+narrowing, `limit` or `offset` — put predicates in `where`/`params`.
+
+**Placeholders are quote-aware.** `$1` is a parameter only in SQL code: inside a single-quoted
+literal (`''` escapes a quote), a double-quoted identifier (`""` escapes), a dollar-quoted body
+(`$$…$$` / `$tag$…$tag$`), a `--` line comment or a `/* */` block comment (nested, as PostgreSQL
+allows) it is plain text. So `where="title <> '$1'"` is accepted without params, and a `$2` hidden
+inside a comment is not counted as bound. `$0` and any leading-zero index are refused by name,
+because PostgreSQL numbers parameters from `$1` and rejects both.
+
+**`where` is trusted SQL.** Only `params` are bound: the fragment itself is spliced into the
+statement verbatim (inside parentheses) so it must never contain user input — a fragment built by
+string-formatting caller data is SQL injection. Pass the data through placeholders instead.
+
+Two consequences of splicing to keep in mind: a `--` line comment in the fragment swallows the
+`ORDER BY` the helper appends after it (PostgreSQL then reports a syntax error at end of input), and
+a `/* … */` block comment is fine. Neither is a place to hide a predicate — the fragment is code.
 
 **Hydration:** rows come back through `BaseDBAsyncClient.execute_query_dict` and
 `Model._init_from_db`, the same path the executor uses. `_init_from_db` is private to tortoise-orm,

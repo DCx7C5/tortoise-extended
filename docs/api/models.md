@@ -191,9 +191,17 @@ await doc.save()                     # VersionMismatchError
 
 What the guarded `save()` does:
 
-- **Inserts are untouched.** `force_create`, an unsaved instance, or a `pk`
-  that is still `None` delegate to the next `save` in the MRO, so defaults,
-  generated keys, `auto_now_add` and other mixins' hooks behave as upstream.
+- **Inserts are untouched.** `force_create`, an instance with no `pk` yet, or
+  an unsaved instance saved without `update_fields` delegate to the next
+  `save` in the MRO, so defaults, generated keys, `auto_now_add` and other
+  mixins' hooks behave as upstream. `update_fields=[]` is treated as `None` —
+  a full save — matching upstream's `if self._saved_in_db or update_fields`.
+- **An instance that was never loaded is refused.** `Doc(id=5, title="x")`
+  with `update_fields` set carries no version to check (`_saved_in_db` is
+  `False`), so `save()` raises `IncompleteInstanceError` instead of running
+  the guarded `UPDATE` against a row it never read. This deliberately diverges
+  from upstream `Model.save()`, which updates in that shape: reload the row,
+  or pass `force_update=True` if you really mean to write it unguarded.
 - **Updates are one statement**: `UPDATE <table> SET …, version = version + 1
   WHERE <pk> = $1 AND version = $2`, built through the queryset API — no raw
   SQL. `version` is bumped in the database with `F("version") + 1`, so two
@@ -202,13 +210,18 @@ What the guarded `save()` does:
   values without an instance, so `auto_now` would never fire — the same reason
   it does not fire through `QuerySet.update()`. The mixin writes the timestamp
   itself and mirrors it onto the instance.
-- **`update_fields` narrows the payload**; `version` is always written. Naming
-  the primary key or a generated column raises `OperationalError`, as upstream.
-- **On conflict** nothing is written — in the database or in memory — and
-  `VersionMismatchError` names the model, `pk`, expected version and the
-  version now in the row, so the caller can reload and retry. A row that
-  disappeared raises `IntegrityError` (upstream's message for a forced update
-  of a missing object).
+- **`update_fields` narrows the payload**; `version` is always written. An
+  empty iterable means "all fields". Naming an unknown field, a field without
+  a database column (M2M / backward relation), the primary key or a generated
+  column raises `OperationalError` before any query or `pre_save` listener
+  runs.
+- **On conflict** nothing is written — in the database or in memory, the
+  `auto_now` stamps `_pre_save` applied included — and `VersionMismatchError`
+  names the model, `pk`, expected version and the version now in the row, so
+  the caller can reload and retry. Reloading is not cosmetic: the instance is
+  exactly as it was before the call. A row that disappeared raises
+  `IntegrityError` (upstream's message for a forced update of a missing
+  object), with the same guarantee.
 - **Partial instances** (`.only(...)`) must have `version` loaded *and* must
   pass `update_fields`; without a version there is nothing to guard, so
   `IncompleteInstanceError` is raised rather than an unguarded write.

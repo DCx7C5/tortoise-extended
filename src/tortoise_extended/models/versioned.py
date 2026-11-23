@@ -33,6 +33,15 @@ the queryset API (no raw SQL, AGENTS.md rule 3): the rowcount is the answer —
 the database with ``F("version") + 1``, so two writers cannot both read 0 and
 both write 1.
 
+A refused save leaves the instance untouched: the ``UPDATE`` writes nothing,
+and the ``auto_now`` values ``_pre_save`` may have stamped are put back before
+:class:`~tortoise_extended.exceptions.VersionMismatchError` is raised. An
+instance that was never loaded from the database carries no version to check,
+so a projected save of one is refused with
+:class:`tortoise.exceptions.IncompleteInstanceError` instead of taking the
+unguarded ``UPDATE`` upstream ``Model.save()`` would run — a deliberate
+divergence.
+
 **Not covered — by design.** ``bulk_create``, ``bulk_update`` and
 ``QuerySet.update()`` bypass model ``save()`` entirely: they write without the
 guard and without bumping ``version``. That is deliberate (they are the bulk
@@ -91,45 +100,72 @@ class VersionMixin(Model):
     ) -> None:
         """Insert or update the instance, guarding updates on ``version``.
 
-        Inserts (``force_create``, an unsaved instance, or no primary key yet)
-        delegate to the next ``save`` in the MRO unchanged, so defaults,
-        generated keys, ``auto_now_add`` and other mixins' hooks behave exactly
-        as upstream.
+        Inserts (``force_create``, an instance with no primary key yet, or an
+        unsaved instance saved without ``update_fields``) delegate to the next
+        ``save`` in the MRO unchanged, so defaults, generated keys,
+        ``auto_now_add`` and other mixins' hooks behave exactly as upstream.
+        ``update_fields=[]`` is normalised to ``None`` — a full save — matching
+        upstream's ``if self._saved_in_db or update_fields``.
 
         Updates run as ``UPDATE <table> SET …, version = version + 1 WHERE
         <pk> = $1 AND version = $2``. ``auto_now`` fields are written
         explicitly, because the queryset executor converts values without an
         instance and would otherwise skip them — the same reason ``auto_now``
-        never fires through ``QuerySet.update()``.
+        never fires through ``QuerySet.update()``. A refused save puts those
+        values back, so the instance is left exactly as it was.
+
+        This **deliberately diverges from upstream ``Model.save()``**: an
+        instance that carries a primary key but was never loaded from the
+        database (``_saved_in_db`` is ``False``) has no version to check, where
+        upstream would take an unguarded ``UPDATE`` in that shape. A projected
+        save of such an instance raises ``IncompleteInstanceError`` instead.
+        Reload the row, or pass ``force_update=True`` if you really mean to
+        write it unguarded.
 
         :param using_db: Connection to use instead of the model's default.
-        :param update_fields: Subset of field names to write. ``version`` is
-            always written; naming the primary key or a generated column raises
-            :class:`tortoise.exceptions.OperationalError`, as upstream does.
+        :param update_fields: Subset of field names to write; an empty iterable
+            means "all fields". ``version`` is always written. Naming an
+            unknown field, a field without a database column (M2M / backward
+            relation), the primary key or a generated column raises
+            :class:`tortoise.exceptions.OperationalError`.
         :param force_create: Insert even when the instance looks persisted.
-        :param force_update: Update without checking ``_saved_in_db``.
+        :param force_update: Update without checking ``_saved_in_db``, which
+            also skips the "must have been loaded" rule above.
         :raises VersionMismatchError: When the row's version has moved; the
             instance is left untouched so the caller can reload and retry.
         :raises IncompleteInstanceError: For a partial instance saved without
-            ``update_fields``, or when the in-memory version is unavailable.
-        :raises IntegrityError: When a forced update matches no row at all.
+            ``update_fields``, when the in-memory version is unavailable, or
+            for a never-loaded instance saved with ``update_fields``.
+        :raises IntegrityError: When a forced update matches no row at all, or
+            when the primary key matches more than one.
         """
-        if (
-            force_create
-            or (not force_update and self.pk is None)
-            or (not force_update and not self._saved_in_db and not update_fields)
+        names = list(update_fields) if update_fields is not None else None
+        if not names:
+            names = None
+
+        if force_create or (
+            not force_update
+            and (self.pk is None or (not self._saved_in_db and names is None))
         ):
             await super().save(
                 using_db=using_db,
-                update_fields=update_fields,
+                update_fields=names,
                 force_create=force_create,
                 force_update=force_update,
             )
             return
 
-        await self._set_async_default_field()
-        names = list(update_fields) if update_fields is not None else None
+        if not (force_update or self._saved_in_db):
+            raise IncompleteInstanceError(
+                f"{type(self).__name__} was not loaded from the database, so a "
+                f"guarded save has no version to check (_saved_in_db is "
+                f"False): reload the row, or pass force_update=True if you "
+                f"really mean to write it unguarded"
+            )
+
+        self._validate_update_fields(names)
         self._check_partial(names)
+        await self._set_async_default_field()
         if not hasattr(self, "version"):
             raise IncompleteInstanceError(
                 f"{type(self).__name__} has no in-memory version: a guarded save "
@@ -144,7 +180,8 @@ class VersionMixin(Model):
             )
 
         db = using_db or self._choose_db(True)
-        await self._pre_save(db, update_fields)
+        auto_now_before = self._snapshot_auto_now()
+        await self._pre_save(db, names)
 
         payload = self._update_payload(names)
         payload["version"] = F("version") + 1
@@ -156,6 +193,9 @@ class VersionMixin(Model):
             .update(**payload)
         )
         if rows == 0:
+            # A refused save must not keep the auto_now stamps _pre_save (or a
+            # listener it ran) applied to the instance.
+            self._restore_auto_now(auto_now_before)
             # Error path only: one extra read, so the message can name the
             # version now in the row (and tell a deleted row from a stale one).
             row = (
@@ -188,7 +228,45 @@ class VersionMixin(Model):
             if getattr(field_obj, "auto_now", False):
                 setattr(self, name, field_obj.to_python_value(value))
         self._saved_in_db = True
-        await self._post_save(db, False, update_fields)
+        await self._post_save(db, False, names)
+
+    def _validate_update_fields(self, names: list[str] | None) -> None:
+        """Reject ``update_fields`` names that cannot form a guarded ``UPDATE``.
+
+        Upstream indexes ``fields_map`` directly (a bare ``KeyError`` for an
+        unknown name) and would hand a manager object to the payload for an M2M
+        or backward relation. Both are refused here, before ``_pre_save``
+        listeners run, so a bad projection never fires a hook or reaches a
+        query.
+
+        :param names: The resolved ``update_fields`` names, or ``None`` for a
+            full save (nothing to validate).
+        :raises OperationalError: When a name is unknown, names a field without
+            a database column, the primary key, or a generated column.
+        """
+        if names is None:
+            return
+        valid = ", ".join(sorted(self._meta.fields_db_projection))
+        for name in names:
+            field_obj = self._meta.fields_map.get(name)
+            if field_obj is None:
+                raise OperationalError(
+                    f"{type(self).__name__} has no field {name!r}: update_fields "
+                    f"must name database columns, expected one of {valid}"
+                )
+            if not field_obj.has_db_field:
+                raise OperationalError(
+                    f"Can't update {name!r} on {type(self).__name__}: it is a "
+                    f"related field with no database column of its own, "
+                    f"update_fields must name one of {valid}"
+                )
+            if field_obj.pk:
+                raise OperationalError(
+                    f"Can't update pk field, use `{type(self).__name__}.create` "
+                    f"instead."
+                )
+            if field_obj.generated:
+                raise OperationalError(f"Can't update generated field {name}")
 
     def _check_partial(self, names: list[str] | None) -> None:
         """Apply upstream's partial-instance rules before a guarded update.
@@ -216,14 +294,40 @@ class VersionMixin(Model):
                     f"not available"
                 )
 
+    def _snapshot_auto_now(self) -> dict[str, object]:
+        """Record the ``auto_now`` values a refused save must put back.
+
+        ``_pre_save`` runs before the guarded ``UPDATE`` and can stamp
+        ``auto_now`` fields on the instance; a save the guard refuses must
+        leave the instance exactly as it was, so the values are captured here
+        and restored when no row matches.
+
+        :returns: Field name → current value, for every ``auto_now`` field the
+            instance carries (a partial instance may not carry them all).
+        """
+        values: dict[str, object] = {}
+        for name, field_obj in self._meta.fields_map.items():
+            if getattr(field_obj, "auto_now", False) and hasattr(self, name):
+                values[name] = getattr(self, name)
+        return values
+
+    def _restore_auto_now(self, values: dict[str, object]) -> None:
+        """Undo the ``auto_now`` stamps of a save that matched no row.
+
+        :param values: The snapshot returned by :meth:`_snapshot_auto_now`.
+        """
+        for name, value in values.items():
+            setattr(self, name, value)
+
     def _update_payload(self, names: list[str] | None) -> dict[str, object]:
         """Collect the values a guarded ``UPDATE`` should write.
 
         Mirrors the executor's field selection: without ``update_fields`` every
         projected field is written; primary keys and generated columns are
-        skipped (naming either explicitly raises, as upstream does); values
-        still holding a :class:`tortoise.fields.base.DatabaseDefault` sentinel
-        are left to the database.
+        skipped (naming either explicitly is refused by
+        :meth:`_validate_update_fields`); values still holding a
+        :class:`tortoise.fields.base.DatabaseDefault` sentinel are left to the
+        database.
 
         ``auto_now`` columns are replaced with the current time because the
         queryset executor converts values without an instance, so the field
@@ -231,24 +335,12 @@ class VersionMixin(Model):
 
         :param names: The resolved ``update_fields`` names, or ``None``.
         :returns: Field name → Python value, ready for ``QuerySet.update()``.
-        :raises OperationalError: When ``update_fields`` names the primary key
-            or a generated column.
         """
-        user_specified = names is not None
         source = names if names is not None else list(self._meta.fields_db_projection)
         payload: dict[str, object] = {}
         for name in source:
             field_obj = self._meta.fields_map[name]
-            if field_obj.pk:
-                if user_specified:
-                    raise OperationalError(
-                        f"Can't update pk field, use `{type(self).__name__}.create` "
-                        f"instead."
-                    )
-                continue
-            if field_obj.generated:
-                if user_specified:
-                    raise OperationalError(f"Can't update generated field {name}")
+            if field_obj.pk or field_obj.generated:
                 continue
             value = getattr(self, name)
             if isinstance(value, DatabaseDefault):

@@ -180,6 +180,18 @@ the versions below are the `pyproject.toml` version at the time of the change.
 
 ### Fixed
 
+- `distinct_on()` accepts the documented `Model.all()` target on a `BaseSoftDeleteModel`: the
+  `deleted_at IS NULL` condition `SoftDeleteQuerySet` injects at construction time is recognised and
+  stripped before the carried-state check (the helper re-applies that same condition itself unless
+  `include_deleted=True`), while any other filter still raises `ValueError`. Placeholder scanning is
+  quote-aware — a `$1` inside a string literal, double-quoted identifier, dollar-quoted body
+  (`$$…$$` / `$tag$…$tag$`) or SQL comment is text, so `where="title <> '$1'"` no longer raises and
+  a commented-out `$2` is not counted, while `$0` and zero-padded indices now raise `ValueError`
+  naming the placeholder instead of passing validation for the server to reject. `where` is
+  documented as trusted SQL that is concatenated into the statement (never pass user input; `params`
+  are what binds), and a queryset carrying `distinct()`, `select_for_update()`,
+  `prefetch_related()` (both `_prefetch_map` and `_prefetch_queries`) or `.only()`/`.values()`
+  field narrowing is refused instead of silently dropping that state.
 - Continuous-aggregate SQL injection: two quotes inside a `/* */` comment could hide a statement
   separator, letting a second statement reach `CREATE MATERIALIZED VIEW ... AS (...)`.
 - A declared source table that appears only inside a comment (or only as a CTE name) no longer

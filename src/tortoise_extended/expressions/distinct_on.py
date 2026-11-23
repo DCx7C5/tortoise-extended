@@ -33,6 +33,13 @@ expressions to be the leftmost ``ORDER BY`` expressions, so ``order_by`` must
 start with the same columns; the helper refuses anything else instead of
 letting the server raise a syntax error.
 
+``where`` is **trusted SQL text**, not a value: it is concatenated into the
+statement exactly as written, so it must never receive user input — bind every
+caller value through ``params`` and ``$1``-style placeholders instead. Only
+``params`` are bound. Placeholders are recognised quote-aware: a ``$1`` inside
+a single-quoted literal, a double-quoted identifier, a dollar-quoted body
+(``$$…$$`` / ``$tag$…$tag$``) or a SQL comment is text, not a parameter.
+
 Hydration note: the rows come back from
 ``BaseDBAsyncClient.execute_query_dict`` and are turned into instances with
 ``Model._init_from_db`` — the same path the executor uses. That method is
@@ -46,14 +53,18 @@ import re
 from collections.abc import Sequence
 
 from tortoise.backends.base.client import BaseDBAsyncClient
+from tortoise.expressions import Q
 from tortoise.models import Model
 from tortoise.queryset import QuerySet
 
 from tortoise_extended._quote import quote_ident
 from tortoise_extended._types import CoercedValue
 
-_PLACEHOLDER = re.compile(r"\$(\d+)")
-"""Bound-parameter placeholder, e.g. ``$1``. Literal ``$`` signs are ignored."""
+_PARAMETER = re.compile(r"\$(\d+)")
+"""Bound-parameter placeholder, e.g. ``$1``; applied only outside quoted text."""
+
+_DOLLAR_QUOTE = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
+"""Dollar-quote delimiter, e.g. ``$$`` or ``$tag$`` (tag: identifier without ``$``)."""
 
 _QUERYSET_CARRIED = (
     "_q_objects",
@@ -62,8 +73,80 @@ _QUERYSET_CARRIED = (
     "_limit",
     "_offset",
     "_group_bys",
+    "_distinct",
+    "_select_for_update",
+    "_prefetch_map",
+    "_prefetch_queries",
+    "_fields_for_select",
 )
-"""Queryset attributes this helper cannot translate into raw SQL."""
+"""Queryset attributes this helper cannot translate into raw SQL.
+
+Verified against the installed tortoise-orm 1.1.9 ``QuerySet.__slots__``
+(after tortoise-extended's supported range ``>=1.1.7,<1.2``): ``_distinct``
+and ``_select_for_update`` are real slots; the prefetch state lives in
+``_prefetch_map`` (string relations) **and** ``_prefetch_queries``
+(``Prefetch`` objects); field narrowing via ``.only()`` / ``.values()`` lives
+in ``_fields_for_select`` (there is no ``_fields_for_fetch``).
+"""
+
+
+def _is_live_row_filter(condition: Q) -> bool:
+    """True for the exact ``Q(deleted_at__isnull=True)`` injected by base models.
+
+    ``Q.__eq__`` ignores negation, so the structural check reads
+    ``_is_negated`` itself instead of comparing to a fresh ``Q``.
+    """
+    return (
+        not condition._is_negated  # pyright: ignore[reportPrivateUsage]
+        and not condition.children
+        and condition.filters == {"deleted_at__isnull": True}
+    )
+
+
+def _q_objects_without_soft_delete_default[M: Model](
+    target: QuerySet[M],
+) -> list[Q]:
+    """Return ``target``'s q-objects minus the soft-delete default condition.
+
+    ``SoftDeleteQuerySet.__init__`` injects ``Q(deleted_at__isnull=True)`` at
+    ``_sd_index``, so ``Model.all()`` on a ``BaseSoftDeleteModel`` is never an
+    empty-q-objects queryset. ``distinct_on`` re-applies that exact condition
+    itself (unless ``include_deleted=True``), so the injected entry is not
+    caller state and is dropped here. Everything else survives: a caller
+    filter, or ``only_deleted()``'s ``IS NOT NULL`` replacement, still trips
+    the carried check.
+    """
+    q_objects = list(target._q_objects)  # pyright: ignore[reportPrivateUsage]
+    injected = getattr(target, "_sd_index", None)
+    if (
+        isinstance(injected, int)
+        and 0 <= injected < len(q_objects)
+        and _is_live_row_filter(q_objects[injected])
+    ):
+        del q_objects[injected]
+    return q_objects
+
+
+def _carried_state[M: Model](target: QuerySet[M]) -> list[str]:
+    """Return the carried queryset attributes this helper cannot honour.
+
+    An attribute is empty when it holds no caller-set state: ``None``, a
+    ``False`` flag, or an empty container. ``0`` is *not* empty here —
+    ``.limit(0)`` / ``.offset(0)`` are still state this helper would drop.
+    """
+    carried: list[str] = []
+    for name in _QUERYSET_CARRIED:
+        value = (
+            _q_objects_without_soft_delete_default(target)
+            if name == "_q_objects"
+            else getattr(target, name, None)
+        )
+        if value is None or value is False:
+            continue
+        if isinstance(value, (list, dict, tuple, set)) and not value:
+            continue
+        carried.append(name)
+    return carried
 
 
 def _target_model[M: Model](target: type[M] | QuerySet[M]) -> type[M]:
@@ -73,19 +156,19 @@ def _target_model[M: Model](target: type[M] | QuerySet[M]) -> type[M]:
     ``ValueError`` for bad arguments even before a connection exists.
 
     :param target: A model class, or an unfiltered queryset (``Model.all()``,
-        optionally ``.using_db(...)``).
+        optionally ``.using_db(...)``). On a ``BaseSoftDeleteModel`` the
+        ``deleted_at IS NULL`` condition that ``SoftDeleteQuerySet`` injects
+        into every default queryset is accepted, because the helper re-applies
+        that same condition itself unless ``include_deleted=True``.
     :returns: The model class.
     :raises ValueError: When ``target`` is a queryset that carries filters,
-        annotations, ordering, grouping, limit or offset — none of which can be
-        represented in this helper's single statement. Predicates belong in
-        ``where`` / ``params``.
+        annotations, ordering, grouping, ``DISTINCT``, ``SELECT … FOR
+        UPDATE``, prefetching, only/values field narrowing, limit or offset —
+        none of which can be represented in this helper's single statement.
+        Predicates belong in ``where`` / ``params``.
     """
     if isinstance(target, QuerySet):
-        carried = [
-            name
-            for name in _QUERYSET_CARRIED
-            if getattr(target, name, None) not in (None, [], {}, ())
-        ]
+        carried = _carried_state(target)
         if carried:
             raise ValueError(
                 f"distinct_on() cannot carry a queryset with {', '.join(carried)}: "
@@ -150,16 +233,101 @@ def _order_terms(
     return terms
 
 
+def _placeholder_indices(fragment: str) -> list[int]:
+    """Collect the ``$n`` parameter indices used outside literals and comments.
+
+    PostgreSQL's lexer treats ``$1`` as a parameter only in SQL code: inside a
+    single-quoted literal (``''`` escapes a quote), a double-quoted identifier
+    (``""`` escapes), a dollar-quoted body (``$$…$$`` / ``$tag$…$tag$``), a
+    ``--`` line comment or a ``/* */`` block comment (nested, as PostgreSQL
+    allows) it is plain text. Scanning the fragment the same way keeps a legal
+    ``where="title <> '$1'"`` legal and stops a ``$1`` hidden in a comment
+    from being counted as bound.
+
+    :param fragment: The ``where`` fragment.
+    :returns: The indices used, in source order, repeats preserved.
+    :raises ValueError: When a placeholder is ``$0`` or written with a leading
+        zero — PostgreSQL numbers parameters from ``$1`` and rejects both.
+    """
+    indices: list[int] = []
+    position = 0
+    length = len(fragment)
+    while position < length:
+        char = fragment[position]
+        if char == "'":
+            position += 1
+            while position < length:
+                if fragment[position] != "'":
+                    position += 1
+                elif position + 1 < length and fragment[position + 1] == "'":
+                    position += 2
+                else:
+                    position += 1
+                    break
+            continue
+        if char == '"':
+            position += 1
+            while position < length:
+                if fragment[position] != '"':
+                    position += 1
+                elif position + 1 < length and fragment[position + 1] == '"':
+                    position += 2
+                else:
+                    position += 1
+                    break
+            continue
+        if fragment.startswith("--", position):
+            newline = fragment.find("\n", position + 2)
+            position = length if newline < 0 else newline + 1
+            continue
+        if fragment.startswith("/*", position):
+            depth = 1
+            position += 2
+            while position < length and depth:
+                if fragment.startswith("/*", position):
+                    depth += 1
+                    position += 2
+                elif fragment.startswith("*/", position):
+                    depth -= 1
+                    position += 2
+                else:
+                    position += 1
+            continue
+        if char == "$":
+            delimiter = _DOLLAR_QUOTE.match(fragment, position)
+            if delimiter is not None:
+                closing = fragment.find(delimiter.group(0), delimiter.end())
+                position = length if closing < 0 else closing + len(delimiter.group(0))
+                continue
+            parameter = _PARAMETER.match(fragment, position)
+            if parameter is not None:
+                digits = parameter.group(1)
+                if digits.startswith("0"):
+                    rewritten = int(digits)
+                    hint = f" — write ${rewritten}" if rewritten else ""
+                    raise ValueError(
+                        f"distinct_on() `where` uses the placeholder ${digits}: "
+                        f"PostgreSQL parameters start at $1 and take no leading "
+                        f"zeros{hint}"
+                    )
+                indices.append(int(digits))
+                position = parameter.end()
+                continue
+        position += 1
+    return indices
+
+
 def _validate_placeholders(where: str | None, params: Sequence[CoercedValue]) -> None:
     """Check that ``where``'s ``$n`` placeholders match ``params`` exactly.
 
-    :param where: The optional ``WHERE`` fragment.
+    :param where: The optional ``WHERE`` fragment (trusted SQL text).
     :param params: The values bound to it, in ``$1`` … order.
-    :raises ValueError: When the fragment uses placeholders without values,
-        supplies values without placeholders, or skips / repeats an index —
-        all of which would surface as an opaque driver error instead.
+    :raises ValueError: When a placeholder is ``$0`` / zero-padded, when the
+        fragment uses placeholders without values, supplies values without
+        placeholders, or skips an index — all of which would surface as an
+        opaque driver error instead.
     """
-    indices = [int(match) for match in _PLACEHOLDER.findall(where or "")]
+    indices = _placeholder_indices(where or "")
     expected = list(range(1, len(params) + 1))
     if sorted(set(indices)) == expected:
         return
@@ -195,21 +363,29 @@ async def distinct_on[M: Model](
     Emits ``SELECT DISTINCT ON (<on>) <every column> FROM <table> [WHERE …]
     ORDER BY <on…>, <order_by…> [LIMIT n]`` and hydrates real instances.
 
-    :param target: Model class, or an unfiltered queryset (model + connection
-        only; filters raise ``ValueError``).
+    :param target: Model class, or a queryset carrying nothing but its model
+        and connection (``Model.all()``, optionally ``.using_db(...)``; on a
+        ``BaseSoftDeleteModel`` the injected ``deleted_at IS NULL`` filter is
+        accepted because the helper re-applies it). Any other state raises
+        ``ValueError``.
     :param on: Model field name(s) that identify a group; one row per group.
     :param order_by: Model field name(s) deciding which row wins; a leading
         ``-`` means ``DESC``. Must **start** with the ``on`` columns — that is
         PostgreSQL's rule for ``DISTINCT ON`` and is enforced here.
     :param limit: Optional maximum number of groups returned; must be at least 1.
-    :param where: Optional ``WHERE`` fragment with ``$1``-style placeholders.
-    :param params: Values for those placeholders, in order; never inlined.
+    :param where: Optional ``WHERE`` fragment — **trusted SQL text**, concatenated
+        into the statement verbatim, so never pass user input. Use ``$1``-style
+        placeholders and bind the values through ``params``.
+    :param params: Values for those placeholders, in order; bound, never inlined.
     :param include_deleted: When the model declares a ``deleted_at`` column,
         soft-deleted rows are excluded unless this is ``True``.
     :returns: The winning rows, in ``ORDER BY`` order, as model instances.
     :raises ValueError: For an empty ``on``, an unknown field, an ``order_by``
-        that does not lead with the ``on`` columns, mismatched placeholders, an
-        empty ``on``/``limit`` below 1, or a filtered queryset.
+        that does not lead with the ``on`` columns, mismatched placeholders, a
+        ``$0`` / zero-padded placeholder, a ``limit`` below 1, or a queryset
+        carrying state (filters, annotations, ordering, grouping, ``DISTINCT``,
+        ``SELECT … FOR UPDATE``, prefetching, only/values fields, limit,
+        offset).
 
     ``on`` groups are ordered by the ``on`` columns first (ascending) so the
     output is stable when several groups share an order key; append a
