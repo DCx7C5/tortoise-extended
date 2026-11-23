@@ -60,6 +60,11 @@ class Plain(VersionMixin):
     """The mixin directly on ``Model``: tortoise supplies the auto ``id`` pk."""
 
     label = fields.CharField(max_length=32)
+    #: Nullable forward relation so ``Doc`` gains the reverse accessor
+    #: ``plains``. Both names are relations, not columns: naming either in
+    #: ``update_fields`` must be refused. One nullable column on an existing
+    #: table — no second table, no M2M junction.
+    doc = fields.ForeignKeyField("models.Doc", related_name="plains", null=True)
 
     class Meta:
         table = PLAIN_TABLE
@@ -311,6 +316,139 @@ class TestVersionGuardAgainstPostgres:
         row = await Doc.get(id=doc.pk)
         assert row.version == 0
         assert row.title == "alpha"
+
+    async def test_unsaved_instance_with_pk_and_update_fields_is_refused(self) -> None:
+        """A hand-built instance naming an existing pk cannot update blind.
+
+        ``Doc(id=..., title=...)`` was never loaded, so the guard has no
+        expected version to compare against. Catches a fallback that treats a
+        missing version as ``0`` — that would silently overwrite a row bumped
+        by a concurrent writer. ``force_update=True`` is the documented escape
+        hatch and must still write.
+        """
+        doc = await Doc.create(title="original", body="keep")
+
+        ghost = Doc(id=doc.pk, title="ghost")
+        with pytest.raises(IncompleteInstanceError):
+            await ghost.save(update_fields=["title"])
+
+        row = await Doc.get(id=doc.pk)
+        assert row.title == "original"
+        assert row.body == "keep"
+        assert row.version == 0
+
+        forced = Doc(id=doc.pk, title="forced")
+        await forced.save(update_fields=["title"], force_update=True)
+
+        row = await Doc.get(id=doc.pk)
+        assert row.title == "forced"
+        assert row.body == "keep"
+
+    async def test_refused_save_leaves_auto_now_untouched(self) -> None:
+        """A refused save must not restamp the ``auto_now`` column in memory.
+
+        ``updated_at`` comes from ``TimestampMixin`` and is already
+        ``auto_now`` (``test_timestamp_mixin_restamps_updated_at`` proves a
+        successful save moves it), so no extra column is added. Catches a guard
+        that stamps the timestamp *before* checking the row count: the caller
+        would then hold a value that is not in the row, and a retry after
+        ``refresh_from_db()`` would compare against a version it never read.
+        """
+        assert Doc._meta.fields_map["updated_at"].auto_now is True
+
+        doc = await Doc.create(title="original")
+        winner = await Doc.get(id=doc.pk)
+        stale = await Doc.get(id=doc.pk)
+        stale_seen_at = stale.updated_at
+
+        await asyncio.sleep(0.01)
+        winner.title = "first"
+        await winner.save()
+        assert winner.updated_at > stale_seen_at
+
+        stale.title = "stale"
+        with pytest.raises(VersionMismatchError):
+            await stale.save()
+
+        assert stale.updated_at == stale_seen_at
+        assert stale.version == 0
+        assert stale.title == "stale"
+
+    async def test_update_fields_empty_means_full_save(self) -> None:
+        """``update_fields=[]`` is a full save, not a version-only ``UPDATE``.
+
+        Catches treating an empty list as "write nothing but the version": the
+        changed columns must land and the version must still bump.
+        """
+        doc = await Doc.create(title="alpha", body="first")
+
+        doc.title = "renamed"
+        doc.body = "second"
+        await doc.save(update_fields=[])
+
+        assert doc.version == 1
+        row = await Doc.get(id=doc.pk)
+        assert row.version == 1
+        assert row.title == "renamed"
+        assert row.body == "second"
+
+    async def test_update_fields_unknown_name_is_operational_error(self) -> None:
+        """An unknown name is an ``OperationalError`` naming it, not a no-op.
+
+        Catches a validator that silently drops names it cannot resolve, which
+        would report success while writing nothing (or only the version).
+        """
+        doc = await Doc.create(title="alpha")
+
+        doc.title = "beta"
+        with pytest.raises(OperationalError) as excinfo:
+            await doc.save(update_fields=["nope"])
+
+        assert "nope" in str(excinfo.value)
+        row = await Doc.get(id=doc.pk)
+        assert row.title == "alpha"
+        assert row.version == 0
+
+    async def test_update_fields_relation_name_is_operational_error(self) -> None:
+        """Relations are not columns: naming one cannot be written.
+
+        ``Plain`` holds the forward relation ``doc`` and ``Doc`` the reverse
+        accessor ``plains``. Neither has a scalar column, so both must be
+        refused with ``OperationalError`` instead of reaching PostgreSQL as an
+        unknown column.
+        """
+        doc = await Doc.create(title="alpha")
+
+        with pytest.raises(OperationalError) as excinfo:
+            await doc.save(update_fields=["plains"])
+        assert "plains" in str(excinfo.value)
+
+        row = await Doc.get(id=doc.pk)
+        assert row.version == 0
+        assert row.title == "alpha"
+
+        plain = await Plain.create(label="one")
+        with pytest.raises(OperationalError):
+            await plain.save(update_fields=["doc"])
+
+    async def test_update_fields_accepts_a_generator(self) -> None:
+        """A one-shot iterable is consumed exactly once.
+
+        Catches validation that iterates ``update_fields`` and then writes from
+        the exhausted generator: the named column would silently not be written
+        while the version still bumps.
+        """
+        doc = await Doc.create(title="alpha", body="keep")
+
+        doc.title = "renamed"
+        doc.body = "must-not-write"
+        await doc.save(update_fields=(name for name in ["title"]))
+
+        assert doc.version == 1
+        row = await Doc.get(id=doc.pk)
+        assert row.version == 1
+        assert row.title == "renamed"
+        assert row.body == "keep"
 
     async def test_force_create_inserts_without_bump(self) -> None:
         """``force_create`` takes the insert path even with an explicit pk."""

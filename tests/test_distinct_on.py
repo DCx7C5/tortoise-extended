@@ -511,3 +511,150 @@ class TestDistinctOnAgainstPostgres:
                 "sensor_id",
                 order_by=("sensor_id", "-observed_at"),
             )
+
+    async def test_model_all_target_on_soft_delete_model(self) -> None:
+        """``SoftReading.all()`` is accepted: the injected condition is stripped.
+
+        ``.all()`` on a soft-delete model carries an implicit ``deleted_at IS
+        NULL`` clause. Refusing it would make the documented queryset target
+        unusable on exactly the models the filter exists for; returning the
+        deleted row with ``include_deleted=True`` proves the injected clause is
+        dropped rather than merely tolerated.
+        """
+        await _seed_soft()
+
+        visible = await distinct_on(
+            SoftReading.all(), "sensor_id", order_by=("sensor_id", "-observed_at")
+        )
+        everything = await distinct_on(
+            SoftReading.all(),
+            "sensor_id",
+            order_by=("sensor_id", "-observed_at"),
+            include_deleted=True,
+        )
+
+        assert [(row.sensor_id, row.value) for row in visible] == [
+            ("s", 10),
+            ("t", 6),
+        ]
+        assert [(row.sensor_id, row.value) for row in everything] == [
+            ("s", 20),
+            ("t", 6),
+        ]
+
+    async def test_model_all_still_refuses_a_real_filter(self) -> None:
+        """Only the injected soft-delete condition is stripped.
+
+        Catches a blanket "ignore every filter because ``.all()`` was passed"
+        rule, which would silently drop a caller's own ``WHERE``.
+        """
+        with pytest.raises(ValueError):
+            await distinct_on(SoftReading.all().filter(value__gt=0), "sensor_id")
+
+    @pytest.mark.parametrize(
+        ("build", "needle"),
+        [
+            pytest.param(
+                lambda: SoftReading.all().distinct(), "distinct", id="distinct"
+            ),
+            pytest.param(
+                lambda: SoftReading.all().select_for_update(),
+                "select_for_update",
+                id="select-for-update",
+            ),
+            pytest.param(lambda: SoftReading.all().only("id"), "only", id="only"),
+        ],
+    )
+    async def test_carried_state_is_refused(
+        self, build: Callable[[], object], needle: str
+    ) -> None:
+        """State that changes the emitted SQL is refused *and* named.
+
+        ``distinct`` would duplicate ``DISTINCT ON``, ``select_for_update``
+        cannot combine with the generated query, and ``only`` leaves rows
+        partial — each must produce a ``ValueError`` whose message names the
+        attribute so the caller can find the call site.
+        """
+        with pytest.raises(ValueError) as excinfo:
+            await distinct_on(build(), "sensor_id")
+
+        assert needle in str(excinfo.value).lower()
+
+    @pytest.mark.parametrize(
+        "where",
+        [
+            pytest.param("sensor_id <> '$1'", id="single-quoted-literal"),
+            pytest.param("sensor_id <> $$ $1 $$", id="dollar-quoted-body"),
+        ],
+    )
+    async def test_placeholder_scanning_ignores_quoted_literals(
+        self, where: str
+    ) -> None:
+        """A ``$1`` inside a string or dollar-quoted body is not a placeholder.
+
+        Both fragments bind no parameter, so they must reach PostgreSQL intact
+        and return every row. Catches a lexical scan that counts ``$n`` without
+        honouring quoting: it would report a param mismatch for a query the
+        driver accepts, which is the false positive that makes the guard
+        unusable.
+        """
+        await _seed_soft()
+
+        rows = await distinct_on(
+            SoftReading.all(),
+            "sensor_id",
+            order_by=("sensor_id", "-observed_at"),
+            where=where,
+            params=[],
+        )
+
+        assert [(row.sensor_id, row.value) for row in rows] == [("s", 10), ("t", 6)]
+
+    @pytest.mark.parametrize(
+        ("where", "needle"),
+        [
+            pytest.param("value = $0", "$0", id="zero-index"),
+            pytest.param("value = $01", "$01", id="leading-zero"),
+        ],
+    )
+    async def test_placeholder_scanning(self, where: str, needle: str) -> None:
+        """``$0`` and ``$01`` are refused, naming the placeholder as written.
+
+        PostgreSQL placeholders are 1-based and un-padded; accepting either
+        form would bind ``param[0]`` to a parameter the server never numbers
+        that way (or normalise ``$01`` to ``$1`` and hide a typo). The message
+        must quote the fragment so the caller can find it.
+        """
+        with pytest.raises(ValueError) as excinfo:
+            await distinct_on(SoftReading.all(), "sensor_id", where=where, params=[1])
+
+        assert needle in str(excinfo.value)
+
+    async def test_where_placeholder_still_binds(self) -> None:
+        """``$1`` binds the caller's value and filters *before* grouping.
+
+        With ``params=[20]`` every row of ``s`` (10, 20) and ``t`` (5, 6) fails
+        the predicate, so only ``u`` survives. Sensor ``u`` is seeded here as
+        newer-but-smaller (40 @ 02:00, then 15 @ 03:00): filtering before
+        grouping keeps 40, while picking the newest row per group first and
+        filtering afterwards would keep 15, fail ``> 20`` and return nothing at
+        all. Ignoring the ``WHERE`` would return ``s`` 20, ``t`` 6 and ``u`` 15.
+        A dropped or mis-bound ``$1`` makes PostgreSQL complain about a missing
+        parameter or compares against ``NULL`` and returns nothing.
+        """
+        await _seed_soft()
+        await SoftReading.create(sensor_id="u", observed_at=_at(2), value=40)
+        await SoftReading.create(sensor_id="u", observed_at=_at(3), value=15)
+
+        rows = await distinct_on(
+            SoftReading.all(),
+            "sensor_id",
+            order_by=("sensor_id", "-observed_at"),
+            where="value > $1",
+            params=[20],
+            include_deleted=True,
+        )
+
+        assert [(row.sensor_id, row.value, row.observed_at) for row in rows] == [
+            ("u", 40, _at(2)),
+        ]
