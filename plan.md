@@ -749,6 +749,12 @@ nothing describes `Meta.timescale`, which D8 cancelled.
 `tortoise_test_push` — the 13 are the 12 live-Redis cases (AUTH secret absent in this worktree) plus
 the `test_all.py` aggregator. Baseline before this slice was 1563 passed.
 
+**Wheel payload (3010, `50910f0`).** The user added the one line —
+`exclude = ["src/tortoise_extended/stubs"]` under `[tool.hatch.build.targets.wheel]` — and the
+rebuilt wheel was measured: **0 `.pyi` entries**, no `/stubs/` path, `py.typed` still present, 62
+entries (the 70 originally counted, minus the 12 stubs, plus the four modules shipped since).
+basedpyright still reads the overlay through `stubPath`, so the dev gate is unchanged at 0 errors.
+
 **TODO positions:** NODE-ERGO 2964 · NODE-EDGE-HYBRID 2965 · LIFECYCLE-EXTENSIONS 2966 ·
 UNIFIED-NODE 2967 · NODE-SOFTDELETE 2968 · GRAPH-FACADE 2969 · SAMPLE-RECORD-LATEST 2970 ·
 SAMPLE-GAPFILL 2971 · TIMESCALE-META-SPIKE 2972 · TIMESCALE-META-IMPL 2973 · DOCS-ERGO 2974 ·
