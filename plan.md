@@ -1283,3 +1283,19 @@ missing `select_for_update`/`distinct`/`prefetch_related`/`only`; `limit=True` r
 `LIMIT true` (measured `OperationalError`); plus five LOW items (FK payload path, target-type check,
 generator `update_fields`, transaction/rollback doc, `use_tz`, `deleted_at` by column, psycopg
 backend).
+
+**Round 3 (3066-3071, `7ea80d0`).** The six MEDIUMs the review left, fixed with the user's four
+contract decisions taken in one batched question round (all six as one round; 3066 raises instead of
+documenting; `update_fields=[]` means "all fields"; the soft-delete target is stripped rather than
+dropped from the docs). Both `css-developer` dispatches died on the account-wide quota after writing
+their code but before reporting, and the gate was clean on inspection: ruff clean, basedpyright
+**0 errors, 0 warnings, 0 notes**, full suite **1922 passed, 13 skipped** — the round changed no
+behaviour the 40 existing round-2 cases cover. Verified by probe on `tortoise_test`: unsaved-but-pk'd
+save refused with `force_update=True` as the escape hatch; `auto_now` unchanged after a mismatch;
+`[]` bumping 1 -> 2 with the rest of the row intact; unknown/M2M `update_fields` both
+`OperationalError`; generator accepted; `SDoc.all()` accepted with 1 live row vs 2 with
+`include_deleted`; `'$1'`, `$$ $1 $$` and `/* $1 */` accepted while `$0`/`$01` are refused by name;
+`select_for_update()`/`distinct()`/`only()` refused. Two doc corrections that came out of measuring:
+`order_by` "must lead with the `on` columns" is *this helper's* rule (PostgreSQL 18.7 in fact accepts
+a superset — see the round-2 note), and a `--` comment in `where` swallows the `ORDER BY` the helper
+appends after it, which the docs now say.
