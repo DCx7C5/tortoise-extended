@@ -10,6 +10,9 @@ Covers uncovered lines in:
 Live Redis runs against the docker ``redis-ext`` container on ``127.0.0.1:6381``.
 Pure-unit tests (``_q_value_default``, ``_coerce``, ``_stable_signature``,
 ``_deserialize_results`` Model passthrough, app-scoped resolve) need no I/O.
+Database-backed tests run against the live PostgreSQL test database on
+``127.0.0.1:5434`` (see ``docker-compose.dev.yml``) — this package is
+PostgreSQL-only.
 
 Note: the defensive ``RedisCache.init`` error branches in ``redis.py`` (lines
 99, 108) are unreachable with a healthy redis-py client and are intentionally
@@ -20,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import socket
 from collections.abc import AsyncGenerator, Iterator
 from datetime import date, datetime, time
@@ -62,7 +66,33 @@ _live_redis = pytest.mark.skipif(
 
 
 # ---------------------------------------------------------------------------
-# Tortoise model for queryset tests (SQLite in-memory, module-scoped)
+# PostgreSQL availability probe — skip the whole module when PG is unreachable
+# ---------------------------------------------------------------------------
+
+
+def _pg_available() -> bool:
+    """Quick check — can we connect to the test PG?"""
+    try:
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _pg_available(),
+    reason="PostgreSQL not available on localhost:5434",
+)
+
+DB_URL = os.environ.get(
+    "TORTOISE_TEST_DB",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
+)
+
+
+# ---------------------------------------------------------------------------
+# Tortoise model for queryset tests (PostgreSQL, module-scoped)
 # ---------------------------------------------------------------------------
 
 
@@ -78,16 +108,32 @@ class CacheLiveThing(BaseCacheableModel):
         table = "cache_live_things"
 
 
+_TABLES = ("cache_live_things",)
+
+
 @pytest.fixture(scope="module", autouse=True)
-async def _init_tortoise() -> AsyncGenerator[None, None]:
-    """Module-scoped Tortoise init with in-memory SQLite."""
-    await Tortoise.init(
-        db_url="sqlite://:memory:",
+async def _init_tortoise() -> AsyncGenerator[None, None]:  # pyright: ignore[reportUnusedFunction]
+    """Initialize Tortoise ORM against the live PostgreSQL test database."""
+    _ = await Tortoise.init(
+        db_url=DB_URL,
         modules={"models": ["tests.test_cache_live"]},
     )
+    conn = Tortoise.get_connection("default")
+    for table in _TABLES:
+        await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.generate_schemas()
     yield
+    for table in _TABLES:
+        await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.close_connections()
+
+
+@pytest.fixture(autouse=True)
+async def _clean_tables() -> AsyncGenerator[None, None]:  # pyright: ignore[reportUnusedFunction]
+    """Truncate every table before each test."""
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query(f"TRUNCATE {', '.join(_TABLES)} CASCADE")
+    yield
 
 
 # ===========================================================================

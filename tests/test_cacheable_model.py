@@ -1,9 +1,13 @@
 """Tests for tortoise_extended.models.cacheable_model.
 
 Covers BaseCacheableModel ClassVar wiring, serialization round-trips,
-and the full cache lifecycle using a MockRedisBackend (no live Redis or DB needed).
+and the full cache lifecycle using a MockRedisBackend (no live Redis needed).
+The models are registered against the live PostgreSQL test database
+(see ``docker-compose.dev.yml``) — this package is PostgreSQL-only.
 """
 
+import os
+import socket
 from collections.abc import AsyncGenerator
 from typing import ClassVar, cast
 from unittest.mock import AsyncMock, Mock
@@ -122,20 +126,68 @@ class CustomNamespaceItem(BaseCacheableModel):
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Config — skip entire module if PG is not available
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
-async def _db() -> AsyncGenerator[None, None]:  # pyright: ignore[reportUnusedFunction]
-    """Initialize Tortoise with in-memory SQLite for model metadata."""
+DB_URL = os.environ.get(
+    "TORTOISE_TEST_DB",
+    "postgres://postgres:postgres@localhost:5434/tortoise_test",
+)
+
+
+def _pg_available() -> bool:
+    """Quick check — can we connect to the test PG?"""
+    try:
+        sock = socket.create_connection(("localhost", 5434), timeout=2)
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _pg_available(),
+    reason="PostgreSQL not available on localhost:5434",
+)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+_TABLES = (
+    "tagged_items",
+    "short_lived_items",
+    "selective_fields_items",
+    "custom_backend_items",
+    "custom_namespace_items",
+)
+
+
+@pytest.fixture(scope="module", autouse=True)
+async def _init_db() -> AsyncGenerator[None, None]:  # pyright: ignore[reportUnusedFunction]
+    """Initialize Tortoise ORM against the live PostgreSQL test database."""
     _ = await Tortoise.init(
-        db_url="sqlite://:memory:",
+        db_url=DB_URL,
         modules={"models": ["tests.test_cacheable_model"]},
     )
+    conn = Tortoise.get_connection("default")
+    for table in _TABLES:
+        await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.generate_schemas()
     yield
+    for table in _TABLES:
+        await conn.execute_query(f"DROP TABLE IF EXISTS {table} CASCADE")
     await Tortoise.close_connections()
+
+
+@pytest.fixture(autouse=True)
+async def _clean_tables() -> AsyncGenerator[None, None]:  # pyright: ignore[reportUnusedFunction]
+    """Truncate every table and reset class-level backends around each test."""
+    conn = Tortoise.get_connection("default")
+    await conn.execute_query(f"TRUNCATE {', '.join(_TABLES)} CASCADE")
+    yield
     # Reset class-level backend overrides to avoid leaking across tests
     TaggedItem._cache_backend = None
     ShortLivedItem._cache_backend = None
