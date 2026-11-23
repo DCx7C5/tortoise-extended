@@ -97,6 +97,7 @@ class TestModelsAllCoversReexports:
             "TimestampEndMixin",
             "TimestampMixin",
             "UnifiedIdModel",
+            "VersionMixin",
         }
         assert set(models_all) == expected
 
