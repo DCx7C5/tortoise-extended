@@ -294,7 +294,7 @@ top of the adjacency-list fields. The field tables and the query helpers
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `add_child(**fields)` | `Self` | Insert a child linked to this node |
+| `add_child(*, using_db=None, **fields)` | `Self` | Insert a child linked to this node |
 | `root()` | `Self` | Topmost node on this node's parent chain |
 | `is_ancestor_of(other)` | `bool` | `True` when this node is a strict ancestor of `other` |
 | `is_descendant_of(other)` | `bool` | `True` when this node is a strict descendant of `other` |
@@ -310,6 +310,13 @@ saved yet.
 `child_count` is maintained by `save()` itself, so `add_child` issues **no**
 second counter update — it only syncs the in-memory counter, keeping the
 database at exactly +1 per child.
+
+`using_db` selects the connection for the child INSERT. You rarely need it:
+tortoise already routes writes made on the default connection to the ambient
+`in_transaction()` connection, so creating a parent and its children inside one
+transaction is atomic without passing anything. Pass the handle explicitly to
+target a specific connection, such as a transaction opened on another
+connection name.
 
 ```python
 root = await Category.create(name="Electronics")
