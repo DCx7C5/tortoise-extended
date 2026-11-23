@@ -1299,3 +1299,12 @@ save refused with `force_update=True` as the escape hatch; `auto_now` unchanged 
 `order_by` "must lead with the `on` columns" is *this helper's* rule (PostgreSQL 18.7 in fact accepts
 a superset — see the round-2 note), and a `--` comment in `where` swallows the `ORDER BY` the helper
 appends after it, which the docs now say.
+
+**Round-3 tests (3066-3071, `0865251`).** 16 cases in the two round-2 modules, 56 between them. Two
+shapes deviated from the brief, both sound: the relation-refusal case uses a **nullable FK** on the
+existing `Plain` table (a forward name `doc` and a back-reference `plains`, no second table or M2M
+junction), and the `auto_now` case reuses `TimestampMixin.updated_at` with an explicit
+`field.auto_now is True` precondition instead of adding a second auto_now column. The `$1`-binding
+case seeds the `u` group newer-but-smaller so filter-after-grouping would pick a different row — the
+ordering the earlier fixture could not distinguish. Gate: ruff clean, full suite **1938 passed,
+13 skipped**.
