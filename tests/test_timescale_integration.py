@@ -836,7 +836,7 @@ class TestBulkInsertDefaults:
 
 
 # ---------------------------------------------------------------------------
-# 6. SAMPLE-RECORD-LATEST — record() / latest() / downsample()
+# 6. SAMPLE-RECORD-LATEST — record() / latest_for_stream() / downsample()
 # ---------------------------------------------------------------------------
 
 
@@ -905,7 +905,7 @@ class TestSampleErgonomics:
         assert row.created_at == base
 
     @pytest.mark.asyncio
-    async def test_latest_returns_newest_row_for_one_stream(self) -> None:
+    async def test_latest_for_stream_returns_newest_row_for_one_stream(self) -> None:
         base = datetime.datetime(2026, 8, 1, 12, 0, tzinfo=datetime.timezone.utc)
         await StreamEvent.record(id=1, stream=1, at=base, value=1.0)
         await StreamEvent.record(
@@ -922,16 +922,16 @@ class TestSampleErgonomics:
         )
         await StreamEvent.record(id=4, stream=2, at=base, value=9.0)
 
-        newest = await StreamEvent.latest(1)
+        newest = await StreamEvent.latest_for_stream(1)
         assert newest is not None
         assert newest.id == 3
         assert newest.value == 3.0
 
-        other = await StreamEvent.latest(2)
+        other = await StreamEvent.latest_for_stream(2)
         assert other is not None
         assert other.id == 4
 
-        assert await StreamEvent.latest(99) is None
+        assert await StreamEvent.latest_for_stream(99) is None
 
     @pytest.mark.asyncio
     async def test_downsample_avg_matches_hand_computed(self) -> None:

@@ -511,7 +511,7 @@ the common single-row / single-stream cases.
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `record(*, stream=None, at=None, **fields)` | `Self` | Create one row; maps `stream` → `stream_field`, `at` → `time_field` |
-| `latest(stream)` | `Self \| None` | Newest row for one stream (wraps `latest_per_stream()`) |
+| `latest_for_stream(stream)` | `Self \| None` | Newest row for one stream (wraps `latest_per_stream()`) |
 | `downsample(interval, *, agg="avg", field=None, stream=None, start=None, end=None)` | `list[TimeBucketRow]` | Per-stream `time_bucket` rollup; open bounds default to the whole series |
 
 ### Usage
@@ -535,7 +535,7 @@ class Event(BaseSample):
 
 event = await Event.record(stream=7, at=datetime.now(UTC), value=0.5)
 
-newest = await Event.latest(7)  # Event | None
+newest = await Event.latest_for_stream(7)  # Event | None
 
 buckets = await Event.downsample(
     "1 hour", agg="avg", field="value", stream=7
@@ -550,9 +550,8 @@ column has no default raises `TimescaleError` instead of inserting a row
 without a timestamp. A mapped shorthand that collides with an explicit field
 (`record(stream=1, stream_id=2)`) also raises `TimescaleError`.
 
-`latest()` deliberately shadows `Model.latest(*orderings)` on sample models —
-the stream lookup is the useful "latest" here; use `latest_per_stream()` for
-several streams at once.
+The ORM's `Model.latest(*orderings)` remains available on sample models, and
+`latest_per_stream()` is the multi-stream form.
 
 `downsample()` validates `field` against the model and raises `TimescaleError`
 for an unknown name; `start` / `end` default to the earliest row and the latest

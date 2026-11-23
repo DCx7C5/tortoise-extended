@@ -15,7 +15,7 @@ Turns any subclass into a multi-stream time-series table:
   express (``DISTINCT ON``, ``time_bucket``, ``first``/``last``):
 
   - :meth:`SampleMixin.latest_per_stream` — newest event per stream.
-  - :meth:`SampleMixin.latest` — newest event for one stream.
+  - :meth:`SampleMixin.latest_for_stream` — newest event for one stream.
   - :meth:`SampleMixin.time_series` — typed per-stream rollups.
   - :meth:`SampleMixin.downsample` — one-stream rollup over the whole series.
   - :meth:`SampleMixin.in_range` — pure-ORM time/stream filter.
@@ -543,21 +543,10 @@ class SampleMixin(Model):
         ]
 
     @classmethod
-    @override
-    # Model.latest(*orderings) is a queryset factory; on stream tables the
-    # useful "latest" is the newest row for one stream.  The name collision
-    # is deliberate — the stream lookup replaces the inherited helper.
-    async def latest(  # pyright: ignore[reportIncompatibleMethodOverride]
-        cls, stream: str | int
-    ) -> Self | None:
+    async def latest_for_stream(cls, stream: str | int) -> Self | None:
         """Return the newest row for one stream, or ``None`` when empty.
 
         Thin wrapper over :meth:`latest_per_stream` — no additional SQL.
-
-        Note:
-            Shadows :meth:`tortoise.models.Model.latest` (``*orderings``)
-            on sample models; use :meth:`latest_per_stream` to fetch the
-            newest row for several streams at once.
 
         Args:
             stream: The stream partition value to look up.

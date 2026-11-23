@@ -58,9 +58,11 @@ the versions below are the `pyproject.toml` version at the time of the change.
   universal fallback (`BaseSample` declares no time column, and `Field.default` stays `None`
   for `auto_now` / `auto_now_add`), so the value is omitted only when the subclass's time column
   carries a non-`None` `default` — otherwise the call raises and names the field.
-- `SampleMixin.latest(stream)` — newest row for one stream, a wrapper over
-  `latest_per_stream(stream_ids=[stream], limit=1)` with no new SQL. It shadows
-  `Model.latest(*orderings)`, which the method documents.
+- `SampleMixin.latest_for_stream(stream)` — newest row for one stream, a wrapper over
+  `latest_per_stream(stream_ids=[stream], limit=1)` with no new SQL. Named `latest_for_stream`
+  rather than `latest` so `Model.latest(*orderings)` stays available on sample models: the
+  shorter name shadowed the inherited ORM helper and silently changed what
+  `await Event.latest("created_at")` meant.
 - `SampleMixin.downsample(interval, *, agg="avg", field=None, stream=None, start=None, end=None)`
   — rollup over the whole series, delegating to `time_series()`; an unknown `field` raises
   `TimescaleError`, and open bounds are widened to the series' own first and last row (the upper
