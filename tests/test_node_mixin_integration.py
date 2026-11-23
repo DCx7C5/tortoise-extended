@@ -11,6 +11,7 @@ import socket
 
 import pytest
 from tortoise import Tortoise, fields
+from tortoise.transactions import in_transaction
 
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended._types import CacheValue
@@ -331,6 +332,10 @@ class TestTraversal:
 # ---------------------------------------------------------------------------
 
 
+class _ForcedRollback(Exception):
+    """Sentinel raised inside the transaction to force a rollback."""
+
+
 class TestAddChild:
     """add_child() links a new child and bumps child_count exactly once."""
 
@@ -390,6 +395,54 @@ class TestAddChild:
         assert parent.is_leaf is True
         await parent.add_child()
         assert parent.is_leaf is False
+
+    async def test_using_db_joins_the_callers_transaction(self) -> None:
+        """An explicit connection handle is accepted and yields a consistent tree.
+
+        Measured 2026-11-23: this also passes with ``using_db=None`` — tortoise
+        routes writes on the default client to the ambient ``in_transaction()``
+        connection, so the argument is not what makes the write atomic. What
+        this pins is the public parameter: dropping it fails with ``TypeError``.
+        """
+        async with in_transaction() as conn:
+            parent = await HybridNode.create(
+                using_db=conn,
+                namespace="atomic",
+                depth=0,
+                is_root=True,
+            )
+            first = await parent.add_child(
+                using_db=conn, metadata_json={"label": "first"}
+            )
+            second = await parent.add_child(
+                using_db=conn, metadata_json={"label": "second"}
+            )
+        stored = await HybridNode.all()
+        assert {node.pk for node in stored} == {parent.pk, first.pk, second.pk}
+        assert await HybridNode.filter(namespace="atomic").count() == 3
+        # The denormalized counter maintenance in save() joined the same
+        # transaction, so both bumps committed with the rows.
+        assert (await HybridNode.get(pk=parent.pk)).child_count == 2
+
+    async def test_using_db_rolls_back_parent_and_children_together(self) -> None:
+        """A raise inside the shared transaction removes all three rows.
+
+        Same caveat as above: ambient routing already gives this with
+        ``using_db=None``, so this is a contract pin, not a regression test for
+        the parameter.
+        """
+        with pytest.raises(_ForcedRollback):
+            async with in_transaction() as conn:
+                parent = await HybridNode.create(
+                    using_db=conn,
+                    namespace="atomic",
+                    depth=0,
+                    is_root=True,
+                )
+                await parent.add_child(using_db=conn)
+                await parent.add_child(using_db=conn)
+                raise _ForcedRollback("forced rollback")
+        assert await HybridNode.all().count() == 0
 
 
 # ---------------------------------------------------------------------------

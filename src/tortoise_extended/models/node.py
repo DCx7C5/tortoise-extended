@@ -271,7 +271,7 @@ class NodeMixin(Model):
         # connection and (where the backend supports it) locks the node's row
         # via ``select_for_update``, so a concurrent reparent cannot interleave
         # between the read and the ``child_count`` decrement and drift the
-        # counter. See ``_previous_parent_id`` for the SQLite fallback.
+        # counter.
         if using_db is None:
             async with in_transaction():
                 await _persist_and_sync()
@@ -285,11 +285,9 @@ class NodeMixin(Model):
 
         The read runs on the same connection that persists the node
         (``using_db`` when supplied, otherwise the default/transactional
-        connection) and, on backends that support row locking (PostgreSQL),
-        via ``select_for_update`` so concurrent reparents of this node
-        serialize on the node's row before any ``child_count`` adjustment.
-        On backends without ``FOR UPDATE`` support (SQLite) the queryset is
-        used unmodified, so the call is fully portable.
+        connection) and uses ``select_for_update`` so concurrent reparents of
+        this node serialize on the node's row before any ``child_count``
+        adjustment.
         """
         row = (
             await self.__class__.select_for_update(using_db=using_db)
@@ -356,7 +354,9 @@ class NodeMixin(Model):
             parent_id=self.id,
         ).order_by(self.ordering_field)
 
-    async def add_child(self, **kwargs: CacheValue) -> Self:
+    async def add_child(
+        self, *, using_db: BaseDBAsyncClient | None = None, **kwargs: CacheValue
+    ) -> Self:
         """Create and persist a direct child of this node.
 
         The child gets ``parent_id=self.pk``, ``depth=self.depth + 1``,
@@ -368,6 +368,14 @@ class NodeMixin(Model):
         the in-memory counter on this instance so it does not read stale.
 
         Args:
+            using_db: Connection to run the child INSERT on. ``None`` uses the
+                default connection, which tortoise routes to the ambient
+                ``in_transaction()`` connection when one is active — so atomic
+                parent + children creation already works without this
+                argument. Pass a handle explicitly to target a specific
+                connection (for example a transaction opened on another
+                connection name). The in-memory ``child_count`` bump on this
+                instance happens either way.
             **kwargs: Additional field values for the new child node. Values
                 use :data:`~tortoise_extended._types.CacheValue`, so a
                 JSON-serializable ``dict`` / ``list`` is accepted for
@@ -393,10 +401,11 @@ class NodeMixin(Model):
             "namespace": self.namespace,
         }
         child_fields.update(kwargs)
-        # ``using_db`` is bound explicitly: the helper takes field values only
-        # (no connection parameter), and it keeps the ``CacheValue`` splat from
-        # being matched against ``create()``'s connection argument.
-        child = await self.__class__.create(using_db=None, **child_fields)
+        # ``using_db`` is forwarded so the INSERT joins the caller's
+        # transaction when one is supplied; ``None`` falls back to the default
+        # connection. It is an explicit keyword-only parameter (not a field
+        # value) so it can never collide with the ``CacheValue`` splat.
+        child = await self.__class__.create(using_db=using_db, **child_fields)
         # save() already bumped the parent's DB counter on create; bumping it
         # here too would double-count. Keep only the local copy in sync.
         self.child_count += 1
