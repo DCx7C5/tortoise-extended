@@ -47,11 +47,24 @@ private to tortoise-orm but is the only public-ish way to hydrate a model from
 a mapping of database column names; the helper documents the dependency here
 rather than re-implementing field conversion. Instances come back with
 ``_saved_in_db = True``, so they can be saved again.
+
+Backend note: this helper needs the **asyncpg** backend. ``where`` placeholders
+are ``$n`` tokens, which only asyncpg binds — tortoise can also reach PostgreSQL
+through psycopg, where ``$1`` is literal text — and hydration goes through the
+asyncpg-shaped ``execute_query_dict``. Any other connection is refused with
+``ValueError`` before a statement is built.
+
+Soft-delete note: the ``deleted_at IS NULL`` filter selects on the **column**,
+not on a field name. A model declares the column either as a field named
+``deleted_at`` (the usual ``BaseSoftDeleteModel`` shape) or as another field
+projected onto it (``removed_at = fields.DatetimeField(source_field="deleted_at")``);
+both get the filter unless ``include_deleted=True``.
 """
 
 import re
 from collections.abc import Sequence
 
+from tortoise.backends.asyncpg.client import AsyncpgDBClient
 from tortoise.backends.base.client import BaseDBAsyncClient
 from tortoise.expressions import Q
 from tortoise.models import Model
@@ -161,6 +174,10 @@ def _target_model[M: Model](target: type[M] | QuerySet[M]) -> type[M]:
         into every default queryset is accepted, because the helper re-applies
         that same condition itself unless ``include_deleted=True``.
     :returns: The model class.
+    :raises TypeError: When ``target`` is neither a model class nor a
+        ``QuerySet`` — a model **instance** is row state this helper cannot
+        translate to a statement. (A ``Model.get(...)`` result *is* a
+        ``QuerySet``, so it is refused as carried state instead, below.)
     :raises ValueError: When ``target`` is a queryset that carries filters,
         annotations, ordering, grouping, ``DISTINCT``, ``SELECT … FOR
         UPDATE``, prefetching, only/values field narrowing, limit or offset —
@@ -177,7 +194,53 @@ def _target_model[M: Model](target: type[M] | QuerySet[M]) -> type[M]:
                 f"`where=` / `params=` and ordering in `order_by=`"
             )
         return target.model
+    _refuse_row_target(target)
     return target
+
+
+def _refuse_row_target[M: Model](
+    target: type[M] | QuerySet[M] | Model,
+) -> None:
+    """Raise ``TypeError`` when ``target`` is a row rather than a class or queryset.
+
+    The signature says only a class or a queryset can arrive, so this runs for
+    the caller a type checker never saw — a model **instance**, which carries
+    row state this helper cannot turn into a statement. ``QuerySet`` is allowed
+    through: ``Model.get(...)`` returns one carrying a filter and a limit, and
+    that is refused as carried state by the caller, not as a type error.
+
+    :param target: The value the caller passed as ``target``.
+    :raises TypeError: When ``target`` is a model instance.
+    """
+    if isinstance(target, Model):
+        raise TypeError(
+            f"distinct_on() target must be a model class or a QuerySet (e.g. "
+            f"`Reading` / `Reading.all()`), got a {type(target).__name__} "
+            f"instance: pass the class, not a row"
+        )
+
+
+def _assert_asyncpg_backend(client: BaseDBAsyncClient) -> None:
+    """Raise unless ``client`` is the asyncpg backend.
+
+    ``where`` placeholders are ``$n`` tokens and hydration reads the mappings
+    ``execute_query_dict`` returns; both are asyncpg-shaped. Tortoise also
+    reaches PostgreSQL through psycopg, where ``$1`` is literal text inside a
+    statement, so that connection is refused here instead of letting the
+    fragment reach the server with its placeholders unbound.
+
+    :param client: The connection the statement would run on.
+    :raises ValueError: When the client is not
+        :class:`tortoise.backends.asyncpg.client.AsyncpgDBClient`.
+    """
+    if not isinstance(client, AsyncpgDBClient):
+        raise ValueError(
+            f"distinct_on() requires the asyncpg backend: `where` placeholders "
+            f"are `$n` tokens, which asyncpg binds (psycopg treats `$1` as "
+            f"literal text), and this connection uses "
+            f"{type(client).__name__}. Configure the connection with the "
+            f"'asyncpg' engine."
+        )
 
 
 def _connection_for[M: Model](
@@ -190,10 +253,38 @@ def _connection_for[M: Model](
         choice is honoured.
     :param model: The model resolved from ``target``.
     :returns: The connection.
+    :raises ValueError: When the resolved connection is not the asyncpg
+        backend (see :func:`_assert_asyncpg_backend`).
     """
     if isinstance(target, QuerySet):
-        return target._db or model._choose_db()  # pyright: ignore[reportPrivateUsage]
-    return model._choose_db()
+        client = target._db or model._choose_db()  # pyright: ignore[reportPrivateUsage]
+    else:
+        client = model._choose_db()
+    _assert_asyncpg_backend(client)
+    return client
+
+
+def _soft_delete_column(model: type[Model]) -> str | None:
+    """Return the column that marks a row soft-deleted, when the model has one.
+
+    The filter is decided by the **column**, not by a field name: a model
+    declares the ``deleted_at`` column either through a field of that name
+    (the ``BaseSoftDeleteModel`` shape — its ``source_field`` decides the
+    column) or through a field named something else projected onto it
+    (``removed_at = fields.DatetimeField(source_field="deleted_at")``). Both
+    shapes yield the column; a field named ``deleted_at`` wins if a model ever
+    declares both.
+
+    :param model: The model the statement selects from.
+    :returns: The ``deleted_at`` column name, or ``None`` when the model
+        projects no such column.
+    """
+    projection = model._meta.fields_db_projection
+    if "deleted_at" in projection:
+        return projection["deleted_at"]
+    if "deleted_at" in projection.values():
+        return "deleted_at"
+    return None
 
 
 def _db_column(model: type[Model], name: str, *, argument: str) -> str:
@@ -367,25 +458,33 @@ async def distinct_on[M: Model](
         and connection (``Model.all()``, optionally ``.using_db(...)``; on a
         ``BaseSoftDeleteModel`` the injected ``deleted_at IS NULL`` filter is
         accepted because the helper re-applies it). Any other state raises
-        ``ValueError``.
+        ``ValueError``; an instance or a ``Model.get(...)`` result raises
+        ``TypeError``.
     :param on: Model field name(s) that identify a group; one row per group.
     :param order_by: Model field name(s) deciding which row wins; a leading
         ``-`` means ``DESC``. Must **start** with the ``on`` columns — that is
         PostgreSQL's rule for ``DISTINCT ON`` and is enforced here.
-    :param limit: Optional maximum number of groups returned; must be at least 1.
+    :param limit: Optional maximum number of groups returned; must be an
+        integer of at least 1. A ``bool`` is refused rather than passed on as
+        PostgreSQL's ``LIMIT true``.
     :param where: Optional ``WHERE`` fragment — **trusted SQL text**, concatenated
         into the statement verbatim, so never pass user input. Use ``$1``-style
         placeholders and bind the values through ``params``.
     :param params: Values for those placeholders, in order; bound, never inlined.
-    :param include_deleted: When the model declares a ``deleted_at`` column,
+    :param include_deleted: When the model projects a ``deleted_at`` **column**
+        — a field of that name, or another field mapped onto it (e.g.
+        ``removed_at = fields.DatetimeField(source_field="deleted_at")``) —
         soft-deleted rows are excluded unless this is ``True``.
     :returns: The winning rows, in ``ORDER BY`` order, as model instances.
+    :raises TypeError: When ``target`` is neither a model class nor a
+        ``QuerySet`` (for example a model instance).
     :raises ValueError: For an empty ``on``, an unknown field, an ``order_by``
         that does not lead with the ``on`` columns, mismatched placeholders, a
-        ``$0`` / zero-padded placeholder, a ``limit`` below 1, or a queryset
-        carrying state (filters, annotations, ordering, grouping, ``DISTINCT``,
-        ``SELECT … FOR UPDATE``, prefetching, only/values fields, limit,
-        offset).
+        ``$0`` / zero-padded placeholder, a ``limit`` below 1 or a boolean
+        ``limit``, a queryset carrying state (filters, annotations, ordering,
+        grouping, ``DISTINCT``, ``SELECT … FOR UPDATE``, prefetching,
+        only/values fields, limit, offset), or a connection that is not the
+        asyncpg backend.
 
     ``on`` groups are ordered by the ``on`` columns first (ascending) so the
     output is stable when several groups share an order key; append a
@@ -394,6 +493,11 @@ async def distinct_on[M: Model](
     model = _target_model(target)
     if not on:
         raise ValueError("distinct_on() needs at least one field name in `on`")
+    if isinstance(limit, bool):
+        raise ValueError(
+            f"distinct_on() limit must be an integer, got {limit}: a bool is not "
+            f"a row count"
+        )
     if limit is not None and limit < 1:
         raise ValueError(f"distinct_on() limit must be >= 1, got {limit}")
 
@@ -428,10 +532,10 @@ async def distinct_on[M: Model](
     conditions: list[str] = []
     if where:
         conditions.append(f"({where})")
-    if not include_deleted and "deleted_at" in model._meta.fields_map:
-        conditions.append(
-            f"{quote_ident(_db_column(model, 'deleted_at', argument='deleted_at'))} IS NULL"
-        )
+    if not include_deleted:
+        deleted_column = _soft_delete_column(model)
+        if deleted_column is not None:
+            conditions.append(f"{quote_ident(deleted_column)} IS NULL")
 
     sql = f"SELECT DISTINCT ON ({on_sql}) {select_list} FROM {model._meta.basetable}"
     if conditions:

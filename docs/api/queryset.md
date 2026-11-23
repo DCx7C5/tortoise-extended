@@ -72,13 +72,13 @@ recent = await distinct_on(
 
 | Argument | Meaning |
 |---|---|
-| `target` | A model class, or a queryset carrying only its model and connection — `Model.all()`, optionally `.using_db(...)`. On a `BaseSoftDeleteModel`, the `deleted_at IS NULL` condition `SoftDeleteQuerySet` injects into `all()` is accepted, because the helper re-applies that same condition itself (unless `include_deleted=True`); any other carried state raises `ValueError`. |
+| `target` | A model class, or a queryset carrying only its model and connection — `Model.all()`, optionally `.using_db(...)`. On a `BaseSoftDeleteModel`, the `deleted_at IS NULL` condition `SoftDeleteQuerySet` injects into `all()` is accepted, because the helper re-applies that same condition itself (unless `include_deleted=True`); any other carried state raises `ValueError`. A model **instance** is neither form and raises `TypeError` up front. |
 | `*on` | Model field name(s) identifying a group. Required. |
 | `order_by` | Model field name(s) picking the winner; a leading `-` means `DESC`. Must begin with the `on` columns — this helper requires it, so the winning row per group is defined and the output stable. Defaults to the `on` columns ascending (so the *first* row per group wins). |
-| `limit` | Optional maximum number of groups. |
+| `limit` | Optional maximum number of groups, an integer of at least 1. A `bool` is refused by name: `bool` is an `int` in Python, but PostgreSQL rejects `LIMIT true` with `argument of LIMIT must be type bigint, not type boolean`. |
 | `where` | Optional `WHERE` fragment — **trusted SQL text**, concatenated into the statement exactly as written. Never pass user input here; put every value behind a `$1`-style placeholder. |
 | `params` | Values bound to those placeholders, in order — sent as query parameters, never inlined. |
-| `include_deleted` | When the model declares `deleted_at`, soft-deleted rows are excluded unless this is `True` — the same rule the CTE builders follow. |
+| `include_deleted` | When the model projects a **`deleted_at` column**, soft-deleted rows are excluded unless this is `True` — the same rule the CTE builders follow. The rule keys on the column, not on a field name: a field named `deleted_at` (whose `source_field` decides the column) and a differently named field mapped onto the column — e.g. `removed_at = fields.DatetimeField(source_field="deleted_at")` — are both honoured. |
 
 Emitted SQL (measured):
 
@@ -90,13 +90,22 @@ ORDER BY "sensor_id" ASC, "observed_at" DESC
 LIMIT 10
 ```
 
-`ValueError` — never a database error, and raised before the connection is resolved, so bad
-arguments fail the same way on an unbound model — for: an empty `on`; a name that is not a field of the model;
-an `order_by` that does not lead with the `on` columns (or is shorter than them); a `limit` below 1;
-a `$0` or zero-padded (`$01`) placeholder; placeholders that do not match `params` (missing values,
-values with no placeholder, skipped indices); and a queryset carrying filters, annotations, ordering,
-grouping, `DISTINCT`, `select_for_update()`, `prefetch_related()`, `.only()`/`.values()` field
-narrowing, `limit` or `offset` — put predicates in `where`/`params`.
+`ValueError` — never a database error. Argument mistakes are raised before the connection is resolved,
+so bad arguments fail the same way on an unbound model; the backend guard below necessarily runs after
+it. Refused: an empty `on`; a name that is not a field of the model;
+an `order_by` that does not lead with the `on` columns (or is shorter than them); a `limit` below 1 or
+a boolean `limit` (`True`/`False`; Python's `bool` is an `int`, so the `< 1` check alone lets
+`LIMIT true` through); a `$0` or zero-padded (`$01`) placeholder; placeholders that do not match
+`params` (missing values, values with no placeholder, skipped indices); a queryset carrying filters,
+annotations, ordering, grouping, `DISTINCT`, `select_for_update()`, `prefetch_related()`,
+`.only()`/`.values()` field narrowing, `limit` or `offset` — put predicates in `where`/`params`; and a
+connection whose client is not the asyncpg backend (see Hydration).
+
+`TypeError` — before any of the above — when `target` is neither a model class nor a `QuerySet`: a
+model **instance** carries row state this helper cannot translate, and letting one through would
+surface as an `AttributeError` further down instead of naming the mistake. A `Model.get(...)` result
+is *not* in this group — it is a `QuerySet` carrying a filter and a limit, so it fails as carried
+state (`ValueError`) like any other.
 
 **Placeholders are quote-aware.** `$1` is a parameter only in SQL code: inside a single-quoted
 literal (`''` escapes a quote), a double-quoted identifier (`""` escapes), a dollar-quoted body
@@ -119,6 +128,12 @@ but it is the only supported way to turn a mapping of database column names into
 instance; the instances carry `_saved_in_db = True`, so they can be modified and saved again. The
 SELECT list is generated from the model's field projection, each column aliased to its own database
 name — that aliasing is what `_init_from_db` requires.
+
+**asyncpg backend only.** The `where` placeholders are `$n` tokens and the rows are hydrated from
+`execute_query_dict`, both asyncpg-shaped. Tortoise can also reach PostgreSQL through psycopg, where
+`$1` inside a statement is literal text, so a connection whose client is not
+`tortoise.backends.asyncpg.client.AsyncpgDBClient` is refused with `ValueError` naming the client,
+before the statement is executed. Configure the model's connection with the `asyncpg` engine.
 
 **Determinism:** the `on` columns lead the `ORDER BY`, so groups come back in a stable order; append
 a tiebreaker (e.g. `"-observed_at"`, then `"-id"`) when two rows in a group can share the ordering

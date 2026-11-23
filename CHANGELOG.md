@@ -180,6 +180,15 @@ the versions below are the `pyproject.toml` version at the time of the change.
 
 ### Fixed
 
+- `distinct_on()` no longer trusts its arguments into a driver error: `limit=True` is refused with
+  `ValueError` naming the value (`bool` is an `int`, so `LIMIT true` used to reach PostgreSQL and
+  come back as `argument of LIMIT must be type bigint, not type boolean`), a model **instance** or a
+  `Model.get(...)` result is refused with `TypeError` up front instead of failing later with
+  `AttributeError`, and a connection whose client is not the asyncpg backend is refused with
+  `ValueError` — `where` placeholders are `$n` tokens that psycopg treats as literal text. The
+  soft-delete filter now keys on the projected **column** rather than a field name, so
+  `removed_at = fields.DatetimeField(source_field="deleted_at")` is honoured like a `deleted_at`
+  field is; `include_deleted` semantics are unchanged.
 - `distinct_on()` accepts the documented `Model.all()` target on a `BaseSoftDeleteModel`: the
   `deleted_at IS NULL` condition `SoftDeleteQuerySet` injects at construction time is recognised and
   stripped before the carried-state check (the helper re-applies that same condition itself unless

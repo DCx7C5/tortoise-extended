@@ -80,6 +80,14 @@ class VersionMixin(Model):
         version: Row version, starting at ``0`` and incremented by every
             guarded save. Never set it by hand; a stale value is what raises
             :class:`~tortoise_extended.exceptions.VersionMismatchError`.
+
+    The instance is only as current as the last committed save: ``version``
+    and ``_saved_in_db`` are updated in memory when the guarded ``UPDATE``
+    succeeds, inside whatever transaction ``using_db`` belongs to. After a
+    rollback (or an external writer) the instance advertises a version the row
+    does not have, and the next ``save()`` raises a spurious
+    :class:`~tortoise_extended.exceptions.VersionMismatchError`. Call
+    ``refresh_from_db()`` before saving again.
     """
 
     version = fields.BigIntField(
@@ -226,6 +234,8 @@ class VersionMixin(Model):
                 continue
             field_obj = self._meta.fields_map[name]
             if getattr(field_obj, "auto_now", False):
+                # The payload carried an aware instant; the field decides what
+                # the instance should hold (naive under ``use_tz=False``).
                 setattr(self, name, field_obj.to_python_value(value))
         self._saved_in_db = True
         await self._post_save(db, False, names)
@@ -331,7 +341,12 @@ class VersionMixin(Model):
 
         ``auto_now`` columns are replaced with the current time because the
         queryset executor converts values without an instance, so the field
-        never sees the save and would keep the old timestamp.
+        never sees the save and would keep the old timestamp. The stamp is an
+        **aware** instant: tortoise's ``to_db_value`` only adds a timezone when
+        ``use_tz`` is on and the value is naive, it never strips one, so an
+        aware value reaches asyncpg unchanged and stores the right instant in
+        either mode. The in-memory mirror inherits the field conversion
+        instead, which is what turns it naive under ``use_tz=False``.
 
         :param names: The resolved ``update_fields`` names, or ``None``.
         :returns: Field name → Python value, ready for ``QuerySet.update()``.

@@ -209,7 +209,14 @@ What the guarded `save()` does:
 - **`auto_now` fields are stamped explicitly.** The queryset executor converts
   values without an instance, so `auto_now` would never fire — the same reason
   it does not fire through `QuerySet.update()`. The mixin writes the timestamp
-  itself and mirrors it onto the instance.
+  itself and mirrors it onto the instance. The stamp is an **aware** instant in
+  both modes: tortoise's `to_db_value` only adds a timezone when `use_tz` is on
+  and the value is naive — it never strips one — so an aware value stores the
+  right instant under `use_tz=False` too, and the instance receives the field's
+  own conversion (naive there, aware under `use_tz=True`). Converting the stamp
+  to naive before the write would be a bug, not a fix: asyncpg encodes a naive
+  datetime in the *host's* timezone, so a project whose `TIME_ZONE` differs from
+  the host's offset would store an instant off by that offset.
 - **`update_fields` narrows the payload**; `version` is always written. An
   empty iterable means "all fields". Naming an unknown field, a field without
   a database column (M2M / backward relation), the primary key or a generated
@@ -235,6 +242,14 @@ paths as last-write-wins.
 The guard uses a plain `QuerySet` internally, so it also works on soft-delete
 models: a soft-deleted row is still version-checked (the auto-filtering
 `SoftDeleteQuerySet` is not involved and cannot hide the row from the guard).
+
+**Transactions and stale instances.** `version` and `_saved_in_db` are updated
+in memory when the guarded `UPDATE` succeeds, inside whatever transaction
+`using_db` belongs to. A rollback therefore leaves the instance advertising a
+version the committed row does not have, and the next `save()` raises a
+spurious `VersionMismatchError`. The instance is only as current as the last
+*committed* save: after a rollback — or after another writer touched the row —
+call `refresh_from_db()` before saving again.
 
 ---
 
