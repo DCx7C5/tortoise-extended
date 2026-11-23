@@ -128,6 +128,7 @@ Pick the base per model — each is opt-in and independent:
 | `SearchQuery` / `SearchRank` | `from tortoise.contrib.postgres.search import ...` | `tsquery` builder, `ts_rank` / `ts_rank_cd` annotation (**upstream**) |
 | `paginate` | `from tortoise_extended import paginate` | Offset pagination over a QuerySet → `PageInfo` |
 | `random_ordering` | `from tortoise_extended import random_ordering` | `QuerySet.random()` — random row order (`ORDER BY RANDOM()`) |
+| `distinct_on` | `from tortoise_extended import distinct_on` | `DISTINCT ON` with bound `where`/`params` → real model instances (one per group) |
 | `PageInfo` | `from tortoise_extended import PageInfo` | `items`, `total`, `total_pages`, `has_next`, `has_prev` |
 | `row_number` / `sum_over` | `from tortoise_extended import row_number, sum_over` | Window functions (`ROW_NUMBER`, `SUM … OVER`, …) through `annotate()` — builder terms, no `F()` trap |
 | `BaseNode` | `from tortoise_extended import BaseNode` | Primary graph-node base (`NodeMixin` + UUID7 identity, no FK on edges) |

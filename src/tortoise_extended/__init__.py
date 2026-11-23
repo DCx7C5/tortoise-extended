@@ -79,6 +79,7 @@ from tortoise_extended.exceptions import (
     TortoiseVersionError,
     VectorFieldError,
 )
+from tortoise_extended.expressions.distinct_on import distinct_on
 from tortoise_extended.expressions.fusion import (
     diversity_rerank,
     ranking_from_hits,
@@ -678,6 +679,7 @@ __all__ = [
     "cached_method",
     "count_over",
     "dense_rank",
+    "distinct_on",
     "diversity_rerank",
     "ensure_extensions",
     "find_cycles",

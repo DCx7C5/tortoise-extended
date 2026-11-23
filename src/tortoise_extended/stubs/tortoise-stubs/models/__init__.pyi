@@ -60,6 +60,9 @@ class MetaInfo:
     filters: dict[str, object]
     manager: Manager
     db_pk_column: str
+    basetable: Table
+    fields_db_projection: dict[str, str]
+    fields_db_projection_reverse: dict[str, str]
 
 class ModelMeta(type):
     """Metaclass for all Tortoise models (mirrors the runtime metaclass)."""

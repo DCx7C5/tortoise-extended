@@ -18,7 +18,7 @@ API documentation for the public modules.
 - **[Fusion](fusion.md)** — RRF, weighted score fusion, MMR diversity re-ranking (pure Python)
 - **[Window Functions](windows.md)** — `row_number`, `rank`, `dense_rank`, `ntile` and `sum_over`/`avg_over`/`count_over`/`min_over`/`max_over` analytics builders for `annotate()`
 - **[Pagination](pagination.md)** — `QuerySet.paginate(page, page_size)` and the `PageInfo` metadata
-- **[QuerySet helpers](queryset.md)** — `QuerySet.random()` (random ordering), starting here
+- **[QuerySet helpers](queryset.md)** — `QuerySet.random()` (random ordering) and `distinct_on()` (`DISTINCT ON`, hydrated instances)
 - **[pgcrypto](pgcrypto.md)** — pgcrypto query helpers (Digest, DigestHex, HMACDigest)
 - **[Graph (Node/Edge/Hierarchy)](graph.md)** — BaseNode, BaseGraphEdgeModel, BaseHierarchyModel base classes (BaseGraphNodeModel is the deprecated alias)
 - **[Model Bases](models.md)** — BaseModel, UnifiedIdModel, BaseUserModel, BaseSoftDeleteModel + SoftDeleteQuerySet, TimestampMixin

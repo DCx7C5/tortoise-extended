@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import AsyncContextManager, Protocol
 
-from tortoise_extended._types import RowMapping, RowValue
+from tortoise_extended._types import CoercedValue, RowMapping, RowValue
 
 class RawConnection(Protocol):
     """The raw driver connection yielded by ``acquire_connection``.
@@ -39,7 +39,7 @@ class BaseDBAsyncClient:
     async def execute_query_dict(
         self,
         query: str,
-        values: list[RowValue] | None = None,
+        values: Sequence[CoercedValue] | None = None,
     ) -> list[RowMapping]: ...
     async def execute_script(self, query: str) -> None: ...
     def acquire_connection(self) -> AsyncContextManager[RawConnection]: ...

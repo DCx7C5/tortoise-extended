@@ -8,6 +8,15 @@ the versions below are the `pyproject.toml` version at the time of the change.
 
 ### Added
 
+- `distinct_on(model, *on, order_by=(), limit=None, where=None, params=(), include_deleted=False)`
+  — PostgreSQL `DISTINCT ON` as one sanitised statement plus real model instances back:
+  `SELECT DISTINCT ON (…) <projected columns> FROM … [WHERE …] ORDER BY <on…>, … [LIMIT n]`,
+  with `$1`-style bound parameters and the soft-delete `deleted_at IS NULL` filter applied to
+  models that declare the column. `order_by` must lead with the `on` columns (PostgreSQL's rule) and
+  every refused input — empty `on`, unknown field, wrong ordering prefix, placeholder/param
+  mismatch, `limit < 1`, filtered queryset — raises `ValueError` instead of reaching the server.
+  Hydration goes through `execute_query_dict` + `Model._init_from_db`, the executor's own path, so
+  the rows are saveable instances. Documented in `docs/api/queryset.md`.
 - Window-function builders for `annotate()`: `row_number`, `rank`, `dense_rank`, `ntile(n)` and the
   windowed aggregates `sum_over`, `avg_over`, `count_over`, `min_over`, `max_over`, each taking
   field **names** — `partition_by` / `order_by` accept one name or a sequence, and a leading `-`
