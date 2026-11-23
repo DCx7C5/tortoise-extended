@@ -253,8 +253,10 @@ docs/                        # user documentation (getting-started, architecture
   `# type: ignore` comments, `_typeshed.Incomplete`, bare `return wrapper` in decorators, and
   assigning attributes on function wrappers (use `setattr`).
 - **Local `stubs` overlay** (`src/tortoise_extended/stubs/tortoise-stubs/`) **replaces** the
-  installed `tortoise-orm-stubs` package *and* runtime analysis — `# pyright: partial` does NOT merge
-  runtime typing back in. Stubs must be self-sufficient and mirror the runtime API surface exactly
+  runtime analysis — `# pyright: partial` does NOT merge runtime typing back in. It also replaced
+  the `tortoise-orm-stubs` dependency, which was removed after the overlay was proven to shadow it
+  completely (the gate is byte-identical with that package uninstalled). Stubs must be
+  self-sufficient and mirror the runtime API surface exactly
   (e.g. `Model._meta`, `Model.pk`, classmethods returning `QuerySet[Self]` / `QuerySetSingle[Self]`).
   `# pyright: reportExplicitAny=false` is permitted at the top of stub files.
 - **Migrations are CLI-checked.** An earlier `**/migrations` exclude silently hid
@@ -383,7 +385,6 @@ docker compose -f docker-compose.dev.yml down        # stop
 ## Dependencies
 
 - `tortoise-orm>=1.1.7,<1.2` — with the `[asyncpg]` extra (the ORM being extended)
-- `tortoise-orm-stubs>=1.0.2` — type stubs
 - `msgspec>=0.21.0` — fast serialization
 - `pypika-tortoise>=0.6.5,<0.7` — query builder used by expressions
 - `argon2-cffi>=25.1.0` — argon2id password hashing for `BaseUserModel` (the only auth runtime dep)

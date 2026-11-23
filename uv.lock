@@ -605,7 +605,6 @@ dependencies = [
     { name = "pglast" },
     { name = "pypika-tortoise" },
     { name = "tortoise-orm", extra = ["asyncpg"] },
-    { name = "tortoise-orm-stubs" },
 ]
 
 [package.optional-dependencies]
@@ -630,7 +629,6 @@ requires-dist = [
     { name = "pypika-tortoise", specifier = ">=0.6.5,<0.7" },
     { name = "redis", extras = ["hiredis"], marker = "extra == 'redis'", specifier = ">=7.0.0" },
     { name = "tortoise-orm", extras = ["asyncpg"], specifier = ">=1.1.7,<1.2" },
-    { name = "tortoise-orm-stubs", specifier = ">=1.0.2" },
 ]
 provides-extras = ["redis"]
 
@@ -661,18 +659,6 @@ wheels = [
 [package.optional-dependencies]
 asyncpg = [
     { name = "asyncpg" },
-]
-
-[[package]]
-name = "tortoise-orm-stubs"
-version = "1.0.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "tortoise-orm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ba/49/45b06cda907e55226b8ed4ddc71d13ff61505bfe366d72276462eeee9d2b/tortoise_orm_stubs-1.0.2.tar.gz", hash = "sha256:f4d6a810f295bebd83aa71b05ebd2decd883517f3c9530bd2376b9209b0777c6", size = 4559, upload-time = "2023-11-20T14:48:26.806Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/33/b1/f0b111dcf9381987f8acb143dd95b77934a3e9120a6c63b2cf4255c2934c/tortoise_orm_stubs-1.0.2-py3-none-any.whl", hash = "sha256:5ae3c2b0eb0286669563634b98202bbdf46349966b1c85659f3160de4fb655d6", size = 4681, upload-time = "2023-11-20T14:48:22.536Z" },
 ]
 
 [[package]]

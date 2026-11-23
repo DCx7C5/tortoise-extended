@@ -6,7 +6,6 @@ requires-python = ">=3.14"
 license = "MIT"
 dependencies = [
     "tortoise-orm[asyncpg]>=1.1.7,<1.2",
-    "tortoise-orm-stubs>=1.0.2",
     "pypika-tortoise>=0.6.5,<0.7",
     "msgspec>=0.21.0",
     "argon2-cffi>=25.1.0",

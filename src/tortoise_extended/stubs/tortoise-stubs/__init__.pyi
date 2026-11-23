@@ -1,8 +1,10 @@
 # pyright: reportExplicitAny=false
 """Type stubs for the ``tortoise`` package root (local overlay).
 
-The local ``stubs`` overlay REPLACES the installed upstream stubs
-and the runtime analysis entirely (``stubPath`` overrides do not merge).
+The local ``stubs`` overlay REPLACES the runtime analysis entirely
+(``stubPath`` overrides do not merge). It is the only stub source for
+``tortoise.*`` in this repository: the ``tortoise-orm-stubs`` dependency was
+removed once this overlay was proven to shadow it completely.
 This root stub types the ``Tortoise`` class surface consumed by
 ``tortoise_extended`` and re-exports the submodules the package imports from
 the package root.
@@ -15,10 +17,14 @@ in the runtime — attribute access without parentheses. They are declared as
 """
 
 # DRIFT MITIGATION — READ BEFORE BUMPING UPSTREAM.
-# This overlay is DEV-ONLY (not shipped in the wheel) and mirrors the runtime
-# API of the pinned `tortoise-orm>=1.1.7,<1.2` + `tortoise-orm-stubs`. On ANY
-# upstream dependency bump, verify this stub surface still matches the new
-# runtime API and update it here if it drifts.
+# This overlay is DEV-ONLY in intent (never imported at runtime) but it IS
+# currently shipped in the wheel at tortoise_extended/stubs/tortoise-stubs/,
+# where it is INERT: a stub package is only auto-discovered at the top level of
+# site-packages as `tortoise-stubs/`, so a nested copy is read by nobody.
+# Excluding it needs a `[tool.hatch.build.targets.wheel] exclude` entry in
+# pyproject.toml (see row 2991). It mirrors the runtime API of the pinned
+# `tortoise-orm>=1.1.7,<1.2`. On ANY upstream dependency bump, verify this stub
+# surface still matches the new runtime API and update it here if it drifts.
 
 from collections.abc import Callable, Iterable
 from types import ModuleType
