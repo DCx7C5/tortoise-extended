@@ -27,6 +27,9 @@ What the package provides:
 - **pgcrypto** — `Digest` / `DigestHex` / `HMACDigest` and `PGPSymEncrypt` / `PGPSymDecrypt`
   (`expressions/pgcrypto.py`), plus `PGPEncryptedField` — a `bytea` column for ciphertext
   (`fields/pgcrypto.py`)
+- **COPY ingestion** — `Model.bulk_insert` (patch site 7): one asyncpg `COPY` per batch for any
+  model, refusing relation-bearing models (a flat record would drop the value) and requiring
+  explicit primary keys
 - **TimescaleDB integration** — `HypertableManager`, `CompressionManager`, `RetentionPolicy`,
   `ContinuousAggregateManager`, and migration operations (`CreateHypertable`,
   `CreateContinuousAggregate`)
@@ -169,6 +172,7 @@ src/tortoise_extended/
 ├── __init__.py              # Public API + monkey-patch application (_apply_patches)
 ├── _quote.py                # shared SQL identifier/literal quoting (timescale + migrations)
 ├── _types.py                # concrete type aliases + duck-typed protocols
+├── bulk.py                  # bulk_insert — asyncpg COPY ingestion for any model (patch site 7)
 ├── exceptions.py            # exception hierarchy (VectorFieldError, GraphTraversalError, ...)
 ├── lifecycle.py             # ensure_extensions / setup — extension, schema and hypertable fan-out
 ├── pagination.py            # QuerySet.paginate + PageInfo (offset pagination with page metadata)
