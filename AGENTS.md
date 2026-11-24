@@ -114,7 +114,7 @@ Every new chat thread continues the shared work list — never starts a fresh on
 
 ## 2. Error & Warning → TODO protocol (always)
 
-1. **Always check diagnostics** — the merge gate is the CLI in [Verification Gate](#verification-gate-cli--pycharm-ide): `uv run ruff check src tests` + `uv run basedpyright` (0 errors) + `uv run pytest`. When the PyCharm MCP server is connected, `pycharm_get_file_problems` (IDE/type diagnostics) and `pycharm_lint_files` (ruff) are the preferred *per-file* check and an additional signal — never a replacement for the CLI gate. If the PyCharm tools are unavailable in a session, run the CLI gate; never skip verification because the IDE tool is missing.
+1. **Always check diagnostics** — the merge gate is the CLI in [Verification Gate](#verification-gate-cli--pycharm-ide): `uv run ruff format --check src tests` + `uv run ruff check src tests` + `uv run basedpyright` (0 errors) + `uv run pytest`. When the PyCharm MCP server is connected, `pycharm_get_file_problems` (IDE/type diagnostics) and `pycharm_lint_files` (ruff) are the preferred *per-file* check and an additional signal — never a replacement for the CLI gate. If the PyCharm tools are unavailable in a session, run the CLI gate; never skip verification because the IDE tool is missing.
 2. **Analyze findings by root cause** — group errors/warnings by concern, not by file; then create ONE TODO PER FINDING (§1).
 3. **Typing is first-class — read into it.** Read basedpyright/pyright output thoroughly. Typing warnings AND errors are especially important: they reveal real contract breaks, not noise. Every `report*` diagnostic deserves a TODO.
 4. **Update if necessary** — after fixes, re-run diagnostics; anything still failing gets a TODO created or updated.
@@ -268,7 +268,12 @@ docs/                        # user documentation (getting-started, architecture
 - **Module docstrings** use reST style with `Usage::` examples (see `graph_traversal.py`).
 - **Public re-exports live in `__init__.py`** (and subpackage `__init__.py` files); implementations
   stay in their own module. Keep `__all__` in sync.
-- **Ruff clean.** `ruff check src tests` must pass (RUF002 is the only ignored rule).
+- **Ruff clean and formatted.** `ruff check src tests` and `ruff format --check src tests`
+  must pass (RUF002 is the only ignored rule). The formatter runs on its **defaults** — never add
+  a `[tool.ruff.format]` block, `[tool.ruff*]` is user-owned (§6/§8). One consequence of the
+  defaults under `target-version = "py314"`: redundant parentheses are removed from
+  multi-type handlers, so `except (A, B):` becomes the PEP 758 form `except A, B:` — that is
+  expected output, not a syntax error, and re-adding the parentheses fails the format check.
 - **Test sections** use `# ---` separator comments grouping `Test*` classes.
 
 ## Type Checking (basedpyright)
@@ -303,11 +308,12 @@ two linter tools: `pycharm_get_file_problems` and `pycharm_lint_files`.
 **After EVERY code change** (implementation or review fixes), before reporting work done, run in
 order:
 
-1. `uv run ruff check src tests` — clean
-2. `uv run basedpyright` — 0 errors (pass `src/tortoise_extended/migrations/` explicitly if touched)
-3. `uv run pytest tests/ -q` — full suite green, exactly 1 skip (`test_all.py` aggregator). Record the observed pass count when you run it; never copy a stale number into docs.
-4. **`pycharm_lint_files`** on all changed files (min severity: error)
-5. **`pycharm_get_file_problems`** on all changed files — resolve any remaining IDE-reported issues
+1. `uv run ruff format --check src tests` — clean (formatter defaults; no `[tool.ruff.format]` block)
+2. `uv run ruff check src tests` — clean
+3. `uv run basedpyright` — 0 errors (pass `src/tortoise_extended/migrations/` explicitly if touched)
+4. `uv run pytest tests/ -q` — full suite green, exactly 1 skip (`test_all.py` aggregator). Record the observed pass count when you run it; never copy a stale number into docs.
+5. **`pycharm_lint_files`** on all changed files (min severity: error)
+6. **`pycharm_get_file_problems`** on all changed files — resolve any remaining IDE-reported issues
 
 **Config — one file.** `[tool.basedpyright]` in `pyproject.toml` is the only type-check
 config (a root `pyrightconfig.json` was merged in and deleted on 2026-11-22). A root
