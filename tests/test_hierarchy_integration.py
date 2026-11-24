@@ -620,9 +620,7 @@ class TestBulkAddChildren:
     async def test_rejects_a_name_that_is_not_a_single_label(self) -> None:
         electronics, _laptops, _macbook, _phones = await _make_tree()
         with pytest.raises(HierarchyError, match="separator"):
-            _ = await Category.bulk_add_children(
-                electronics, [{"name": "tablets.pro"}]
-            )
+            _ = await Category.bulk_add_children(electronics, [{"name": "tablets.pro"}])
         with pytest.raises(HierarchyError, match="non-empty"):
             _ = await Category.bulk_add_children(electronics, [{"name": ""}])
 

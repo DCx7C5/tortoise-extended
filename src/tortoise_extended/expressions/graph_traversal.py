@@ -220,19 +220,23 @@ class GraphTraversal:
         out: list[TraversalNode] = []
         for row in rows:
             if isinstance(row, dict):
-                out.append(TraversalNode(
-                    id=cast(int | str | UUID, row["id"]),
-                    name=cast(str, row["name"]),
-                    depth=cast(int, row["depth"]),
-                    path_depth=cast(int, row["path_depth"]),
-                ))
+                out.append(
+                    TraversalNode(
+                        id=cast(int | str | UUID, row["id"]),
+                        name=cast(str, row["name"]),
+                        depth=cast(int, row["depth"]),
+                        path_depth=cast(int, row["path_depth"]),
+                    )
+                )
             else:
-                out.append(TraversalNode(
-                    cast(int | str | UUID, row[0]),
-                    cast(str, row[1]),
-                    cast(int, row[2]),
-                    cast(int, row[3]),
-                ))
+                out.append(
+                    TraversalNode(
+                        cast(int | str | UUID, row[0]),
+                        cast(str, row[1]),
+                        cast(int, row[2]),
+                        cast(int, row[3]),
+                    )
+                )
         return out
 
     async def descendants(
@@ -292,19 +296,23 @@ class GraphTraversal:
         out: list[TraversalNode] = []
         for row in rows:
             if isinstance(row, dict):
-                out.append(TraversalNode(
-                    id=cast(int | str | UUID, row["id"]),
-                    name=cast(str, row["name"]),
-                    depth=cast(int, row["depth"]),
-                    path_depth=cast(int, row["path_depth"]),
-                ))
+                out.append(
+                    TraversalNode(
+                        id=cast(int | str | UUID, row["id"]),
+                        name=cast(str, row["name"]),
+                        depth=cast(int, row["depth"]),
+                        path_depth=cast(int, row["path_depth"]),
+                    )
+                )
             else:
-                out.append(TraversalNode(
-                    cast(int | str | UUID, row[0]),
-                    cast(str, row[1]),
-                    cast(int, row[2]),
-                    cast(int, row[3]),
-                ))
+                out.append(
+                    TraversalNode(
+                        cast(int | str | UUID, row[0]),
+                        cast(str, row[1]),
+                        cast(int, row[2]),
+                        cast(int, row[3]),
+                    )
+                )
         return out
 
     async def neighbors(
@@ -391,19 +399,23 @@ class GraphTraversal:
         out: list[NeighborNode] = []
         for row in rows:
             if isinstance(row, dict):
-                out.append(NeighborNode(
-                    id=cast(int | str | UUID, row["id"]),
-                    name=cast(str, row["name"]),
-                    depth=cast(int, row["depth"]),
-                    hops=cast(int, row["hops"]),
-                ))
+                out.append(
+                    NeighborNode(
+                        id=cast(int | str | UUID, row["id"]),
+                        name=cast(str, row["name"]),
+                        depth=cast(int, row["depth"]),
+                        hops=cast(int, row["hops"]),
+                    )
+                )
             else:
-                out.append(NeighborNode(
-                    cast(int | str | UUID, row[0]),
-                    cast(str, row[1]),
-                    cast(int, row[2]),
-                    cast(int, row[3]),
-                ))
+                out.append(
+                    NeighborNode(
+                        cast(int | str | UUID, row[0]),
+                        cast(str, row[1]),
+                        cast(int, row[2]),
+                        cast(int, row[3]),
+                    )
+                )
         return out
 
     async def has_cycle(

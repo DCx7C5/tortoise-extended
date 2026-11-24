@@ -223,7 +223,9 @@ class TestGetBackend:
         backend = CustomBackendItem._get_backend()
         assert backend is CustomBackendItem._cache_backend
 
-    def test_get_backend_falls_back_to_redis(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_get_backend_falls_back_to_redis(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         mock_backend = MockRedisBackend(default_ttl=300)
         calls: dict[str, CacheValue] = {}
 
@@ -238,7 +240,9 @@ class TestGetBackend:
         assert calls["namespace"] == "model:TaggedItem"
         assert calls["default_ttl"] == 300
 
-    def test_get_backend_custom_namespace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_get_backend_custom_namespace(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         calls: dict[str, CacheValue] = {}
 
         def fake_get_backend(**kwargs: CacheValue) -> MockRedisBackend:
@@ -568,7 +572,9 @@ class TestInvalidation:
         invalidate_mock.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_delete_calls_invalidate(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_delete_calls_invalidate(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         inst = TaggedItem.construct(id=10, name="x", category="c")
         invalidate_mock = AsyncMock()
         inst._invalidate_cache = invalidate_mock  # type: ignore[method-assign]

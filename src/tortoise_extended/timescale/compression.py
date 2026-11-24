@@ -347,7 +347,9 @@ class CompressionManager:
             ratio = row.get("compression_ratio")
             # The ROUND() expression returns a numeric; cast at the boundary so
             # the exposed type is stable across drivers.
-            ratio_float = float(cast("str | int | float", ratio)) if ratio is not None else 1.0
+            ratio_float = (
+                float(cast("str | int | float", ratio)) if ratio is not None else 1.0
+            )
             return CompressionStats(
                 uncompressed_size=cast(str, row["uncompressed_size"]),
                 compressed_size=cast(str, row["compressed_size"]),
@@ -359,9 +361,7 @@ class CompressionManager:
             uncompressed_size=cast(str, row[0]),
             compressed_size=cast(str, row[1]),
             compression_ratio=(
-                float(cast("str | int | float", row[2]))
-                if row[2] is not None
-                else 1.0
+                float(cast("str | int | float", row[2])) if row[2] is not None else 1.0
             ),
             uncompressed_chunks=cast(int, row[3]),
             compressed_chunks=cast(int, row[4]),

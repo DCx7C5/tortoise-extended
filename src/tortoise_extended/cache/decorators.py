@@ -49,9 +49,7 @@ def _stable_signature(
             return cast(CacheValue, items)
         if isinstance(value, dict):
             items = sorted(value.items(), key=lambda kv: str(kv[0]))
-            return cast(
-                CacheValue, {str(k): normalize(v) for k, v in items}
-            )
+            return cast(CacheValue, {str(k): normalize(v) for k, v in items})
         if isinstance(value, list):
             return cast(CacheValue, [normalize(v) for v in value])
         return cast(CacheValue, value)
@@ -180,9 +178,7 @@ def cached(
                 # Store in cache
                 if result is not None:
                     with contextlib.suppress(CacheError):
-                        await backend.set(
-                            cache_key, cast(CacheValue, result), ttl=ttl
-                        )
+                        await backend.set(cache_key, cast(CacheValue, result), ttl=ttl)
                 if not future.done():
                     future.set_result(cast(CacheValue, result))
                 return result
@@ -216,9 +212,7 @@ def cached(
 
         def _cache_key(*a: CacheValue, **kw: CacheValue) -> str:
             """Get cache key for given arguments."""
-            return _build_cache_key(
-                func, a, kw, prefix, key_builder
-            )
+            return _build_cache_key(func, a, kw, prefix, key_builder)
 
         setattr(wrapper, "invalidate", _invalidate)
         setattr(wrapper, "cache_key", _cache_key)
@@ -288,9 +282,7 @@ def cached_method(
                 # Store in cache
                 if result is not None:
                     with contextlib.suppress(CacheError):
-                        await backend.set(
-                            cache_key, cast(CacheValue, result), ttl=ttl
-                        )
+                        await backend.set(cache_key, cast(CacheValue, result), ttl=ttl)
                 if not future.done():
                     future.set_result(cast(CacheValue, result))
                 return result
@@ -321,9 +313,7 @@ def cached_method(
 
         def _cache_key(*a: CacheValue, **kw: CacheValue) -> str:
             """Get cache key for given arguments (self excluded)."""
-            return _build_method_cache_key(
-                func, a, kw, prefix
-            )
+            return _build_method_cache_key(func, a, kw, prefix)
 
         setattr(wrapper, "invalidate", _invalidate)
         setattr(wrapper, "cache_key", _cache_key)

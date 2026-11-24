@@ -739,9 +739,7 @@ class TestEdgeHelpers:
 
     async def test_cross_namespace_connect_raises(self) -> None:
         shop_node = await HybridNode.create(namespace="shop", depth=0, is_root=True)
-        office_node = await HybridNode.create(
-            namespace="office", depth=0, is_root=True
-        )
+        office_node = await HybridNode.create(namespace="office", depth=0, is_root=True)
 
         with pytest.raises(GraphError, match="across namespaces"):
             await shop_node.connect(office_node)
@@ -781,9 +779,7 @@ class TestEdgeHelpers:
         assert await a.neighbours() == []
 
     async def test_unconfigured_edge_model_raises(self) -> None:
-        node = await OrderedHybridNode.create(
-            namespace="shop", depth=0, is_root=True
-        )
+        node = await OrderedHybridNode.create(namespace="shop", depth=0, is_root=True)
         with pytest.raises(GraphError, match="no edge_model configured"):
             await node.connect(node)
         with pytest.raises(GraphError, match="no edge_model configured"):
@@ -889,9 +885,7 @@ class TestRebuildDerived:
     async def test_rebuild_can_be_scoped_to_a_namespace(self) -> None:
         shop_root = await HybridNode.create(namespace="shop", depth=0, is_root=True)
         _ = await shop_root.add_child()
-        office_root = await HybridNode.create(
-            namespace="office", depth=0, is_root=True
-        )
+        office_root = await HybridNode.create(namespace="office", depth=0, is_root=True)
         conn = Tortoise.get_connection("default")
         await conn.execute_query(
             "UPDATE node_mixin_it_hybrid SET depth = 7, is_root = true, child_count = 5"

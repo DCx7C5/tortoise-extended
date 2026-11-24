@@ -76,13 +76,38 @@ class HybridSearch:
 
     _METRICS: tuple[str, ...] = ("cosine", "l2", "inner_product")
 
-    _FTS_LANGUAGES: frozenset[str] = frozenset({
-        "arabic", "armenian", "basque", "catalan", "danish", "dutch",
-        "english", "finnish", "french", "german", "greek", "hindi",
-        "hungarian", "indonesian", "irish", "italian", "lithuanian",
-        "nepali", "norwegian", "portuguese", "romanian", "russian",
-        "serbian", "simple", "spanish", "swedish", "turkish", "yiddish",
-    })
+    _FTS_LANGUAGES: frozenset[str] = frozenset(
+        {
+            "arabic",
+            "armenian",
+            "basque",
+            "catalan",
+            "danish",
+            "dutch",
+            "english",
+            "finnish",
+            "french",
+            "german",
+            "greek",
+            "hindi",
+            "hungarian",
+            "indonesian",
+            "irish",
+            "italian",
+            "lithuanian",
+            "nepali",
+            "norwegian",
+            "portuguese",
+            "romanian",
+            "russian",
+            "serbian",
+            "simple",
+            "spanish",
+            "swedish",
+            "turkish",
+            "yiddish",
+        }
+    )
     """Built-in PostgreSQL ``regconfig`` names.
 
     Users who register custom text-search configurations via

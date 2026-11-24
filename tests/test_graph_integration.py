@@ -388,13 +388,9 @@ class TestShortestPath:
     async def test_unknown_edge_field_raises(self) -> None:
         """F3 — an undeclared source/target field is rejected up front."""
         with pytest.raises(GraphTraversalError, match="Unknown edge field"):
-            await shortest_path(
-                ItNode, ItEdge, from_id=1, to_id=2, source_field="nope"
-            )
+            await shortest_path(ItNode, ItEdge, from_id=1, to_id=2, source_field="nope")
         with pytest.raises(GraphTraversalError, match="Unknown edge field"):
-            await all_paths(
-                ItNode, ItEdge, from_id=1, to_id=2, target_field="nope"
-            )
+            await all_paths(ItNode, ItEdge, from_id=1, to_id=2, target_field="nope")
 
 
 class TestAllPaths:
@@ -509,6 +505,4 @@ class TestFindCycles:
     async def test_unknown_edge_field_raises(self) -> None:
         """F3 — an undeclared source/target field is rejected up front."""
         with pytest.raises(GraphTraversalError, match="Unknown edge field"):
-            await find_cycles(
-                ItNode, ItEdge, max_depth=5, target_field="nope"
-            )
+            await find_cycles(ItNode, ItEdge, max_depth=5, target_field="nope")

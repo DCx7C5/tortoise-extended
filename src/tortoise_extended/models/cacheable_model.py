@@ -280,9 +280,7 @@ class BaseCacheableModel(models.Model):
         try:
             _ = await backend.delete(pk_key)
         except CacheError:
-            logger.debug(
-                "Cache invalidation error for key %s", pk_key, exc_info=True
-            )
+            logger.debug("Cache invalidation error for key %s", pk_key, exc_info=True)
 
     @override
     async def save(

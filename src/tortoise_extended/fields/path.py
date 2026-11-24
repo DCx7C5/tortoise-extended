@@ -66,7 +66,9 @@ class PathField(Field[PurePosixPath]):
         )
 
     @override
-    def to_python_value(self, value: str | PurePosixPath | None) -> PurePosixPath | None:
+    def to_python_value(
+        self, value: str | PurePosixPath | None
+    ) -> PurePosixPath | None:
         """Convert a database value to a :class:`PurePosixPath`.
 
         The driver returns the column's plain path string; it is wrapped in

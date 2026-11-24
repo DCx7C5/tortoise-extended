@@ -38,12 +38,12 @@ def coerce_cache_value(raw: RowValue, field_obj: "Field[RowValue]") -> CoercedVa
     if field_type is int:
         try:
             return int(raw)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return raw
     if field_type is float:
         try:
             return float(raw)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return raw
     if field_type is bool:
         return raw.lower() in ("true", "1", "yes")
@@ -72,11 +72,11 @@ def coerce_cache_value(raw: RowValue, field_obj: "Field[RowValue]") -> CoercedVa
         # not a ``ValueError``) for unparseable input.
         try:
             return cast(CoercedValue, cast(object, Decimal(raw)))
-        except (ValueError, TypeError, ArithmeticError):
+        except ValueError, TypeError, ArithmeticError:
             return raw
     if field_type is UUID:
         try:
             return cast(CoercedValue, cast(object, UUID(raw)))
-        except (ValueError, TypeError, AttributeError):
+        except ValueError, TypeError, AttributeError:
             return raw
     return raw

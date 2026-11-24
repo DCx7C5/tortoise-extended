@@ -129,7 +129,6 @@ class TestPgcryptoSQL:
         assert "DIGEST(" in sql.upper()
         assert "'sha256'" in sql
 
-
     def test_pgp_sym_encrypt_renders_function_and_arguments(self) -> None:
         """PGP_SYM_ENCRYPT(<data>, 'key') with the data as a column reference."""
         sql = _PGPSymEncryptFunction(Field("body"), "passphrase", None).get_sql(

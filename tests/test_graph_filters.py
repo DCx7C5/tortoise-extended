@@ -277,6 +277,8 @@ async def _clean_table() -> AsyncGenerator[None, None]:
 
 
 _PG_SKIP_REASON = pg_skip_reason()
+
+
 @pytest.mark.skipif(
     _PG_SKIP_REASON is not None,
     reason=_PG_SKIP_REASON or "",

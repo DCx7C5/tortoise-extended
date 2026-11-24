@@ -66,9 +66,7 @@ def _bucket_to_timedelta(bucket: str) -> timedelta:
             f"Invalid bucket {bucket!r}; count must be an integer"
         ) from None
     if count <= 0:
-        raise ValueError(
-            f"Invalid bucket {bucket!r}; count must be a positive integer"
-        )
+        raise ValueError(f"Invalid bucket {bucket!r}; count must be a positive integer")
     unit = parts[1].rstrip("s")
     converter = _BUCKET_UNITS.get(unit)
     if converter is None:

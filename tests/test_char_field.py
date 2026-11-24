@@ -26,6 +26,7 @@ class TestCharFieldSQLType:
         """field_type should be str."""
         assert CharField.field_type is str
 
+
 # ---------------------------------------------------------------------------
 # max_length
 # ---------------------------------------------------------------------------

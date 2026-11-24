@@ -312,7 +312,9 @@ class ContinuousAggregateManager:
         try:
             _ = await conn.execute_query(query)
         except Exception as exc:
-            msg = f"Failed to create continuous aggregate {view_name!r}: {_one_line(exc)}"
+            msg = (
+                f"Failed to create continuous aggregate {view_name!r}: {_one_line(exc)}"
+            )
             raise TimescaleError(msg) from exc
 
     @staticmethod
@@ -466,7 +468,9 @@ class ContinuousAggregateManager:
         try:
             _ = await conn.execute_query(sql)
         except Exception as exc:
-            msg = f"Failed to remove refresh policy from {view_name!r}: {_one_line(exc)}"
+            msg = (
+                f"Failed to remove refresh policy from {view_name!r}: {_one_line(exc)}"
+            )
             raise TimescaleError(msg) from exc
 
     @staticmethod

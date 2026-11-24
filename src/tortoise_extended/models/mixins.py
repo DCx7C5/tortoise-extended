@@ -69,4 +69,3 @@ class TimestampEndMixin:
         use_tz=True,
         description="Caller-set end timestamp (timezone-aware); NULL while active",
     )
-

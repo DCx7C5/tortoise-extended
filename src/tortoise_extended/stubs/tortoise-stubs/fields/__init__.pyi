@@ -147,7 +147,6 @@ def BinaryField(
 
 T_BOOL = TypeVar("T_BOOL")
 
-
 class BooleanField(Field[T_BOOL]):
     """Boolean Tortoise field (stored as 0/1, exposed as ``bool``).
 
@@ -430,7 +429,6 @@ def TimeField(
 # ── UUIDField ───────────────────────────────────────────────────────────
 
 T_UUID = TypeVar("T_UUID", uuid.UUID, uuid.UUID | None)
-
 
 class UUIDField(Field[T_UUID]):
     """UUID field — a runtime CLASS (``isinstance``-safe).

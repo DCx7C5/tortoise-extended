@@ -533,9 +533,7 @@ class TestSqlHardening:
         assert '"weird name"' in conn.sqls[-1]
 
     @pytest.mark.asyncio
-    async def test_drop_hypertable_clears_policy_jobs_first(
-        self, monkeypatch
-    ) -> None:
+    async def test_drop_hypertable_clears_policy_jobs_first(self, monkeypatch) -> None:
         """Policy jobs are scheduler rows, not constraints — delete them first."""
         conn = self._recording_conn(monkeypatch)
         await HypertableManager.drop_hypertable("metrics.events")

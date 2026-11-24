@@ -251,7 +251,7 @@ class BaseUserModel(BaseModel):
             return await asyncio.to_thread(
                 _PASSWORD_HASHER.verify, encoded, raw_password
             )
-        except (VerificationError, InvalidHashError):
+        except VerificationError, InvalidHashError:
             return False
 
     @staticmethod
