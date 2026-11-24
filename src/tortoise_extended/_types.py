@@ -30,7 +30,10 @@ declaring class, so private-method calls on patched objects must go through
 
 from collections.abc import Callable, Sequence
 from datetime import date, datetime, time
+from decimal import Decimal
+from pathlib import PurePath
 from typing import ParamSpec, Protocol, TypedDict, TypeVar
+from uuid import UUID
 
 from tortoise.models import Model
 
@@ -74,6 +77,33 @@ Caution: recursive ``type`` alias — never use as a ``msgspec.Struct`` field
 annotation. msgspec's type analysis overflows the stack on it
 (``RecursionError: Stack overflow``); the older ``TypeAlias`` spelling fails
 too, just as ``TypeError: Type 'ForwardRef(...)' is not supported``.
+"""
+
+type CacheScalar = (
+    str
+    | int
+    | float
+    | bool
+    | bytes
+    | None
+    | datetime
+    | date
+    | time
+    | Decimal
+    | UUID
+    | PurePath
+    | list[CacheScalar]
+    | dict[str, CacheScalar]
+)
+"""A Python value the cache codec round-trips through its tagged envelope.
+
+The input side of :class:`tortoise_extended.fields._cache_codec.CacheCodec`;
+:data:`CacheValue` is the JSON-safe output side. ``CacheScalar`` is **not** a
+subtype of ``CacheValue`` — ``datetime``, ``Decimal``, ``UUID`` and ``PurePath``
+only exist in the envelope, never as bare cache values.
+
+Caution: recursive ``type`` alias — never use as a ``msgspec.Struct`` field
+annotation (same msgspec stack overflow as :data:`CacheValue`).
 """
 
 type FieldDefaultValue = (

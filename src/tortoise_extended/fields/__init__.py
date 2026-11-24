@@ -1,5 +1,13 @@
 """Field types for tortoise_extended."""
 
+from tortoise_extended.fields.cached import (
+    CachedField,
+    RedisPrimaryField,
+    cached_get,
+    cached_invalidate,
+    cached_set,
+    prefetch_cached,
+)
 from tortoise_extended.fields.char import CharField
 from tortoise_extended.fields.citext import CitextField
 from tortoise_extended.fields.inet import InetField
@@ -13,6 +21,7 @@ from tortoise_extended.fields.uuid import UUID4Field, UUID7Field
 from tortoise_extended.fields.vector import VectorField
 
 __all__ = [
+    "CachedField",
     "CharField",
     "CitextField",
     "IPv4Field",
@@ -22,8 +31,13 @@ __all__ = [
     "MacAddrField",
     "PGPEncryptedField",
     "PathField",
+    "RedisPrimaryField",
     "URLField",
     "UUID4Field",
     "UUID7Field",
     "VectorField",
+    "cached_get",
+    "cached_invalidate",
+    "cached_set",
+    "prefetch_cached",
 ]

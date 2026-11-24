@@ -45,6 +45,7 @@ All are opt-in abstract bases — nothing is forced on any model.
 
 from .base import BaseModel
 from .cacheable_model import BaseCacheableModel
+from .cached_mixin import CachedFieldsMixin
 from .event_stream import BaseEventStreamModel
 from .graph_edge import BaseGraphEdgeModel
 from .graph_node import BaseGraphNodeModel
@@ -72,6 +73,7 @@ __all__ = [
     "BaseSoftDeleteNode",
     "BaseUnifiedNode",
     "BaseUserModel",
+    "CachedFieldsMixin",
     "NodeMixin",
     "NodeTree",
     "SampleMixin",

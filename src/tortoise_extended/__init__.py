@@ -134,6 +134,14 @@ from tortoise_extended.expressions.windows import (
     row_number,
     sum_over,
 )
+from tortoise_extended.fields.cached import (
+    CachedField,
+    RedisPrimaryField,
+    cached_get,
+    cached_invalidate,
+    cached_set,
+    prefetch_cached,
+)
 from tortoise_extended.fields.char import CharField
 from tortoise_extended.fields.citext import CitextField
 from tortoise_extended.fields.inet import InetField
@@ -165,6 +173,7 @@ from tortoise_extended.models import (
     BaseSoftDeleteNode,
     BaseUnifiedNode,
     BaseUserModel,
+    CachedFieldsMixin,
     NodeMixin,
     NodeTree,
     SampleMixin,
@@ -674,6 +683,8 @@ __all__ = [
     "CacheError",
     "CacheKeyError",
     "CacheSerializationError",
+    "CachedField",
+    "CachedFieldsMixin",
     "CachedQuerySet",
     "CharField",
     "CitextField",
@@ -720,6 +731,7 @@ __all__ = [
     "RedisCache",
     "RedisCacheBackend",
     "RedisCacheError",
+    "RedisPrimaryField",
     "SampleMixin",
     "SetupError",
     "SetupReport",
@@ -744,7 +756,10 @@ __all__ = [
     "avg_over",
     "bulk_insert",
     "cached",
+    "cached_get",
+    "cached_invalidate",
     "cached_method",
+    "cached_set",
     "count_over",
     "dense_rank",
     "distinct_on",
@@ -759,6 +774,7 @@ __all__ = [
     "ntile",
     "paginate",
     "patch",
+    "prefetch_cached",
     "random_ordering",
     "rank",
     "ranking_from_hits",
