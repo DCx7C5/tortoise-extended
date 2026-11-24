@@ -709,3 +709,74 @@ doc = await Document.annotate(
 Requires nothing beyond `bytea` for the column itself; the `pgp_sym_*` helpers
 need `CREATE EXTENSION IF NOT EXISTS pgcrypto;` (see [pgcrypto](pgcrypto.md)).
 
+## CachedField / RedisPrimaryField
+
+### Import
+
+```python
+from tortoise_extended import CachedField, RedisPrimaryField
+# or
+from tortoise_extended.fields import CachedField, RedisPrimaryField
+```
+
+### Constructor
+
+```python
+CachedField(inner, *, ttl=None, namespace="cachefield", serializer=None, backend=None)
+RedisPrimaryField(inner, *, ttl=None, namespace="cachefield", serializer=None, backend=None)
+```
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `inner` | `Field` instance | required | The scalar column being wrapped; its SQL type and constraints become the wrapper's |
+| `ttl` | `int \| None` | `None` | `None` = backend default (300 s), `0` = no expiry, `N` = N seconds |
+| `namespace` | `str` | `"cachefield"` | Redis namespace; the backend prepends it to every key |
+| `serializer` | `Serializer \| None` | `None` | Backend serializer override |
+| `backend` | `CacheBackend \| None` | `None` | Injected backend (tests); otherwise resolved lazily from `RedisCache` |
+
+### Python Type
+
+The inner field's Python type (`str`, `int`, `datetime`, `dict`, ...).
+
+### SQL Type
+
+The inner field's SQL type, per dialect — a wrapped `DatetimeField` is `TIMESTAMPTZ` on
+PostgreSQL, a wrapped `JSONField` is `JSONB`. Adopting a wrapper never changes the column,
+and migrations render the inner field.
+
+### Usage
+
+```python
+from tortoise import Model, fields
+from tortoise_extended import CachedField, RedisPrimaryField, cached_get, cached_set
+
+class Article(Model):
+    id = fields.IntField(primary_key=True)
+    title = CachedField(fields.CharField(max_length=200), ttl=300)
+    payload = RedisPrimaryField(fields.JSONField(), ttl=0)
+
+    class Meta:
+        table = "articles"
+
+
+article = await Article.get(id=1)
+title = await cached_get(article, "title")
+await cached_set(article, "title", "New title")
+await article.save()
+```
+
+### Notes
+
+- **Refused at construction** (`ValueError`, before any schema exists): relational,
+  generated, primary-key and `auto_now` fields, a field *class* instead of an instance,
+  and any field the JSON codec cannot round-trip (enum, inet, duration, vector and
+  encrypted columns).
+- `CachedField` is Postgres-authoritative and cache-aside: `cached_set` deletes the key.
+  `RedisPrimaryField` writes through and requires `save()` for durability.
+- `CachedFieldsMixin` rewrites keys after `save()` / `delete()`; put it outermost in the
+  bases.
+- Partial (`only()` / `defer()`) instances raise `ValueError` from the helpers rather than
+  serving a wrong value.
+- Requires the `redis` extra and `RedisCache.init()` before the first cache call.
+- Full semantics, failure matrix and bypass paths: [Caching guide](../guides/caching.md).
+

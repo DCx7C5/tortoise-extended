@@ -162,6 +162,23 @@ the versions below are the `pyproject.toml` version at the time of the change.
   `.restore()`) applies the same subtree semantics rather than hiding the matched rows alone, and
   `hard_delete()` keeps the base physical-delete behaviour. `child_count` keeps counting live
   children throughout, and `_block_orphan_delete` — a hard-delete guard — never fires here.
+- `CachedField` and `RedisPrimaryField` (`fields/cached.py`, `fields/_cached_base.py`) — scalar
+  fields that wrap an inner column and mirror its contract (SQL type, nullability, default,
+  validators) while keeping the value in Redis. `CachedField` is Postgres-authoritative (the column
+  is the source of truth, the key is filled cache-aside); `RedisPrimaryField` is Redis-first (writes
+  go through the cache, the column is the fallback). The wrapper refuses the inner kinds it cannot
+  mirror faithfully — relational, generated, primary-key and `auto_now*` columns — when the field is
+  attached, not at first query. Values cross the boundary through `CacheCodec`
+  (`fields/_cache_codec.py`), a tagged JSON envelope: plain scalars stay untagged while tagged inner
+  types (datetime, UUID, Decimal, bytes) round-trip, with a depth cap and explicit leaf/envelope
+  size limits, and `supports()` decides per field **class**.
+- `CachedFieldsMixin` (`models/cached_mixin.py`) and the explicit async helpers `cached_get`,
+  `cached_set`, `cached_invalidate`, `prefetch_cached` — write-through on `save()`, key removal on
+  `delete()`, and `update_fields` narrowing (a field omitted from `update_fields` is invalidated; an
+  unloaded field is skipped). Cache failures never fail the database write: every hook catches
+  `CacheError` and logs, so a Redis outage degrades to the column. Keys compose app, model, pk and
+  field; the backend owns the single namespace prefix. Mix it in **outermost** — `VersionMixin.save()`
+  bypasses `Model.save()`. Automatic prefetch on load is deliberately excluded.
 
 ### Changed
 
@@ -182,6 +199,13 @@ the versions below are the `pyproject.toml` version at the time of the change.
 - `GraphTraversal`, the pathfinding helpers, and `GraphVectorSearch` now exclude soft-deleted
   nodes and edges when the model declares a `deleted_at` column, matching `SoftDeleteQuerySet`.
   Models without the column generate identical SQL.
+- Database-backed test modules resolve their PostgreSQL DSN through `tests/_pg_env.py`
+  (`database_url()`, `pg_host_port()`, `pg_available()`, `pg_skip_reason()`) instead of 35 private
+  `_pg_available()` copies that each dialled `localhost:5434` while every `DB_URL` honoured
+  `TORTOISE_TEST_DB`. The probe now dials the host/port parsed from the DSN, and the skip reason
+  names the address actually tried, so a run pointed at another stack reports it instead of
+  skipping silently. An unreachable target still *skips* rather than fails (`AGENTS.md` §Testing) —
+  that part is unchanged.
 
 ### Removed
 
@@ -250,13 +274,31 @@ the versions below are the `pyproject.toml` version at the time of the change.
   advertised a capability it did not have — the `bytes` member of `RowValue` made the union
   undecodable — though nothing in the shipped paths relied on it.
 - The `postgres-ext` healthcheck probes its **own** postmaster. It ran a socket-less
-  `pg_isready -d ${POSTGRES_DB}`; the container bind-mounts `/var/run/postgresql` (shared with the
-  css-mcp stack), so it answered for whichever container owned `.s.PGSQL.5432` — measured: inside
-  `postgres-ext`, `psql` without `-h` listed `core`/`secrets`/`testcore` (the neighbour's cluster)
-  while `-h 127.0.0.1` listed the tortoise databases. It also treated a missing application
-  database as healthy (`pg_isready` returns 0 on an ERROR reply, so `-d tortoise_test` only bought
-  a FATAL line per interval), so liveness was never actually tested. It now runs
+  `pg_isready -d ${POSTGRES_DB}`; the container used to bind-mount the host's
+  `/var/run/postgresql` (shared with the css-mcp stack), so it answered for whichever container
+  owned `.s.PGSQL.5432` — measured: inside `postgres-ext`, `psql` without `-h` listed
+  `core`/`secrets`/`testcore` (the neighbour's cluster) while `-h 127.0.0.1` listed the tortoise
+  databases. It also treated a missing application database as healthy (`pg_isready` returns 0 on
+  an ERROR reply, so `-d tortoise_test` only bought a FATAL line per interval), so liveness was
+  never actually tested. It now runs
   `pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER:-postgres} -d postgres`.
+- `postgres-ext` receives its UNIX socket from a dedicated host directory
+  (`/var/run/postgresql-ext`), never the host's `/var/run/postgresql`. The shared path let a host
+  PostgreSQL — or the css-mcp stack — publish its own `.s.PGSQL.5432` into this container's bind
+  mount, the same class of bug the healthcheck fix above worked around. The entrypoint re-owns the
+  directory on start, so an absent or root-created host path is safe.
+- `postgres-ext` raises `max_worker_processes` to 48 and `timescaledb.max_background_workers` to
+  24. TimescaleDB runs one scheduler plus two jobs per database with the extension installed; seven
+  test databases need 21 workers and exhausted the defaults (`16` and `8`), failing with "out of
+  background workers" and "no available background worker slots".
+- `VectorField.to_db_value` enforces `dimensions` instead of storing a wrong-length vector that
+  `docs/api/vector-field.md` already documented as rejected — a mismatched vector now raises before
+  the statement is built.
+- Codec registration no longer swallows a missing `vector` / `halfvec` type: each per-type failure
+  is logged, so a connection whose codec could not be installed is visible instead of silently
+  decoding to strings. The pgvector binary helpers and `docs/api/vector-field.md` now match pinned
+  pgvector v0.8.6 — the wire header is `int16 dim` then `int16 unused`, big-endian — where the
+  previous layout was not wire-compatible and `README.md` repeated it.
 
 ### Security
 
@@ -266,7 +308,8 @@ the versions below are the `pyproject.toml` version at the time of the change.
   embedded single quotes (in `rolname = '...'`) undoubled. Verified end to end with a role named
   `we"ird'user`.
 - The pgvector and TimescaleDB pins are enforced, not just declared: the build fails unless each
-  `*_COMMIT` is a 40-character sha and unless the checkout resolves to exactly that commit. The
+  `*_COMMIT` is a 40-character sha, unless the checkout resolves to exactly that commit, **and**
+  unless `git describe --tags --exact-match` returns the expected tag (`v0.8.6` / `2.29.2`). The
   unused `*_VERSION` ARGs and `ENV OPTFLAGS=""` are gone — they read like pins and were not.
 - The dev Redis requires AUTH. `protected-mode no` is removed, the entrypoint exits non-zero when
   `REDIS_PASSWORD` is unset, and compose refuses to configure without it: an unauthenticated Redis

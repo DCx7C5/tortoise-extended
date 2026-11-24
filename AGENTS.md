@@ -35,6 +35,11 @@ What the package provides:
   `CreateContinuousAggregate`)
 - **Redis caching** (optional `redis` extra) — `RedisCache`, `BaseCacheableModel`, `CachedQuerySet`,
   `@cached`, `@cached_method`, `@invalidate`
+- **Cached fields** (optional `redis` extra) — `CachedField` (Postgres-authoritative, cache-aside) and
+  `RedisPrimaryField` (Redis-first, write-through) wrap an inner scalar field and mirror its column;
+  `CachedFieldsMixin` refreshes keys on `save`/`delete`; `cached_get`, `cached_set`,
+  `cached_invalidate`, `prefetch_cached` are the explicit async surface (`fields/cached.py`,
+  `fields/_cached_base.py`, `fields/_cache_codec.py`, `models/cached_mixin.py`).
 
 The package **monkey-patches tortoise-orm at import time**. This is intentional and central to the
 design — see `src/tortoise_extended/__init__.py` (`_apply_patches()`).
@@ -189,6 +194,7 @@ src/tortoise_extended/
 │   ├── graph_edge.py          # BaseGraphEdgeModel (typed/weighted edges, UUID pks)
 │   ├── hierarchy_model.py     # BaseHierarchyModel (ltree-path hierarchy)
 │   ├── cacheable_model.py     # BaseCacheableModel (model-level Redis caching)
+│   ├── cached_mixin.py        # CachedFieldsMixin (write-through/delete for cached fields)
 │   ├── sample.py              # SampleMixin + BaseSample (TimescaleDB multi-stream, pk-free mixin, BigInt identity)
 │   ├── unified.py             # UnifiedIdModel (BigInt pk + UUID7 uid)
 │   ├── versioned.py           # VersionMixin (optimistic locking: version + guarded save)
@@ -196,6 +202,9 @@ src/tortoise_extended/
 │   └── event_stream.py        # BaseEventStreamModel (deprecated alias of BaseSample)
 ├── fields/
 │   ├── char.py            # CharField (validated varchar column)
+│   ├── cached.py          # CachedField / RedisPrimaryField + cached_get/set/invalidate, prefetch
+│   ├── _cached_base.py    # _CachedFieldBase (wraps an inner field, mirrors its column contract)
+│   ├── _cache_codec.py    # CacheCodec (tagged JSON envelope for cached values)
 │   ├── vector.py          # VectorField (pgvector vector type, 3 input formats)
 │   ├── ltree.py           # LTreeField (PostgreSQL ltree type)
 │   ├── ipv4.py            # IPv4Field (PostgreSQL inet type, IPv4 validation)
@@ -379,12 +388,18 @@ bootstrap when the MCP server is unreachable. Never rewrite the whole list with 
 - Target: **zero warnings** — `filterwarnings = ["error"]` is set, so any warning fails the run.
   Do not add tests that emit deprecation/async warnings.
 - **PostgreSQL-only — there is no SQLite harness.** The package targets PostgreSQL, and the
-  suite exercises that backend rather than a portable subset. A database-backed module points at
-  `postgres://postgres:postgres@localhost:5434/tortoise_test` (override with `TORTOISE_TEST_DB`),
-  drops its tables at the module boundary and `TRUNCATE`s between tests, and carries
-  `pytestmark = pytest.mark.skipif(not _pg_available(), ...)` so the pure unit tests still run on
-  a machine without Docker. Anything that only works on SQLite is **deleted, never skipped**.
-  `test_pg_integration.py` and the `*_integration.py` modules require the Docker database.
+  suite exercises that backend rather than a portable subset. A database-backed module resolves
+  its DSN through `tests/_pg_env.py` — `database_url()` returns `TORTOISE_TEST_DB` or the
+  dev-container default `postgres://postgres:postgres@localhost:5434/tortoise_test` — drops its
+  tables at the module boundary and `TRUNCATE`s between tests, and guards itself with a
+  module-level `_PG_SKIP_REASON = pg_skip_reason()` used as
+  `pytest.mark.skipif(_PG_SKIP_REASON is not None, reason=_PG_SKIP_REASON or "")`, so the pure
+  unit tests still run on a machine without Docker. The probe dials the host/port *parsed from
+  the DSN* rather than a hardcoded `localhost:5434`, and the skip reason names the address
+  actually tried — point `TORTOISE_TEST_DB` at another stack and both the connection and the
+  diagnostic follow it. Do **not** reintroduce a per-module `_pg_available()` copy. Anything that
+  only works on SQLite is **deleted, never skipped**. `test_pg_integration.py` and the
+  `*_integration.py` modules require the Docker database.
 - **Live Redis tests are AUTH-gated.** `redis-ext` requires `REDIS_PASSWORD` (`protected-mode`
   is not disabled and unauthenticated commands are refused), so `test_cache_live.py`,
   `test_cacheable_live.py` and the G24 smoke test skip when the variable is absent — run
@@ -402,7 +417,7 @@ docker compose -f docker-compose.dev.yml down        # stop
 
 | Service       | Image / Build                                   | Host port | Purpose            |
 |---------------|-------------------------------------------------|-----------|--------------------|
-| `postgres-ext`| `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.5, TimescaleDB) | `127.0.0.1:5434` | Graph/vector DB |
+| `postgres-ext`| `docker/postgres-ext/Dockerfile` (PG 18, pgvector 0.8.6, TimescaleDB) | `127.0.0.1:5434` | Graph/vector DB |
 | `redis-ext`   | `docker/redis-ext/Dockerfile` (Redis 7-alpine, digest-pinned, **mandatory AUTH**) | `127.0.0.1:6381` | Cache backend      |
 
 - Init scripts run from `docker/postgres-ext/scripts/` on first start:

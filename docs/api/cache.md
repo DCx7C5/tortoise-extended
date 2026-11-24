@@ -404,3 +404,9 @@ async def get_hot_data(key: str):
     async with _lock:
         return await fetch_from_db(key)
 ```
+
+## See also
+
+- [Cached fields](../guides/caching.md) — `CachedField` / `RedisPrimaryField`, which keep a scalar
+  column and a Redis key in step, plus `CachedFieldsMixin` for write-through on `save`/`delete`.
+- [Fields](../api/fields.md#cachedfield--redisprimaryfield) — constructor reference.

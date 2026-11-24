@@ -82,6 +82,7 @@ and Tortoise reads those registrations when it initializes. Importing after `Tor
 - **TimescaleDB** — hypertable/compression/retention/continuous-aggregate managers, `BaseSample`, migration operations
 - **pgcrypto query helpers** — `Digest`/`DigestHex`/`HMACDigest` (hash and HMAC expressions)
 - **Redis caching** (optional `redis` extra) — `RedisCache`, `BaseCacheableModel`, `CachedQuerySet`, `@cached`
+- **Cached fields** (optional `redis` extra) — `CachedField` / `RedisPrimaryField`, `CachedFieldsMixin`, `cached_get` / `cached_set` / `cached_invalidate` / `prefetch_cached`
 
 ## Architecture
 
@@ -109,6 +110,7 @@ src/tortoise_extended/
 │   ├── graph_edge.py          # BaseGraphEdgeModel (typed/weighted edges, UUID pks)
 │   ├── hierarchy_model.py     # BaseHierarchyModel (ltree-path hierarchy)
 │   ├── cacheable_model.py     # BaseCacheableModel (model-level Redis caching)
+│   ├── cached_mixin.py        # CachedFieldsMixin (write-through/delete for cache fields)
 │   ├── sample.py              # SampleMixin + BaseSample (TimescaleDB streams)
 │   └── event_stream.py        # BaseEventStreamModel (deprecated alias of BaseSample)
 ├── fields/
@@ -210,19 +212,20 @@ class Chunk(models.Model):
 ```
 
 **Parameters:**
-- `dimensions: int | None` — Number of vector dimensions (e.g., 1536 for OpenAI embeddings)
+- `dimensions: int | None` — Number of vector dimensions (e.g., 1536 for OpenAI embeddings); when set, writes of any other length raise `VectorFieldError` before SQL is sent
+- `vector_type: Literal["vector", "halfvec"]` — Column type; `halfvec` stores half-precision floats (~2x storage savings)
 - `null: bool` — Allow NULL values
 - `default: Any` — Default value
 - `description: str | None` — Column comment
 
-**SQL type:** `vector` (PostgreSQL only — pgvector has no other backend)
+**SQL type:** `vector` / `halfvec` (PostgreSQL only — requires `CREATE EXTENSION vector`)
 
 **Python type:** `list[float] | None`
 
-Handles three incoming formats from asyncpg:
-- `list[float]` — passed through
-- `str` — parsed from `"[0.1,0.2,0.3]"` format
-- `memoryview` — decoded from pgvector binary format (4-byte header + N × 4-byte floats)
+The shipped asyncpg codec is **text**: reads return `list[float]` and writes take `list[float]`.
+- `list[float]` — the write format; length-checked when `dimensions` is set
+- `str` — parsed only as a fallback when no codec was registered (e.g. the extension was created later)
+- `bytes` / `memoryview` — decoded from the `int16 dim, int16 unused, big-endian elements` layout only when a binary codec is registered (none ships; the field keeps the decoder for that opt-in)
 
 ---
 

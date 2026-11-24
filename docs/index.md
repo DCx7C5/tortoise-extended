@@ -18,7 +18,7 @@
   - [Overview](api/index.md)
   - [VectorField](api/vector-field.md)
   - [LTreeField](api/ltree-field.md)
-  - [Fields (IPv4Field, PathField, URLField, UUID4Field, UUID7Field, CharField)](api/fields.md)
+  - [Fields (IPv4Field, PathField, URLField, UUID4Field, UUID7Field, CharField, CachedField)](api/fields.md)
   - [Indexes](api/indexes.md)
   - [Graph Filters](api/graph-filters.md)
   - [Recursive CTE](api/recursive-cte.md)
@@ -36,6 +36,7 @@
   - [Exceptions](api/exceptions.md)
 
 - **[Guides](guides/)**
+  - [Caching — CachedField / RedisPrimaryField](guides/caching.md)
   - [LLM Reference — When to Use What](guides/llm-reference.md)
   - [Migration Guide](guides/migration.md)
   - [Project-to-File-Tree Wiring](guides/project-file-tree.md)

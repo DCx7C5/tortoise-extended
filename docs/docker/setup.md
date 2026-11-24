@@ -111,5 +111,7 @@ uv run pytest tests/ -v
 
 `tests/test_pg_integration.py` and the `*_integration.py` modules require the Docker
 database (`postgres-ext`); so does every module that registers models. The database-backed
-modules skip themselves when `localhost:5434` is unreachable, so the pure unit tests still run
-without a container.
+modules resolve their DSN through `tests/_pg_env.py` (`TORTOISE_TEST_DB`, falling back to the
+dev-container default) and skip themselves when that target is unreachable, so the pure unit
+tests still run without a container. The skip reason names the host:port actually probed, so a
+run pointed at another stack says so instead of failing silently.
