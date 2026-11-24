@@ -40,9 +40,23 @@ def database_url() -> str:
 
 
 def pg_host_port() -> tuple[str, int]:
-    """``(host, port)`` parsed from :func:`database_url`, with defaults."""
-    parts = urlsplit(database_url())
-    return parts.hostname or DEFAULT_HOST, parts.port or DEFAULT_PORT
+    """``(host, port)`` parsed from :func:`database_url`, with defaults.
+
+    :raises ValueError: When the DSN's authority cannot be parsed — a
+        non-numeric port or a malformed IPv6 literal. Failing here names
+        ``TORTOISE_TEST_DB`` instead of silently probing the default port,
+        which is the silent-wrong-target bug this module exists to prevent.
+    """
+    url = database_url()
+    try:
+        parts = urlsplit(url)
+        host, port = parts.hostname, parts.port
+    except ValueError as exc:
+        raise ValueError(
+            f"TORTOISE_TEST_DB is not a usable DSN: {url!r} ({exc}) — "
+            f"unset it to use {DEFAULT_URL}"
+        ) from exc
+    return host or DEFAULT_HOST, port or DEFAULT_PORT
 
 
 def pg_available() -> bool:

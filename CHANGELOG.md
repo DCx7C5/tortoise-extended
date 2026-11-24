@@ -205,7 +205,10 @@ the versions below are the `pyproject.toml` version at the time of the change.
   `TORTOISE_TEST_DB`. The probe now dials the host/port parsed from the DSN, and the skip reason
   names the address actually tried, so a run pointed at another stack reports it instead of
   skipping silently. An unreachable target still *skips* rather than fails (`AGENTS.md` §Testing) —
-  that part is unchanged.
+  that part is unchanged. A DSN whose authority cannot be parsed (a non-numeric port, a malformed
+  IPv6 literal) raises naming `TORTOISE_TEST_DB` and the fallback URL, instead of leaking a bare
+  `urlsplit` error from 34 module imports — silently probing the default port there would test the
+  wrong database, which is the bug the shared probe exists to prevent.
 
 ### Removed
 

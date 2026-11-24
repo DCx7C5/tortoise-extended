@@ -48,6 +48,19 @@ class TestPgHostPort:
         monkeypatch.setenv("TORTOISE_TEST_DB", "postgres:///tortoise_test")
         assert pg_host_port() == (DEFAULT_HOST, DEFAULT_PORT)
 
+    def test_unparseable_port_names_the_variable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A bad DSN raises with its own name instead of a bare urlsplit error.
+
+        The failure reaches module import (`_PG_SKIP_REASON = pg_skip_reason()`),
+        so the message has to say which variable to fix — silently falling back
+        to the default port would test the wrong database.
+        """
+        monkeypatch.setenv("TORTOISE_TEST_DB", "postgres://u:p@host:abc/db")
+        with pytest.raises(ValueError, match="TORTOISE_TEST_DB"):
+            pg_host_port()
+
 
 # --- reachability ---------------------------------------------------------
 
