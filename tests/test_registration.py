@@ -7,6 +7,7 @@ patches never double-wraps. No database connection required.
 
 from collections.abc import Callable
 
+import pytest
 import tortoise.filters as filters_mod
 import tortoise.indexes as indexes_mod
 from tortoise.backends.asyncpg.client import AsyncpgDBClient
@@ -24,6 +25,7 @@ from tortoise_extended import (
     _pgvector_codec_init,
 )
 from tortoise_extended._types import AsyncpgConnection
+from tortoise_extended.exceptions import VectorFieldError
 from tortoise_extended.fields.ltree import LTreeField
 from tortoise_extended.migrations.operations import _patch_format_operation
 
@@ -91,9 +93,11 @@ class _CodecConn:
     """In-memory ``AsyncpgConnection`` double that records codec setup calls.
 
     ``probe_result`` controls the value returned by the schema probe;
-    ``probe_error`` makes the probe raise instead. Both knobs keep the
-    double protocol-compatible with ``AsyncpgConnection`` while letting the
-    tests exercise every branch of ``_pgvector_codec_init``.
+    ``probe_error`` makes the probe raise instead; ``fail_types`` makes
+    ``set_type_codec`` raise ``ValueError`` for exactly those type names
+    (after recording the attempt). The knobs keep the double
+    protocol-compatible with ``AsyncpgConnection`` while letting the tests
+    exercise every branch of ``_pgvector_codec_init``.
     """
 
     def __init__(
@@ -101,6 +105,7 @@ class _CodecConn:
         *,
         probe_result: str | None = None,
         probe_error: type[Exception] | None = None,
+        fail_types: frozenset[str] = frozenset(),
     ) -> None:
         self.calls: list[
             tuple[
@@ -112,6 +117,7 @@ class _CodecConn:
         ] = []
         self._probe_result = probe_result
         self._probe_error = probe_error
+        self._fail_types = fail_types
 
     async def set_type_codec(
         self,
@@ -122,6 +128,8 @@ class _CodecConn:
         decoder: Callable[[str], list[float]],
     ) -> None:
         self.calls.append((typename, encoder, decoder, schema))
+        if typename in self._fail_types:
+            raise ValueError(f"unknown type: {schema}.{typename}")
 
     async def fetchval(self, query: str) -> str | None:
         assert "typname = 'vector'" in query
@@ -155,6 +163,38 @@ class _NoCodec:
         raise AttributeError(f"probe failed: {query}")
 
 
+class _HalfvecMissingConn:
+    """Records codec registrations and rejects only ``halfvec``.
+
+    Mirrors a pgvector build that predates ``halfvec`` (or a database where
+    only the ``vector`` type exists): ``set_type_codec("vector", ...)`` must
+    succeed while ``set_type_codec("halfvec", ...)`` raises ``ValueError``.
+    ``attempts`` records every call in order; ``registered`` records only the
+    calls that did not raise.
+    """
+
+    def __init__(self) -> None:
+        self.attempts: list[str] = []
+        self.registered: list[str] = []
+
+    async def set_type_codec(
+        self,
+        typename: str,
+        *,
+        schema: str,
+        encoder: Callable[[list[float] | str | None], str],
+        decoder: Callable[[str], list[float]],
+    ) -> None:
+        self.attempts.append(typename)
+        if typename == "halfvec":
+            raise ValueError(f"unknown type: {schema}.{typename}")
+        self.registered.append(typename)
+
+    async def fetchval(self, query: str) -> str | None:
+        assert "typname = 'vector'" in query
+        return None
+
+
 class TestPgvectorCodecBranches:
     """Branch coverage for the extracted pgvector codec helpers."""
 
@@ -175,9 +215,26 @@ class TestPgvectorCodecBranches:
         """The empty-vector literal decodes to an empty list."""
         assert _decode_vector("[]") == []
 
+    def test_decode_vector_whitespace_only(self) -> None:
+        """Whitespace-only contents (``"[ ]"``) also decode to an empty list."""
+        assert _decode_vector("[ ]") == []
+        assert _decode_vector(" [ ] ") == []
+
     def test_decode_vector_values(self) -> None:
         """Non-empty literals decode to a list of floats."""
         assert _decode_vector("[1.5, 2.0, 3.25]") == [1.5, 2.0, 3.25]
+
+    def test_decode_vector_padded_values(self) -> None:
+        """Whitespace around individual tokens is ignored."""
+        assert _decode_vector("[ 1.5 , 2 ]") == [1.5, 2.0]
+
+    def test_decode_vector_malformed_raises(self) -> None:
+        """A non-numeric token raises VectorFieldError naming the payload."""
+        with pytest.raises(VectorFieldError) as excinfo:
+            _decode_vector("[1.5,oops]")
+        message = str(excinfo.value)
+        assert "'[1.5,oops]'" in message
+        assert "'oops'" in message
 
     async def test_codec_init_skips_without_set_type_codec(self) -> None:
         """Connections that cannot register codecs are skipped silently."""
@@ -208,6 +265,21 @@ class TestPgvectorCodecBranches:
 
         await _pgvector_codec_init(_Raises(ValueError))
         await _pgvector_codec_init(_Raises(AttributeError))
+
+    async def test_codec_init_isolates_per_type_failures(self) -> None:
+        """A missing ``halfvec`` must not stop ``vector`` from registering.
+
+        The ``_Raises`` double fails both types, so on its own it cannot show
+        that the loop isolates each ``set_type_codec`` call. A build without
+        ``halfvec`` is the real-world case (pgvector < 0.7): the ``vector``
+        codec must still be registered, first, and ``halfvec`` attempted after.
+        """
+        conn = _HalfvecMissingConn()
+
+        await _pgvector_codec_init(conn)
+
+        assert conn.registered == ["vector"]
+        assert conn.attempts == ["vector", "halfvec"]
 
     async def test_codec_init_registers_encoder_and_decoder(self) -> None:
         """Codecs are registered on connections that support them."""

@@ -37,6 +37,7 @@ The dev-only typing overlay lives in ``stubs/tortoise-stubs/``; see the drift
 note at the top of ``stubs/tortoise-stubs/__init__.pyi``.
 """
 
+import logging
 from collections.abc import Awaitable, Callable
 from importlib.metadata import version as _distribution_version
 from types import ModuleType
@@ -182,6 +183,15 @@ from tortoise_extended.timescale import TimeBucketRow
 # pgvector codec helpers (module-level so every branch is unit-testable)
 # ---------------------------------------------------------------------------
 
+logger = logging.getLogger(__name__)
+
+# Option A (deliberate): the live asyncpg codec is TEXT. ``set_type_codec``
+# below omits ``format=``, so asyncpg uses its default text codec and the
+# PostgreSQL vector type round-trips as ``"[0.1,0.2]"``. The binary helpers on
+# ``VectorField`` (``_encode_binary`` / ``_decode_binary``) are the field-level
+# fallback/test path and a possible future opt-in — no binary codec is
+# registered anywhere, and there is no configuration knob to enable one.
+
 
 def _encode_vector(value: list[float] | str | None) -> str:
     """Encode a vector value into the pgvector text format."""
@@ -193,11 +203,25 @@ def _encode_vector(value: list[float] | str | None) -> str:
 
 
 def _decode_vector(value: str) -> list[float]:
-    """Decode the pgvector text format into a list of floats."""
-    stripped = value.strip("[]")
-    if not stripped:
-        return []
-    return [float(x) for x in stripped.split(",") if x]
+    """Decode the pgvector text format into a list of floats.
+
+    Whitespace around tokens is ignored, so ``"[]"`` and ``"[ ]"`` both decode
+    to an empty list. A malformed literal raises :class:`VectorFieldError`
+    (never a bare ``ValueError``) naming the decoder and the offending payload.
+    """
+    values: list[float] = []
+    for token in value.strip().strip("[]").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            values.append(float(token))
+        except (ValueError, TypeError) as exc:
+            raise VectorFieldError(
+                f"pgvector text decoder: cannot parse vector literal "
+                f"{value!r} (offending token {token!r})"
+            ) from exc
+    return values
 
 
 async def _pgvector_codec_init(conn: AsyncpgConnection) -> None:
@@ -208,10 +232,16 @@ async def _pgvector_codec_init(conn: AsyncpgConnection) -> None:
     (G18) — not hardcoded to ``public``. Gracefully skips if the ``vector``
     extension is not yet created in the database (e.g. before ``CREATE
     EXTENSION vector``) or if the connection does not support custom type
-    codecs.
+    codecs. The registered codec is TEXT (``format=`` is omitted); skips and
+    probe fallbacks are logged at DEBUG — never per-connection warnings, since
+    the boot-before-migration path is expected.
     """
     set_codec = getattr(conn, "set_type_codec", None)
     if set_codec is None:
+        logger.debug(
+            "pgvector codec: %s has no set_type_codec; skipping codec registration",
+            type(conn).__name__,
+        )
         return
     schema = "public"
     fetchval = getattr(conn, "fetchval", None)
@@ -229,7 +259,10 @@ async def _pgvector_codec_init(conn: AsyncpgConnection) -> None:
             # cannot answer the catalog query): fall back to ``public`` and
             # let ``set_type_codec`` decide — it raises ValueError when the
             # type is absent, which is swallowed below.
-            pass
+            logger.debug(
+                "pgvector codec: schema probe failed; falling back to schema 'public'",
+                exc_info=True,
+            )
     for type_name in ("vector", "halfvec"):
         try:
             await set_codec(
@@ -238,11 +271,17 @@ async def _pgvector_codec_init(conn: AsyncpgConnection) -> None:
                 decoder=_decode_vector,
                 schema=schema,
             )
-        except ValueError, AttributeError:
+        except (ValueError, AttributeError) as exc:
             # ValueError: "unknown type: pgvector.<type>" — extension not
             # loaded or the type does not exist in this pgvector version.
             # AttributeError: conn doesn't support set_type_codec.
-            pass
+            logger.debug(
+                "pgvector codec: skipped %r in schema %r (%s: %s)",
+                type_name,
+                schema,
+                type(exc).__name__,
+                exc,
+            )
 
 
 async def _combined_codec_init(

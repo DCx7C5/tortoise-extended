@@ -221,9 +221,8 @@ class TestVectorFieldToPythonValue:
     def test_memoryview_decode(self) -> None:
         """Memoryview binary should be decoded to float list."""
         field = VectorField(dimensions=2)
-        header = struct.pack(">HH", 0, 2)
-        data = struct.pack(">2f", 1.0, 2.0)
-        result = field.to_python_value(memoryview(header + data))
+        raw = VectorField._encode_binary([1.0, 2.0])
+        result = field.to_python_value(memoryview(raw))
         assert result == [1.0, 2.0]
 
     def test_empty_binary(self) -> None:
@@ -272,7 +271,8 @@ class TestVectorFieldDecodeBinary:
 
     def test_normal_decode(self) -> None:
         """Normal binary should decode correctly."""
-        header = struct.pack(">HH", 0, 3)
+        # Real pgvector layout: int16 ndim, int16 unused (both big-endian).
+        header = struct.pack(">HH", 3, 0)
         data = struct.pack(">3f", 0.1, 0.2, 0.3)
         result = VectorField._decode_binary(header + data)
         assert len(result) == 3
