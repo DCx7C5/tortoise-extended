@@ -340,21 +340,36 @@ class TestPgvectorCodec:
 
     @pytest.mark.asyncio
     async def test_binary_vector_decode(self) -> None:
-        """pgvector binary format is decoded correctly by VectorField."""
-        import struct
+        """``vector_send`` bytes decode through ``VectorField._decode_binary``.
 
-        # Construct pgvector binary: 4-byte header + 3 * 4-byte floats
-        header = struct.pack(">HH", 0, 3)  # reserved=0, ndim=3
-        data = struct.pack(">3f", 1.0, 2.0, 3.0)
-        raw = header + data
-
+        The payload comes from the live server, so it exercises the real
+        wire layout (``int16 dim, int16 unused`` header + big-endian floats)
+        instead of a hand-built header that could agree with a wrong decoder.
+        """
         conn = Tortoise.get_connection("default")
-        result = await conn.execute_query("SELECT $1::vector AS v", [raw])
-        # The codec should decode it
-        val = result[1][0]["v"]
-        if isinstance(val, memoryview):
-            decoded = VectorField._decode_binary(bytes(val))
-            assert decoded == [1.0, 2.0, 3.0]
+        row = await conn.execute_query("SELECT vector_send('[1,2,3]'::vector) AS v")
+        payload = bytes(row[1][0]["v"])
+        assert VectorField._decode_binary(payload) == [1.0, 2.0, 3.0]
+
+    @pytest.mark.asyncio
+    async def test_binary_halfvec_decode(self) -> None:
+        """``halfvec_send`` bytes decode through ``VectorField._decode_binary``."""
+        conn = Tortoise.get_connection("default")
+        probe = await conn.execute_query(
+            "SELECT 1 FROM pg_proc WHERE proname = 'halfvec_send'"
+        )
+        if not probe[1]:
+            pytest.skip(
+                "halfvec_send unavailable on this pgvector build "
+                "(halfvec requires pgvector >= 0.7)"
+            )
+        row = await conn.execute_query("SELECT halfvec_send('[1,2,3]'::halfvec) AS v")
+        payload = bytes(row[1][0]["v"])
+        assert VectorField._decode_binary(payload, vector_type="halfvec") == [
+            1.0,
+            2.0,
+            3.0,
+        ]
 
 
 class TestPgvectorCodecFreshConnection:
