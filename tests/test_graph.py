@@ -11,8 +11,6 @@ must roll back the node row write.  That class is skipped when PostgreSQL is
 not reachable; the rest of the module keeps running without a database.
 """
 
-import os
-import socket
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -21,24 +19,12 @@ from tortoise import Tortoise
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.models import BaseGraphEdgeModel, BaseGraphNodeModel, BaseNode
 from tortoise_extended.models import BaseHierarchyModel
+from tests._pg_env import database_url, pg_skip_reason
 
 
 # --- Config — only TestSaveAtomicity needs PG -------------------------------
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
-
-
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
+DB_URL = database_url()
 
 
 class TestGraphNode:
@@ -327,6 +313,9 @@ class _CounterFailure(Exception):
     """Sentinel raised in place of the child_count maintenance UPDATE."""
 
 
+_PG_SKIP_REASON = pg_skip_reason()
+
+
 class TestSaveAtomicity:
     """Q4-TEST — a failing child_count write rolls back the node INSERT.
 
@@ -339,8 +328,8 @@ class TestSaveAtomicity:
     """
 
     pytestmark = pytest.mark.skipif(
-        not _pg_available(),
-        reason="PostgreSQL not available on localhost:5434",
+        _PG_SKIP_REASON is not None,
+        reason=_PG_SKIP_REASON or "",
     )
 
     @pytest.fixture(autouse=True)

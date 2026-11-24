@@ -15,8 +15,6 @@ Run with: uv run pytest tests/test_versioned.py -q
 """
 
 import asyncio
-import os
-import socket
 from collections.abc import AsyncGenerator
 from urllib.parse import urlsplit
 
@@ -37,6 +35,7 @@ from tortoise_extended import (
     VersionMixin,
     VersionMismatchError,
 )
+from tests._pg_env import database_url, pg_skip_reason
 
 # ---------------------------------------------------------------------------
 # Test models
@@ -92,27 +91,16 @@ class RequiredPlain(VersionMixin):
 # Live PostgreSQL harness
 # ---------------------------------------------------------------------------
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test_ver",
-)
+DB_URL = database_url()
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
+_PG_SKIP_REASON = pg_skip_reason()
 
 #: Skip the database-backed class (not the export checks) without Docker.
 _requires_pg = [
     pytest.mark.skipif(
-        not _pg_available(),
-        reason="PostgreSQL not available on localhost:5434",
+        _PG_SKIP_REASON is not None,
+        reason=_PG_SKIP_REASON or "",
     ),
     pytest.mark.usefixtures("_clean_rows"),
 ]

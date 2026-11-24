@@ -18,8 +18,6 @@ assertion depends on PostgreSQL's arbitrary order among window peers.
 Run with: uv run pytest tests/test_windows.py -v
 """
 
-import os
-import socket
 from collections.abc import AsyncGenerator, Callable
 
 import pytest
@@ -42,6 +40,7 @@ from tortoise_extended import (
     row_number,
     sum_over,
 )
+from tests._pg_env import database_url, pg_skip_reason
 
 #: Every public builder name, used by the export contract.
 BUILDER_NAMES = (
@@ -271,10 +270,7 @@ class TestExports:
 # Section 4 — Live PostgreSQL integration
 # =========================================================================
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test_win",
-)
+DB_URL = database_url()
 
 TABLE = "test_window_sales"
 
@@ -290,21 +286,13 @@ SEED = (
 )
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
+_PG_SKIP_REASON = pg_skip_reason()
 
 #: Skip the database-backed class (not the rendering ones) without Docker.
 _requires_pg = [
     pytest.mark.skipif(
-        not _pg_available(),
-        reason="PostgreSQL not available on localhost:5434",
+        _PG_SKIP_REASON is not None,
+        reason=_PG_SKIP_REASON or "",
     ),
     pytest.mark.usefixtures("_clean_rows"),
 ]

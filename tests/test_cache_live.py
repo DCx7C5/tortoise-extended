@@ -12,7 +12,7 @@ Pure-unit tests (``_q_value_default``, ``_coerce``, ``_stable_signature``,
 ``_deserialize_results`` Model passthrough, app-scoped resolve) need no I/O.
 Database-backed tests run against the live PostgreSQL test database on
 ``127.0.0.1:5434`` (see ``docker-compose.dev.yml``) — this package is
-PostgreSQL-only.
+PostgreSQL-only.  The DSN honours ``TORTOISE_TEST_DB``.
 
 Note: the defensive ``RedisCache.init`` error branches in ``redis.py`` (lines
 99, 108) are unreachable with a healthy redis-py client and are intentionally
@@ -23,8 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import socket
 from collections.abc import AsyncGenerator, Iterator
 from datetime import date, datetime, time
 from typing import ClassVar
@@ -42,6 +40,7 @@ from tortoise_extended.exceptions import CacheSerializationError
 from tortoise_extended.fields import CharField
 from tortoise_extended.models.cacheable_model import BaseCacheableModel
 
+from tests._pg_env import database_url, pg_skip_reason
 from tests.test_cache import MockRedisBackend
 from tests._redis_env import redis_skip_reason, redis_url
 
@@ -62,25 +61,13 @@ _live_redis = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_PG_SKIP_REASON = pg_skip_reason()
 pytestmark = pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
+DB_URL = database_url()
 
 
 # ---------------------------------------------------------------------------

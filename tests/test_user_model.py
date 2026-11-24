@@ -5,8 +5,6 @@ hashing, DB persistence round-trips, and login bookkeeping. Runs against the
 live PostgreSQL test database (see ``docker-compose.dev.yml``).
 """
 
-import os
-import socket
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
@@ -16,6 +14,7 @@ from tortoise.exceptions import IntegrityError
 
 from tortoise_extended.fields import CharField
 from tortoise_extended.models import BaseUserModel
+from tests._pg_env import database_url, pg_skip_reason
 
 # --- Test models ---------------------------------------------------------
 
@@ -29,25 +28,13 @@ class User(BaseUserModel):
 
 # --- Config — skip entire module if PG is not available --------------------
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
+DB_URL = database_url()
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_PG_SKIP_REASON = pg_skip_reason()
 pytestmark = pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 
 

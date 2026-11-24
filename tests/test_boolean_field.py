@@ -7,8 +7,6 @@ known under basedpyright strict mode. These tests pin the runtime surface
 that the overlay mirrors.
 """
 
-import os
-import socket
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -16,22 +14,10 @@ import tortoise_extended  # noqa: F401 — apply patches
 from tortoise import Tortoise, fields, models
 
 from tortoise_extended.fields import CharField
+from tests._pg_env import database_url, pg_skip_reason
 
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
-
-
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
+DB_URL = database_url()
 
 
 class BooleanPage(models.Model):
@@ -109,9 +95,10 @@ async def _pg_db() -> AsyncGenerator[None, None]:
     await Tortoise.close_connections()
 
 
+_PG_SKIP_REASON = pg_skip_reason()
 @pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 class TestBooleanFieldModel:
     """PostgreSQL round-trip: insert / fetch / filter / update through Tortoise."""

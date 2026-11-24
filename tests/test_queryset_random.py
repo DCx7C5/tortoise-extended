@@ -19,8 +19,6 @@ probability ``1/50!``).
 Run with: uv run pytest tests/test_queryset_random.py -v
 """
 
-import os
-import socket
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -36,6 +34,7 @@ from tortoise_extended import (
     paginate,
     random_ordering,
 )
+from tests._pg_env import database_url, pg_skip_reason
 
 #: The fixed annotation name this module pins as public contract (docs/api/queryset.md).
 RANDOM_ALIAS = "_tortoise_extended_random"
@@ -107,30 +106,19 @@ class TestPatchContract:
 # Section 2 — Live PostgreSQL integration
 # =========================================================================
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test_rand",
-)
+DB_URL = database_url()
 
 TABLE = "test_queryset_random_items"
 SEED_COUNT = 50
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
+_PG_SKIP_REASON = pg_skip_reason()
 
 #: Skip the database-backed class (not the patch contract) without Docker.
 _requires_pg = [
     pytest.mark.skipif(
-        not _pg_available(),
-        reason="PostgreSQL not available on localhost:5434",
+        _PG_SKIP_REASON is not None,
+        reason=_PG_SKIP_REASON or "",
     ),
     pytest.mark.usefixtures("_clean_rows"),
 ]

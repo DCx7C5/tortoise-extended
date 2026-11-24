@@ -22,8 +22,6 @@ chosen row is unambiguous whenever ``order_by`` names ``observed_at``.
 Run with: uv run pytest tests/test_distinct_on.py -v
 """
 
-import os
-import socket
 from collections.abc import AsyncGenerator, Callable
 from datetime import UTC, datetime
 
@@ -35,6 +33,7 @@ from tortoise.models import Model
 import tortoise_extended
 from tortoise_extended import distinct_on
 from tortoise_extended.expressions.distinct_on import _assert_asyncpg_backend
+from tests._pg_env import database_url, pg_skip_reason
 
 # =========================================================================
 # Models
@@ -220,31 +219,20 @@ class TestExports:
 # Section 3 — Live PostgreSQL integration
 # =========================================================================
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test_don",
-)
+DB_URL = database_url()
 
 READING_TABLE = "test_distinct_reading"
 SOFT_TABLE = "test_distinct_soft_reading"
 RENAMED_SOFT_TABLE = "test_distinct_renamed_soft_reading"
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
+_PG_SKIP_REASON = pg_skip_reason()
 
 #: Skip the database-backed class (not the validation ones) without Docker.
 _requires_pg = [
     pytest.mark.skipif(
-        not _pg_available(),
-        reason="PostgreSQL not available on localhost:5434",
+        _PG_SKIP_REASON is not None,
+        reason=_PG_SKIP_REASON or "",
     ),
     pytest.mark.usefixtures("_clean_rows"),
 ]

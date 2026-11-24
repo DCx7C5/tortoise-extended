@@ -6,7 +6,7 @@ Postgres connection with bogus / non-existent object names so the server
 raises, and the manager wraps it.
 
 Requires: the docker ``postgres-ext`` container (PostgreSQL 18 + TimescaleDB)
-exposed on ``127.0.0.1:5434``.
+exposed on ``127.0.0.1:5434``.  The DSN honours ``TORTOISE_TEST_DB``.
 
 Run with: uv run pytest tests/test_timescale_live_errors.py -v
 """
@@ -14,8 +14,6 @@ Run with: uv run pytest tests/test_timescale_live_errors.py -v
 from __future__ import annotations
 
 import datetime
-import os
-import socket
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -38,34 +36,23 @@ from tortoise_extended.timescale.stream import (
     fetch_rows,
     table_field,
 )
+from tests._pg_env import database_url, pg_skip_reason
 
 # ---------------------------------------------------------------------------
 # Config — skip entire module if TimescaleDB PG is not available
 # ---------------------------------------------------------------------------
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
+DB_URL = database_url()
 
 BOGUS_TABLE = "definitely_not_a_table_xyz"
 BOGUS_VIEW = "does_not_exist_agg_xyz"
 BOGUS_CHUNK = "_timescaledb_internal._hyper_99999_99999_chunk"
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_PG_SKIP_REASON = pg_skip_reason()
 pytestmark = pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 
 

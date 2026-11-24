@@ -14,8 +14,6 @@ Run with: uv run pytest tests/test_pagination.py -v
 """
 
 import math
-import os
-import socket
 from collections.abc import AsyncGenerator
 from dataclasses import FrozenInstanceError
 from typing import cast
@@ -32,6 +30,7 @@ from tortoise_extended import (
     _apply_patches,
     paginate,
 )
+from tests._pg_env import database_url, pg_skip_reason
 
 # ---------------------------------------------------------------------------
 # Test model — used by the no-DB validation tests and the live section
@@ -230,29 +229,18 @@ class TestPatchContract:
 # Section 4 — Live PostgreSQL integration
 # =========================================================================
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test_pag",
-)
+DB_URL = database_url()
 
 TABLE = "test_pagination_rows"
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
+_PG_SKIP_REASON = pg_skip_reason()
 
 #: Skip the database-backed classes (not the arithmetic ones) without Docker.
 _requires_pg = [
     pytest.mark.skipif(
-        not _pg_available(),
-        reason="PostgreSQL not available on localhost:5434",
+        _PG_SKIP_REASON is not None,
+        reason=_PG_SKIP_REASON or "",
     ),
     pytest.mark.usefixtures("_clean_rows"),
 ]

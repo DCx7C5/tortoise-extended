@@ -8,8 +8,6 @@ same sequence.
 """
 
 import ipaddress
-import os
-import socket
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -18,15 +16,13 @@ from tortoise import Tortoise, fields, models
 from tortoise.utils import get_schema_sql
 
 from tortoise_extended.fields import InetField, IPv4Field, MacAddr8Field, MacAddrField
+from tests._pg_env import database_url, pg_skip_reason
 
 # ---------------------------------------------------------------------------
 # Configuration — a database-backed module, skipped without the Docker PG
 # ---------------------------------------------------------------------------
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
+DB_URL = database_url()
 
 HOST_TABLE = "inet_macaddr_hosts"
 V4_TABLE = "inet_macaddr_v4_only"
@@ -37,19 +33,10 @@ MAC48 = "aa:bb:cc:dd:ee:ff"
 MAC64 = "aa:bb:cc:dd:ee:ff:00:11"
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_PG_SKIP_REASON = pg_skip_reason()
 pytestmark = pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 
 

@@ -6,8 +6,6 @@ Covers ``BaseModel`` (BigInt pk), ``TimestampMixin``,
 (see ``docker-compose.dev.yml``) — this package is PostgreSQL-only.
 """
 
-import os
-import socket
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
@@ -23,6 +21,7 @@ from tortoise_extended.models import (
     TimestampEndMixin,
     TimestampMixin,
 )
+from tests._pg_env import database_url, pg_skip_reason
 
 # --- Test models ---------------------------------------------------------
 
@@ -84,25 +83,13 @@ class FullyStampedThing(BaseModel, BaseSoftDeleteModel, TimestampMixin):  # pyri
 
 # --- Config — skip entire module if PG is not available --------------------
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
+DB_URL = database_url()
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_PG_SKIP_REASON = pg_skip_reason()
 pytestmark = pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 
 

@@ -1,14 +1,12 @@
 """Integration tests for the TimescaleDB runtime managers.
 
 Requires: the docker ``postgres-ext`` container (PostgreSQL 18 + TimescaleDB)
-exposed on ``127.0.0.1:5434``.
+exposed on ``127.0.0.1:5434``.  The DSN honours ``TORTOISE_TEST_DB``.
 
 Run with: uv run pytest tests/test_timescale_integration.py -v
 """
 
 import datetime
-import os
-import socket
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -27,15 +25,13 @@ from tortoise_extended.timescale import (
     RetentionPolicy,
     TimeBucketRow,
 )
+from tests._pg_env import database_url, pg_skip_reason
 
 # ---------------------------------------------------------------------------
 # Config — skip entire module if TimescaleDB PG is not available
 # ---------------------------------------------------------------------------
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
+DB_URL = database_url()
 
 EVENTS_DDL = """
     CREATE TABLE test_events (
@@ -77,19 +73,10 @@ STREAM_DDL = """
 """
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_PG_SKIP_REASON = pg_skip_reason()
 pytestmark = pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 
 

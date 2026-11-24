@@ -6,9 +6,6 @@ Sections:
   3. ``TestBulkInsertPG`` — real ``COPY`` against PostgreSQL.
 """
 
-import os
-import socket
-
 import pytest
 from tortoise import Tortoise, fields
 from tortoise.exceptions import OperationalError
@@ -23,21 +20,9 @@ from tortoise_extended.bulk import (
     field_db_column,
 )
 from tortoise_extended.exceptions import PatchConflictError
+from tests._pg_env import database_url, pg_skip_reason
 
-_DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
-
-
-def _pg_available() -> bool:
-    """Quick check - can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
+_DB_URL = database_url()
 
 
 # =========================================================================
@@ -196,12 +181,15 @@ _TABLES = (
 )
 
 
+_PG_SKIP_REASON = pg_skip_reason()
+
+
 class TestBulkInsertPG:
     """A real ``COPY`` writes the rows and leaves the instances persisted."""
 
     pytestmark = pytest.mark.skipif(
-        not _pg_available(),
-        reason="PostgreSQL not available on localhost:5434",
+        _PG_SKIP_REASON is not None,
+        reason=_PG_SKIP_REASON or "",
     )
 
     @pytest.fixture(autouse=True)

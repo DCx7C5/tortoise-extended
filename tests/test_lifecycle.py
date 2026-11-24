@@ -2,12 +2,11 @@
 
 Requires the docker stack (see ``docker-compose.dev.yml``): PostgreSQL 18 with
 pgvector/TimescaleDB/pgcrypto/pg_trgm/uuid-ossp on ``127.0.0.1:5434``.
+The DSN honours ``TORTOISE_TEST_DB``.
 
 Run with: uv run pytest tests/test_lifecycle.py -v
 """
 
-import os
-import socket
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -25,15 +24,13 @@ from tortoise_extended.lifecycle import (
 )
 from tortoise_extended.models.sample import SampleMixin
 from tortoise_extended.timescale.hypertable import HypertableManager
+from tests._pg_env import database_url, pg_skip_reason
 
 # ---------------------------------------------------------------------------
 # Config — skip entire module if PG is not available
 # ---------------------------------------------------------------------------
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
+DB_URL = database_url()
 
 #: The six extensions ``ensure_extensions`` must ensure, in creation order.
 EXPECTED_EXTENSIONS = [
@@ -46,19 +43,10 @@ EXPECTED_EXTENSIONS = [
 ]
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_PG_SKIP_REASON = pg_skip_reason()
 pytestmark = pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 
 

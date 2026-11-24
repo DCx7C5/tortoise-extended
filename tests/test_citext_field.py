@@ -12,8 +12,6 @@ The extension is created in the module fixture: the live Docker volume predates
 the init-script change, and recreating the container is out of scope.
 """
 
-import os
-import socket
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -23,15 +21,13 @@ from tortoise.exceptions import IntegrityError
 from tortoise.utils import get_schema_sql
 
 from tortoise_extended.fields import CitextField
+from tests._pg_env import database_url, pg_skip_reason
 
 # ---------------------------------------------------------------------------
 # Configuration — a database-backed module, skipped without the Docker PG
 # ---------------------------------------------------------------------------
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
+DB_URL = database_url()
 
 TABLE = "citext_probe_rows"
 UNIQUE_TABLE = "citext_probe_unique"
@@ -42,19 +38,10 @@ AT_LIMIT = "aB" * 16  # exactly 32 characters, mixed case
 OVER_LIMIT = AT_LIMIT + "c"  # 33 characters
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_PG_SKIP_REASON = pg_skip_reason()
 pytestmark = pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 
 

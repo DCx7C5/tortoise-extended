@@ -9,8 +9,6 @@ PostgreSQL-only.
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import datetime
 from decimal import Decimal
-import os
-import socket
 from uuid import uuid4
 
 import pytest
@@ -41,6 +39,7 @@ from tortoise_extended.exceptions import (
     RedisCacheError,
 )
 
+from tests._pg_env import database_url, pg_skip_reason
 from tests._redis_env import redis_skip_reason, redis_url
 
 
@@ -854,25 +853,13 @@ class CacheArticle(BaseCacheableModel):
 # ---------------------------------------------------------------------------
 
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
+DB_URL = database_url()
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_PG_SKIP_REASON = pg_skip_reason()
 pytestmark = pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 
 _TABLES = ("cache_articles", "cache_things", "cache_categories")

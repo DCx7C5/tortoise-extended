@@ -5,9 +5,6 @@ Sections:
   2. ``TestPGPEncryptedFieldPG`` — schema, roundtrip and decryption on PostgreSQL.
 """
 
-import os
-import socket
-
 import pytest
 from tortoise import Tortoise, fields
 from tortoise.models import Model
@@ -15,21 +12,9 @@ from tortoise.models import Model
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended import PGPEncryptedField
 from tortoise_extended.expressions.pgcrypto import PGPSymDecrypt, PGPSymEncrypt
+from tests._pg_env import database_url, pg_skip_reason
 
-_DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
-
-
-def _pg_available() -> bool:
-    """Quick check - can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
+_DB_URL = database_url()
 
 
 # =========================================================================
@@ -92,12 +77,15 @@ class EncryptedDocument(Model):
         table = "test_encrypted_documents"
 
 
+_PG_SKIP_REASON = pg_skip_reason()
+
+
 class TestPGPEncryptedFieldPG:
     """The column is really ``bytea`` and pairs with the pgp_sym_* helpers."""
 
     pytestmark = pytest.mark.skipif(
-        not _pg_available(),
-        reason="PostgreSQL not available on localhost:5434",
+        _PG_SKIP_REASON is not None,
+        reason=_PG_SKIP_REASON or "",
     )
 
     @pytest.fixture(autouse=True)

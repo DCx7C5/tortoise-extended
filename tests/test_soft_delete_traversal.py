@@ -13,12 +13,10 @@ too, while a ``deleted_at`` field mapped onto a different column
 ``deleted_at`` identifier.
 
 Requires the docker stack (PostgreSQL 18 on ``127.0.0.1:5434``, database
-``tortoise_test``).
+``tortoise_test``).  The DSN honours ``TORTOISE_TEST_DB``.
 """
 
 import datetime as dt
-import os
-import socket
 
 import pytest
 from tortoise import Tortoise, fields
@@ -31,30 +29,19 @@ from tortoise_extended.expressions._soft_delete import soft_delete_column
 from tortoise_extended.expressions.graph_traversal import GraphTraversal
 from tortoise_extended.expressions.graph_vector_search import GraphVectorSearch
 from tortoise_extended.expressions.pathfinding import all_paths, shortest_path
+from tests._pg_env import database_url, pg_skip_reason
 
 # ---------------------------------------------------------------------------
 # Config - skip the module if PG is not available
 # ---------------------------------------------------------------------------
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
+DB_URL = database_url()
 
 
-def _pg_available() -> bool:
-    """Quick check - can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_PG_SKIP_REASON = pg_skip_reason()
 pytestmark = pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 
 

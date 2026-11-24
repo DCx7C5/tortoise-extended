@@ -5,8 +5,6 @@ database (see ``docker-compose.dev.yml``); the operator unit tests need no
 database and keep running when PostgreSQL is not reachable.
 """
 
-import os
-import socket
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -33,6 +31,7 @@ from tortoise_extended.expressions.graph_filters import (
     vector_encoder,
 )
 from tortoise_extended.fields.vector import VectorField
+from tests._pg_env import database_url, pg_skip_reason
 
 
 class TestVectorEncoder:
@@ -251,20 +250,7 @@ class _VecDoc(Model):
 
 # --- Config — only TestBareEqualityFilterIntegration needs PG ----------------
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
-
-
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
+DB_URL = database_url()
 
 
 @pytest.fixture(scope="module")
@@ -290,9 +276,10 @@ async def _clean_table() -> AsyncGenerator[None, None]:
     yield
 
 
+_PG_SKIP_REASON = pg_skip_reason()
 @pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 @pytest.mark.usefixtures("_init_db", "_clean_table")
 class TestBareEqualityFilterIntegration:

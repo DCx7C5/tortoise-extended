@@ -2,18 +2,17 @@
 
 Requires the docker stack (see ``docker-compose.dev.yml``): PostgreSQL 18 with
 pgvector on ``127.0.0.1:5434``, database ``tortoise_test``.
+The DSN honours ``TORTOISE_TEST_DB``.
 
 Run with: uv run pytest tests/test_hybrid_search_integration.py -v
 """
-
-import os
-import socket
 
 import pytest
 from tortoise import Tortoise
 
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise_extended.expressions.hybrid_search import HybridSearch
+from tests._pg_env import database_url, pg_skip_reason
 from tests.test_hybrid_search import SearchEntity
 
 
@@ -21,25 +20,13 @@ from tests.test_hybrid_search import SearchEntity
 # Config — skip entire module if PG is not available
 # ---------------------------------------------------------------------------
 
-DB_URL = os.environ.get(
-    "TORTOISE_TEST_DB",
-    "postgres://postgres:postgres@localhost:5434/tortoise_test",
-)
+DB_URL = database_url()
 
 
-def _pg_available() -> bool:
-    """Quick check — can we connect to the test PG?"""
-    try:
-        sock = socket.create_connection(("localhost", 5434), timeout=2)
-        sock.close()
-        return True
-    except OSError:
-        return False
-
-
+_PG_SKIP_REASON = pg_skip_reason()
 pytestmark = pytest.mark.skipif(
-    not _pg_available(),
-    reason="PostgreSQL not available on localhost:5434",
+    _PG_SKIP_REASON is not None,
+    reason=_PG_SKIP_REASON or "",
 )
 
 
