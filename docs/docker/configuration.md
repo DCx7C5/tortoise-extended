@@ -63,11 +63,45 @@ psql -h 127.0.0.1 -p 5434 -U postgres tortoise_extended
 redis-cli -h 127.0.0.1 -p 6381
 ```
 
+## Socket Directory and Worker Pools
+
+`postgres-ext` publishes its UNIX socket into a **dedicated** host directory,
+`/var/run/postgresql-ext`, bind-mounted to `/var/run/postgresql` inside the
+container. Do not point that bind at the host's `/var/run/postgresql`: a host
+PostgreSQL, or the neighbouring css-mcp stack, publishes its own
+`.s.PGSQL.5432` there, and a socket-less `psql` / `pg_isready` then reaches
+whichever container owns the name — which is how the healthcheck came to report
+another cluster's databases as healthy.
+
+The entrypoint re-owns the directory on start (`chown postgres:postgres`,
+`chmod 3777`) because Docker creates a missing host path as `root:root` and
+`/var/run` is tmpfs on the host, so the directory is recreated after every
+reboot.
+
+The server also runs with tuned worker pools:
+
+| Setting | Value | Why |
+|---|---|---|
+| `max_worker_processes` | 48 | background workers for parallel queries and extension jobs |
+| `timescaledb.max_background_workers` | 24 | one scheduler + two jobs per database with the extension |
+| `max_connections` | 100 | test modules share a pool per module |
+| `unix_socket_permissions` | 0770 | socket usable by the container's own user only |
+
+TimescaleDB registers a scheduler per database that has the extension, plus two
+jobs each. Seven test databases therefore need 21 workers, which exhausts the
+stock defaults (`max_background_workers=16`, `max_worker_processes=8`) with
+"out of background workers" / "no available background worker slots". If you
+add databases, raise these together.
+
 ## Pinning Policy
 
 - The Postgres base image is **digest-pinned** (`postgres:18@sha256:...`).
 - pgvector and TimescaleDB are **commit-pinned** via `ARG` in
   `docker/postgres-ext/Dockerfile`.
+- The build **checks** each pin: the value must be a 40-character sha, the
+  checkout must resolve to exactly that commit, and `git describe --tags
+  --exact-match` must return the expected tag (`v0.8.6` / `2.29.2`). A pin that
+  resolves to a commit on the wrong branch fails the build instead of shipping.
 - Bump version + pin together, deliberately, when upgrading.
 
 See also [Docker setup](setup.md) and

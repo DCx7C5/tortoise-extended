@@ -2,8 +2,8 @@
 
 Reusable abstract model primitives: a `BigInt` primary-key base, a timestamp
 mixin, soft delete, graph node/edge/hierarchy bases, model-level Redis
-caching, and a TimescaleDB event-stream base. All are opt-in — nothing is
-forced on a model that doesn't need it.
+caching, field-level Redis caching, and a TimescaleDB event-stream base. All
+are opt-in — nothing is forced on a model that doesn't need it.
 
 ## Imports
 
@@ -24,6 +24,7 @@ from tortoise_extended import (
     BaseGraphEdgeModel,
     BaseHierarchyModel,
     BaseCacheableModel,
+    CachedFieldsMixin,
     BaseSample,
     BaseEventStreamModel,
     BaseUserModel,
@@ -45,6 +46,7 @@ from tortoise_extended import (
 | BigInt-keyed graph nodes | `BaseUnifiedNode` | `NodeMixin` + UUID7 `uid`, integer `parent_id`, see below |
 | ltree trees | `BaseHierarchyModel` | see [Graph](graph.md) |
 | Redis row caching | `BaseCacheableModel` | see [Cache](cache.md) |
+| Field-level Redis cache (`CachedField` / `RedisPrimaryField`) | `CachedFieldsMixin` | mix in **outermost**, see below and [Caching](../guides/caching.md) |
 | Time-series stream tables | `BaseSample` | `BaseEventStreamModel` is the deprecated alias, see [Event Streams](event-streams.md) |
 | Django-style email/password auth | `BaseUserModel` | argon2id, extends `BaseModel`; stack with `TimestampMixin` |
 
@@ -295,6 +297,47 @@ version the committed row does not have, and the next `save()` raises a
 spurious `VersionMismatchError`. The instance is only as current as the last
 *committed* save: after a rollback — or after another writer touched the row —
 call `refresh_from_db()` before saving again.
+
+---
+
+## CachedFieldsMixin — field-level cache lifecycle
+
+Supplies the `save()` / `delete()` hooks for models that declare
+`CachedField` or `RedisPrimaryField` columns. The fields themselves and the
+codec are documented in [Fields](fields.md); the semantics, failure matrix and
+bypass paths are in the [Caching guide](../guides/caching.md). This section
+covers only what the mixin adds to the model.
+
+**Order matters — mix it in outermost.** `CachedFieldsMixin` must come first in
+the bases, before `VersionMixin` and before `BaseCacheableModel`:
+
+```python
+class Doc(CachedFieldsMixin, VersionMixin, BaseModel):
+    ...
+```
+
+`VersionMixin.save()` overrides `Model.save()` without chaining into a mixin
+that sits *inside* it, so an inner `CachedFieldsMixin` would never run its
+hooks. Put an outer one and the guarded `UPDATE` executes through
+`super().save()` and the cache keys are refreshed after it returns.
+
+What the hooks do:
+
+| Situation | Behaviour |
+|---|---|
+| Full `save()` | every loaded cache field is re-encoded and written |
+| `save(update_fields=[...])` | a cache field **omitted** from `update_fields` is invalidated, because the column may have changed by another writer |
+| Partial instance, field **not loaded** | skipped — writing `None` over a live key would be data loss |
+| Insert (pk unknown before `INSERT`) | keys are computed after `super().save()` returns, so the pk is populated |
+| `delete()` | each cache field's key is removed after the row is gone |
+| Backend unreachable / not initialised | every hook catches `CacheError` and logs; the database write still succeeds |
+
+The helpers (`cached_get`, `cached_set`, `cached_invalidate`,
+`prefetch_cached`) are the explicit async API and do **not** swallow errors —
+they raise. Only the automatic hooks fail open.
+
+Automatic prefetch on load is deliberately not implemented: it would patch the
+core load path and needs its own decision.
 
 ---
 
