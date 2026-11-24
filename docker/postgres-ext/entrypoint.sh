@@ -94,6 +94,15 @@ generate_init_sql() {
 
 generate_init_sql
 
+# The socket directory is a bind mount, so the image's postgres-owned
+# /var/run/postgresql is replaced by the host directory's ownership. Docker
+# creates a missing host path as root:root, and /var/run is tmpfs on the host
+# (recreated after every reboot), so re-own the directory here — this script
+# runs as root — or the postmaster cannot create .s.PGSQL.5432.
+mkdir -p /var/run/postgresql
+chown postgres:postgres /var/run/postgresql
+chmod 3777 /var/run/postgresql
+
 # Delegate to the official postgres entrypoint — it runs our generated SQL
 # (plus baked-in 00-extensions.sql) and manages the server lifecycle.
 exec /usr/local/bin/docker-entrypoint.sh "$@"

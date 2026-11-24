@@ -6,10 +6,10 @@ FROM postgres:18.7@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d0
 # and on a checkout that does not resolve to it.  The human-readable version
 # is a comment beside the pin, not a separate ARG: an unused ARG reads like a
 # version pin and is not one.
-# pgvector 0.8.6
-ARG PGVECTOR_COMMIT=159b79aaad5983fb7459c1e3df2897fbb2d11788
-# TimescaleDB 2.29.2
-ARG TIMESCALEDB_COMMIT=4a77ff5cf1bf4348c4f0527e042434a289f06e39
+# pgvector 0.8.6 (tag v0.8.6)
+ARG PGVECTOR_COMMIT=8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c
+# TimescaleDB 2.29.2 (tag 2.29.2)
+ARG TIMESCALEDB_COMMIT=165b77b9670b8f13103f9d3da733559d27ca4293
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
@@ -33,7 +33,8 @@ RUN echo "${PGVECTOR_COMMIT}" | grep -Eq '^[0-9a-f]{40}$' \
 WORKDIR /build/pgvector
 RUN git clone https://github.com/pgvector/pgvector.git . \
     && git checkout "${PGVECTOR_COMMIT}" \
-    && test "$(git rev-parse HEAD)" = "${PGVECTOR_COMMIT}"
+    && test "$(git rev-parse HEAD)" = "${PGVECTOR_COMMIT}" \
+    && test "$(git describe --tags --exact-match HEAD)" = "v0.8.6"
 
 RUN make PG_CONFIG=/usr/bin/pg_config \
     && make install PG_CONFIG=/usr/bin/pg_config
@@ -45,7 +46,8 @@ RUN echo "${TIMESCALEDB_COMMIT}" | grep -Eq '^[0-9a-f]{40}$' \
 WORKDIR /build/timescaledb
 RUN git clone https://github.com/timescale/timescaledb.git . \
     && git checkout "${TIMESCALEDB_COMMIT}" \
-    && test "$(git rev-parse HEAD)" = "${TIMESCALEDB_COMMIT}"
+    && test "$(git rev-parse HEAD)" = "${TIMESCALEDB_COMMIT}" \
+    && test "$(git describe --tags --exact-match HEAD)" = "2.29.2"
 
 RUN ./bootstrap -DAPPLY_LIBRARY_TWEAKS=ON -DREGRESS_CHECKS=OFF -DCMAKE_BUILD_TYPE=Release \
     && cd build && make -j$(nproc) && make install

@@ -21,12 +21,24 @@ services:
       # scripts are baked into the image at build time (see Dockerfile) so the
       # custom entrypoint can write generated 01/02-*.sql into the init dir
       - pg-data:/var/lib/postgresql
-      - /var/run/postgresql:/var/run/postgresql
+      # Dedicated host socket dir — never the host's system /var/run/postgresql,
+      # which a host PostgreSQL (or another stack) publishes .s.PGSQL.5432 into.
+      # css-mcp uses /var/run/postgresql-css for the same reason. The entrypoint
+      # re-owns this directory on start, so a missing or root-owned path is safe.
+      - /var/run/postgresql-ext:/var/run/postgresql
+    # TimescaleDB runs one scheduler per database with the extension installed
+    # plus a launcher, and each job needs a worker from its own pool. Seven test
+    # databases produce 7 schedulers + 14 jobs (21), which exhausts the default
+    # timescaledb.max_background_workers=16 ("out of background workers") and the
+    # default max_worker_processes=8 ("no available background worker slots").
+    # Both pools carry headroom for the test databases plus parallel queries.
     command: >
       postgres
       -c unix_socket_directories=/var/run/postgresql
       -c unix_socket_permissions=0770
       -c max_connections=100
+      -c max_worker_processes=48
+      -c timescaledb.max_background_workers=24
       -c shared_buffers=256MB
 
   redis-ext:
@@ -42,7 +54,7 @@ services:
       # (CONFIG SET dir + SAVE), and a disabled control must not be the
       # committed default. Compose interpolates this from the project .env and
       # refuses to configure the stack when it is missing or empty.
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in the project .env (see .env.example)}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in the project env file (see .env.example)}
     ports:
       - "127.0.0.1:6381:6379"
     volumes:
