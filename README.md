@@ -70,6 +70,8 @@ and Tortoise reads those registrations when it initializes. Importing after `Tor
   (`items`, `total`, `total_pages`, `has_next`, `has_prev`)
 - **Startup helpers** — `ensure_extensions()` and `setup(models=None, *, generate_schemas=False)`:
   extensions → schemas → each stream model's `setup()`, in that order
+- **`Model.bulk_insert(rows)`** — COPY ingestion: one asyncpg `COPY` per batch for any model,
+  refusing relation-bearing models and requiring explicit primary keys
 - **Model base classes** — `BaseModel` (BigInt pk), `UnifiedIdModel` (BigInt pk + UUID7 `uid`
   for cross-table refs), `TimestampMixin` (`created_at`/`updated_at`), `BaseSoftDeleteModel` +
   `SoftDeleteQuerySet` (auto-filtered soft delete), `BaseUserModel` (Django-style email/password
@@ -81,6 +83,8 @@ and Tortoise reads those registrations when it initializes. Importing after `Tor
 - **`LTreeField` + ltree filters** — PostgreSQL `ltree` hierarchical column type
 - **TimescaleDB** — hypertable/compression/retention/continuous-aggregate managers, `BaseSample`, migration operations
 - **pgcrypto query helpers** — `Digest`/`DigestHex`/`HMACDigest` (hash and HMAC expressions)
+- **`PGPEncryptedField`** — `bytea` column for pgcrypto ciphertext, plus `PGPSymEncrypt` /
+  `PGPSymDecrypt` expression helpers (deliberately not indexable)
 - **Redis caching** (optional `redis` extra) — `RedisCache`, `BaseCacheableModel`, `CachedQuerySet`, `@cached`
 - **Cached fields** (optional `redis` extra) — `CachedField` / `RedisPrimaryField`, `CachedFieldsMixin`, `cached_get` / `cached_set` / `cached_invalidate` / `prefetch_cached`
 
@@ -91,6 +95,7 @@ src/tortoise_extended/
 ├── __init__.py              # Public API + monkey-patch application (_apply_patches)
 ├── _quote.py                # shared SQL identifier/literal quoting
 ├── _types.py                # concrete type aliases + duck-typed protocols
+├── bulk.py                  # bulk_insert — asyncpg COPY ingestion for any model
 ├── exceptions.py            # exception hierarchy
 ├── lifecycle.py             # ensure_extensions / setup — extension, schema and hypertable fan-out
 ├── pagination.py            # QuerySet.paginate + PageInfo
@@ -115,6 +120,7 @@ src/tortoise_extended/
 │   └── event_stream.py        # BaseEventStreamModel (deprecated alias of BaseSample)
 ├── fields/
 │   ├── char.py            # CharField (validated varchar column)
+│   ├── cached.py          # CachedField / RedisPrimaryField + cached_get/set/invalidate
 │   ├── vector.py          # VectorField (pgvector vector type)
 │   ├── ltree.py           # LTreeField (PostgreSQL ltree type)
 │   ├── ipv4.py            # IPv4Field (PostgreSQL inet type)
@@ -122,8 +128,9 @@ src/tortoise_extended/
 │   ├── macaddr.py         # MacAddrField / MacAddr8Field (macaddr / macaddr8)
 │   ├── citext.py          # CitextField (citext, case-insensitive text)
 │   ├── path.py            # PathField (text path column)
+│   ├── pgcrypto.py        # PGPEncryptedField (bytea ciphertext, not indexable)
 │   ├── url.py             # URLField (validated URL column)
-│   ├── uuid.py            # UUID4Field / UUID7Field
+│   └── uuid.py            # UUID4Field / UUID7Field
 ├── indexes/
 │   ├── hnsw_index.py        # HNSWIndex + IVFFlatIndex (pgvector DDL)
 │   └── ltree_index.py       # GiSTIndex
@@ -134,6 +141,7 @@ src/tortoise_extended/
 │   ├── graph.py             # Graph facade over traversal, pathfinding and vector search
 │   ├── graph_vector_search.py  # GraphVectorSearch (graph + vector compositor)
 │   ├── fusion.py            # reciprocal_rank_fusion, weighted_score_fusion, diversity_rerank
+│   ├── distinct_on.py       # PostgreSQL DISTINCT ON as hydrated models
 │   ├── pathfinding.py       # shortest_path, all_paths, find_cycles
 │   ├── hybrid_search.py     # HybridSearch (vector + FTS weighted scoring)
 │   ├── ltree_filters.py     # ltree query operators
