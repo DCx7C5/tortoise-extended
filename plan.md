@@ -1381,3 +1381,385 @@ that described the field-name rule (`graph-traversal.md`, `pathfinding.md`,
 
 Gate: ruff clean, basedpyright **0 errors, 0 warnings, 0 notes**, full suite **1956 passed, 13
 skipped** (1948 -> 1956: the 8 new cases are live-Postgres paths).
+
+### I.8 Docker stack — socket isolation, worker pools, pin downgrade (2026-11-24)
+
+**Warnings, root-caused.** `postgres-ext` logged 2 226 `no available background worker slots` /
+`failed to launch job` lines. Measured: `max_worker_processes=8` (image default) while
+`timescaledb.max_background_workers=16`, and seven databases carry TimescaleDB (`tortoise_test`,
+`_life`, `_pag`, `_pg`, `_push`, `_sample`, `_unified`), each with a scheduler plus two jobs — 7 of
+8 global slots were consumed before any job could launch. Not a socket conflict. Fixed with
+`max_worker_processes=48` + `timescaledb.max_background_workers=24` (headroom for parallel
+queries); 0 warnings after recreate.
+
+**Socket isolation (css-mcp coexistence).** `postgres-ext` now mounts and binds
+`/var/run/postgresql-ext` (entrypoint re-owns it, `3777`, so a reboot-created root-owned
+`/var/run` cannot break startup). css-mcp keeps `/var/run/postgresql-css`; the two stacks no
+longer publish `.s.PGSQL.5432` into one host directory.
+
+**Pin downgrade — HIGH, fixed.** Commit `0c89953` ("repin … Version numbers unchanged (0.8.6 /
+2.29.2)") repointed TimescaleDB to `4a77ff5c…` (**tag 2.28.3**) and pgvector to `159b79aa…`
+(**tag v0.8.5**) and the image was never built in that session. The rebuilt image could not load
+the extension against the 2.29.2 data volume (`could not access file "timescaledb-2.29.2"`). Pins
+restored to `165b77b9…` (2.29.2) and `8ee86c96…` (v0.8.6), and both checkouts now assert
+`git describe --tags --exact-match` (`2.29.2` / `v0.8.6`) so a wrong pin fails the build instead
+of shipping silently.
+
+Gate on the rebuilt stack: ruff clean, basedpyright **0 errors, 0 warnings, 0 notes**, suite
+**2006 passed, 13 skipped** (12 live-Redis AUTH-gated + `test_all.py`). css-mcp's `css-postgres`
+(5433) and `css-redis` (6380) stayed healthy throughout.
+
+## J. Redis-cached field types — design (2026-11-24)
+
+**Scope rulings (user, 2026-11-24):** `BaseDocument`, RAG models and `FileNode` are **out** — §B–§D
+are not reused here. A **Redis-cached field type is in scope**, and `def add` is recorded as an
+in-session implementation instruction (rule 8 satisfied for this wave).
+
+**Decisions taken in one batched round:**
+
+1. **Both field types ship.** `CachedField` = Postgres authoritative, Redis is a read-through cache
+   (fail-open). `RedisPrimaryField` = Redis read-first, the column holds the last **saved** value as
+   a real fallback: eviction or Redis loss degrades to the database, but a `cached_set` not followed
+   by `save()` is volatile (§J.4).
+2. **Explicit async helpers first.** Tortoise field descriptors are synchronous while Redis is
+   async, so the first surface is `await`-able module helpers; transparent prefetch on every model
+   load is a later, separately-decided phase (J4).
+3. **Generic wrapper over any supported scalar field.** One implementation wraps an inner `Field`
+   instance; the column contract is **copied** from it (not delegated), and only the cache
+   behaviour is new (§J.1).
+
+**Revision 2026-11-24 (post-review).** A Track 3 review of the first TODO batch found six HIGH
+contract errors, each re-verified against `tortoise/fields/base.py`, `tortoise/migrations/writer.py`
+and `cache/{base,redis}.py`: `describe()` is not the migration path (`deconstruct()` is),
+`constraints` is a read-only property, the wrapper did not mirror the inner column contract, the key
+omitted the app label and double-prefixed, and fail-open vs raise was contradictory. §J.1–§J.4 above
+are the corrected contract; rows 3221–3231 and 3244 were rewritten to match.
+
+**Second round (2026-11-24).** A re-review of the revised batch returned NOT READY with three further
+implementation-blocking defects, each re-verified here against the installed source: (1)
+`get_for_dialect()` was not delegated, so DDL would take the inner's **default** SQL type —
+`TIMESTAMP` / `JSON` / `CHAR(36)` / `BLOB` instead of `TIMESTAMPTZ` / `JSONB` / `UUID` / `BYTEA` —
+while `describe()` reported the correct one, i.e. drift the autodetector cannot see (§J.1); (2)
+`getattr(instance, name)` returns the **instance** value, not the column, because `Field.__get__`
+exists only under `if TYPE_CHECKING:` — so "cache-aside re-reads the column" was unimplementable and
+the live-test assertion was unsatisfiable (§J.4); (3) an omitted `update_fields` entry must
+invalidate rather than encode, or the cache contradicts its own authority for a whole TTL (§J.4).
+Also fixed: the by-class `supports()` allowlist, dict tagging against `__t` collisions, the dead
+16/16 size caps (now 8 MiB leaf / 16 MiB envelope), prefetch TTL parity, the fake-backend namespace
+gap in the key test, `has_db_field`'s wrong rationale, `description`/`docstring` in `describe()`,
+the mixin's outermost-layer rule, and two line citations. Rows 3221–3223, 3226 and 3229–3231 were
+rewritten.
+
+### J.1 Modules and contracts
+
+| File | Contract |
+|---|---|
+| `src/tortoise_extended/fields/_cache_codec.py` | `CacheCodec.encode(value) -> CacheValue` / `decode(value) -> Python` / `supports(inner: Field) -> bool`; tagged JSON-safe envelope; unknown value raises `CacheSerializationError`; depth cap **32**; bytes leaf **8 MiB decoded**; encoded envelope **16 MiB** |
+| `src/tortoise_extended/fields/_cached_base.py` | `_CachedFieldBase(Field[V])`: wraps `inner: Field[V]`, **copies the column contract** into its own `Field.__init__`, overrides `describe()` / `deconstruct()` / `constraints`, owns key building, TTL, namespace, backend resolution |
+| `src/tortoise_extended/fields/cached.py` | `CachedField` + `RedisPrimaryField` (postgres-authoritative vs redis-first semantics); module-level `cached_get`, `cached_set`, `cached_invalidate`, `prefetch_cached` |
+| `src/tortoise_extended/models/cached_mixin.py` | `CachedFieldsMixin(Model)` with `Meta.abstract = True`: write-through/delete on `save`/`delete`, scans `_meta.fields_map` for cached fields, documents MRO |
+
+**The column contract is copied, not delegated.** `Field.__init__` owns `source_field`, `null`,
+`default`, `db_default`, `unique`, `db_index`, `description`, `validators`
+(`fields/base.py:220-291`), and DDL, `describe()` and `deconstruct()` all read those instance
+attributes. `_CachedFieldBase.__init__` therefore forwards every one of them from `inner`
+(refusing any conflicting kwarg) and overrides only what introspection cannot fix. Order matters:
+assign `self.inner = inner` **before** `super().__init__(…)`. `indexable` is a **class attribute**
+(`base.py:196`, `indexable: bool = True`), and `Field.__init__` reads `self.indexable` at
+`base.py:247` (`if not self.indexable and (unique or db_index): raise ConfigurationError`). A wrapper
+that exposes it as a delegating property resolves that read through the property, so `self.inner`
+must already exist or the constructor raises `AttributeError` before the field is usable.
+
+- `constraints` — a read-only `@property` on `Field` (`base.py:370-375`); the wrapper returns
+  `self.inner.constraints` rather than assigning it (`self.constraints = …` would raise).
+- `describe()` — returns `self.inner.describe(serializable)` with `name` / `db_column` rewritten to
+  the wrapper's bound `model_field_name` / `source_field`. Migration state stays byte-identical to
+  the plain inner field, so adopting the wrapper is schema-neutral and the autodetector cannot
+  oscillate (`describe()` reports `self.__class__.__name__` as `field_type`, which would otherwise
+  flip `CachedField` ↔ `CharField` on every run). It also copies `description` / `docstring` from
+  the wrapper: the model metaclass sets both on the field object it is handed
+  (`models.py:557-560`), so a purely delegating `describe()` would report the inner's `None` while
+  `generate_schemas()` emitted the wrapper's comment (`schema_generator.py:232-237`).
+- `deconstruct()` — returns `self.inner.deconstruct()` with the wrapper's `description` spliced in
+  when set: `path, args, kwargs = self.inner.deconstruct(); if self.description is not None:
+  kwargs["description"] = self.description`. `MigrationWriter._render_field` calls `deconstruct()`
+  (`migrations/writer.py:441-443`) and `Field.deconstruct()` introspects
+  `self.__class__.__init__` (`fields/base.py:551-598`), so a wrapper signature would emit
+  `inner=<Field object>` — an unimportable migration. Emitting the inner is correct: the column is
+  the inner's, and cache behaviour is not schema. The `description` splice is **not** cosmetic: the
+  model metaclass extracts a `#:` comment onto the field object it is handed — the wrapper
+  (`models.py:148-176`, `555-560`) — leaving the inner's `None`; `deconstruct()` always emits
+  `description` when non-`None` (`base.py:568-569`), and `_field_signature` **keeps** `description`
+  (it pops only `name`, `docstring`, `default`, `python_type`; `state_diff.py:65-71`). Without the
+  splice the old state says `description=None`, the new state says `"comment"`, and every
+  `makemigrations` re-emits a difference that never converges. `docstring` needs no splice — it is
+  popped before comparison — but `describe()` still copies it so `describe_model()` shows it.
+- `get_for_dialect(dialect, key)` — **overridden to delegate**:
+  `return self.inner.get_for_dialect(dialect, key)`. This is not optional. `Field.get_for_dialect`
+  looks for a `_db_{dialect}` attribute on `self` and otherwise returns `getattr(self, key)`
+  (`base.py:430-449`); the wrapper has no `_db_postgres`, so the fallback would hand the schema
+  generator the wrapper's `SQL_TYPE` property — the inner's **default** type, not its PostgreSQL
+  override (`schema_generator.py:250` calls exactly this for DDL). A wrapped `DatetimeField` would
+  emit `TIMESTAMP` instead of `TIMESTAMPTZ`, `JSONField` `JSON` instead of `JSONB`, `UUIDField`
+  `CHAR(36)` instead of `UUID`, `BinaryField` `BLOB` instead of `BYTEA` — while `describe()`
+  reported the correct type, so the autodetector could not see the drift.
+- `SQL_TYPE` / `field_type` / `indexable` / `to_db_value` / `to_python_value` — delegated through
+  properties so `validate()` and the generic field paths keep working.
+- `has_db_field` needs no override and must not be "derived": it is a **class attribute**
+  `True` (`base.py:197`) that only `RelationalField` sets to `False` (`relational.py:265`), and
+  relational inners are refused anyway.
+- **`field_type` must be an instance attribute, never a property.** Tortoise's `_FieldMeta.__new__`
+  does `if len(bases) > 1 and bases[0] is Field: setattr(cls, "field_type", bases[1])`, and a PEP 695
+  generic subclass `class _CachedFieldBase[V](Field[V])` presents bases `(Field, Generic)` — so the
+  metaclass overwrites `field_type` with `typing.Generic`. This is measured, not theoretical: a
+  class-body property silently returns `Generic` for every instance, and only an instance attribute
+  set before `super().__init__` survives. Any future PEP 695 generic `Field` subclass in this repo
+  hits the same trap.
+
+**Refusal rules at construction** (`ValueError` in `__init__`, before any schema is generated):
+`inner` is a `Field` instance (never a class); `relational`; `generated`; `pk`; `auto_now` /
+`auto_now_add`; and `not CacheCodec.supports(inner)` — decided **by inner class**, not `field_type`
+alone, because `CharEnumFieldInstance` / `IntEnumFieldInstance` declare `field_type = str/int`
+while emitting `Enum` values, `IPv4Field` / `InetField` emit `ipaddress` objects and
+`TimeDeltaField` emits `timedelta`. Those need a lifecycle or an encoding the codec does not own,
+so the refusal is construction-time, never a write-time `CacheSerializationError`.
+
+### J.2 Key scheme
+
+One prefix owner: the **backend namespace**. The field builds an unprefixed `CacheKey()` and the
+backend prepends its namespace (`RedisCacheBackend._key` → `f"{self.namespace}:{key}"`,
+`cache/redis.py:198-200`). `CacheKey.build()` also length-prefixes a non-empty prefix
+(`cache/base.py:62-66`), so setting both would produce `cachefield:10:cachefield:…`.
+
+```
+CacheKey().add(app, model __name__, str(pk), field_name)   # 4:shop:4:Item:2:42:5:title
+→ cachefield:4:shop:4:Item:2:42:5:title                    # backend namespace, once
+```
+
+The **app label is part of the key** (`instance._meta.app`, `models.py:227`; `""` when the model
+declares none): Tortoise identifies models as `app.Model`, so two `Item` models in different apps
+must not collide on the same pk/field. Namespace default `cachefield`; a field accepts
+`namespace=` (it becomes the backend namespace) to share or isolate a keyspace. A class-level flush
+is `RedisCacheBackend.delete_pattern("*")` inside that namespace — there is no `invalidate_pattern`
+API (`cache/base.py:283`, `redis.py:285`); `save()` never flushes.
+
+### J.3 Codec (why not pickle)
+
+`CacheValue` is JSON-shaped; the codec supports `str`, `int`, `float`, `bool`, `None`, `bytes`,
+`datetime`, `date`, `time`, `Decimal`, `UUID`, `PurePath`, plus `list` / `dict` recursively, and
+nothing else. Every non-bare value is **tagged**, mappings included:
+`{"__t": "datetime", "v": "2026-11-24T…"}`, `{"__t": "bytes", "v": "<base64>"}`,
+`{"__t": "dict", "v": {"<str key>": <encoded>}}`. Tagging dicts is what makes the envelope
+unambiguous without `pickle` (whose restricted unpickler rejects `datetime` anyway): an untagged
+user dict `{"__t": "datetime", "v": "…"}` would decode as a `datetime`. Dict keys must be `str`
+(raise otherwise); lists stay untagged because a sequence cannot collide with a mapping tag. Two
+pinned `isinstance` orders: `bool` before `int` and `datetime` before `date` (`datetime` subclasses
+`date`; reversing either check silently loses the tag). Recursion is list/dict-only with a depth cap
+of **32**.
+
+Size caps are **8 MiB** per decoded `bytes` leaf and **16 MiB** for the encoded envelope. The pair is
+deliberately asymmetric: base64 inflates 4/3, so a 16 MiB leaf could never pass a 16 MiB envelope
+check and the leaf limit would be dead code — at 8 MiB (~10.7 MiB encoded) each cap binds on its own
+and is testable on its own.
+
+`CacheCodec.supports(inner: Field) -> bool` is an explicit allowlist keyed on the inner field
+**class**, and it drives the J.1 construction refusal. It is **deny-first**, and the ordering is
+load-bearing for exactly two classes: `CharEnumFieldInstance(CharField)` and
+`IntEnumFieldInstance(SmallIntField)` subclass allowlisted classes, so an allow-first `isinstance`
+would admit them and the cache would hold raw `Enum` members. The other five — `IPv4Field`,
+`InetField`, `TimeDeltaField`, `VectorField`, `PGPEncryptedField` — subclass `Field` directly and
+could never match; they are explicit refusals, not subclass hazards. `field_type` alone is never a
+safe signal: the enum instances declare `field_type = str/int` while emitting `Enum` values, and
+`IPv4Field` / `InetField` emit `ipaddress` objects.
+
+Two different rules, never to be read as one: `supports()` returning `False` is a **construction-time**
+refusal (a `ValueError` in `_CachedFieldBase.__init__`), while `encode(value)` handed an unsupported
+**value at runtime** raises `CacheSerializationError`. Never a silent null.
+
+One boundary worth stating rather than hiding: `encode` is total over the `CacheScalar` union, and an
+`IntEnum` / `StrEnum` member *is* an `int` / `str`, so handed one directly it encodes as the base type
+and the enum identity is lost. That is precisely why the enum fields are denied at construction — the
+field API can never produce one — and it is the reason the refusal cannot be replaced by a runtime
+check inside `encode`.
+
+### J.4 Read / write / failure semantics
+
+| | `CachedField` (Postgres authoritative) | `RedisPrimaryField` |
+|---|---|---|
+| `cached_get(obj, name)` | Redis hit → decode; miss → `getattr(instance, name)` (the in-memory value), `set` with TTL, return | Redis hit → decode; miss → `getattr(instance, name)`, repopulate Redis, return |
+| `cached_set(obj, name, value)` | set the instance attribute **and delete the key** (cache-aside) | set the instance attribute **and** the key; the column is written only by `save()` |
+| `save()` via mixin | write column, then `set` key from the saved value (post-insert pk available) | write column, then `set` key |
+| `delete()` via mixin | delete key after the row is gone | same |
+| Redis flushed / evicted | harmless (cache-aside) | recovered from the column on next read |
+| durability | the column is authoritative at all times | **requires `save()`** — a `cached_set` followed by exit or eviction loses the Redis copy and the column holds the last saved value |
+
+**`getattr` is the instance, not the column — the single most-missed detail.** `Field.__get__` exists
+only under `if TYPE_CHECKING:` (`base.py:204-218`), so at runtime a field is not a descriptor:
+`getattr(instance, name)` returns the instance `__dict__` value — the loaded column value *or*
+whatever `cached_set` last wrote. Two consequences:
+
+- **`CachedField`** — `cached_set` deletes the key, so a later `cached_get` *on that same instance*
+  returns the value just set (ordinary Python attribute semantics) and re-populates Redis with it.
+  The invariant that matters is cross-instance: because the key was deleted, every *other* instance
+  misses and reads its own loaded column value, and `save()` re-writes the key from the saved value.
+  A test that wants the column must use a fresh instance or `refresh_from_db()`; it must not expect
+  `cached_get` on the mutated instance to hit the database.
+- **`RedisPrimaryField`** — `cached_set` writes the key immediately, so the key holds an unsaved
+  value until `save()`. Volatility is observed two ways: probe `backend.get(key)` directly, and
+  discard the instance — after eviction a fresh instance returns the last **saved** column value.
+
+**Failure matrix** — path × error class, and nothing outside it:
+
+| Error | `cached_get` / `prefetch_cached` | `cached_set` / `cached_invalidate` | mixin `save()` / `delete()` |
+|---|---|---|---|
+| `CacheBackendNotInitializedError` | raise (caller must `RedisCache.init()`) | raise | suppress, log debug, write the column |
+| `RedisCacheError` | fail open: log debug, serve the column value | raise | suppress, log debug, write the column |
+| field not loaded on a partial/deferred instance (`not hasattr`) | raise `ValueError` naming the model.field and pointing at `refresh_from_db()` — there is no value to serve and a silent `None` would be a wrong answer | raise `ValueError` | skip that field, log debug, the column write stands |
+| `CacheSerializationError` on decode (corrupt entry) | treat as a miss: delete the key, log debug, serve the column | — | — |
+| `CacheSerializationError` on encode | log debug, skip caching, still return the value — a cache write that cannot be encoded must not fail the read | raise | log warning; the column write still succeeds |
+
+**TTL:** `ttl=None` (the default) is passed to the backend, which applies its own 300 s; `ttl=0`
+means **no expiry** and must survive (`self.ttl if self.ttl is not None else 300` is the bug —
+never `self.ttl or default_ttl`).
+
+**Bypass paths (documented, not silently wrong)** — everything that skips `save()` / `delete()`:
+`QuerySet.update()`, `QuerySet.delete()`, `Model.bulk_update`, `QuerySet.bulk_update`,
+`bulk_create`, `Model.bulk_insert` (COPY, patch site 7), and `save(update_fields=…)` that omits the
+wrapped field — the mixin writes keys **only** for fields actually written (`update_fields is None`
+or the name is in it) and **invalidates** the key of an omitted field rather than encoding a possibly
+unsaved in-memory value into it, because that would make the cache contradict its authority for a
+whole TTL. **Partial instances** are a different case, not a bypass: Tortoise already skips unloaded
+fields on save (`models.py:1156-1164`), so the helpers raise `ValueError` when the attribute is absent
+(matrix row above) and the mixin skips it rather than pretending `None` is the value. Tortoise's own
+`IncompleteInstanceError(OperationalError)` (`exceptions.py:105`) is deliberately **not** reused: its
+documented contract is "a partial model was attempted to be *persisted*", raised from `save`'s update
+path, whereas reading an unloaded attribute is a call-site error of a different kind.
+`update_or_create()` is **not** a bypass — it calls `instance.save()` (`models.py:1362`).
+`refresh_from_db()` re-reads the row but does not refresh the key. Stale keys are bounded by TTL or
+cleared by `cached_invalidate`.
+
+**Prefetch:** `prefetch_cached(instances, name)` is one `backend.get_many` (a real `MGET`), fills
+misses from the loaded attributes, and sets them in one pipelined `set_many(mapping, ttl=field.ttl)` —
+the **same** `ttl` argument as `cached_get`, because an injected backend's `default_ttl` may differ
+and `ttl=0` must survive on every write path. An empty sequence is a no-op with no Redis call; an
+instance whose `pk is None` is skipped.
+
+### J.5 Phases → TODOs
+
+- **J1 substrate** — codec; `_CachedFieldBase` (delegation + refusals + keys); explicit helpers
+  (`cached_get/set/invalidate`, `prefetch_cached`) with TTL/namespace. No model surface yet.
+- **J2 field types** — `CachedField`; `RedisPrimaryField`; `CachedFieldsMixin` (write-through,
+  delete, insert-pk compensation, MRO doc against `BaseCacheableModel` and `VersionMixin`).
+- **J3 integration** — exports (`fields/__init__.py`, `models/__init__.py`, package `__init__.py`,
+  every `__all__`); docs (`docs/api/fields.md` + **new** `docs/guides/caching.md`, `docs/index.md`,
+  README, AGENTS.md layout); unit tests (codec, keys, delegation, refusals, failure matrix — no
+  Redis); live-Redis AUTH-gated tests (round-trip, TTL, invalidation, fail-open, MGET count, both
+  field kinds) following `tests/_redis_env.py`; final gate.
+- **J4 deferred** — automatic prefetch on every model/queryset load (patches the core load path).
+  Not part of this wave; needs its own readiness decision.
+
+**Non-goals:** no RAG `BaseDocument`, no `FileNode`, no new dependency (`redis` extra already
+ships), no change to `BaseCacheableModel` semantics (the mixin composes beside it).
+
+**Gate (2026-11-24, final).** `uv run ruff check src tests` clean; `uv run basedpyright` **0 errors,
+0 warnings, 0 notes**; `REDIS_PASSWORD=redis uv run --extra redis pytest tests/ -q` → **2192 passed,
+1 skipped** (`test_all.py` aggregator), with both live legs included. Coverage splits by layer:
+`tests/test_cached_field.py` (109 tests — codec, keys, column contract, refusals, helpers against an
+injected fake; no socket, no DB) and `tests/test_cached_field_live.py` (22 tests against the real
+`redis-ext` AUTH backend on 6381 and real PostgreSQL on 5434, skipping with a named reason when
+`REDIS_PASSWORD` is unset, so the default run stays green without the stack). The mixin's
+behavioural cases — write-through on create/save, delete, `update_fields` invalidation, partial-save
+skip — live only in the live module, because the hooks run after a real ORM write. IDE lint
+(`pycharm_lint_files`) stayed unusable — bound to the css-mcp workspace — so the CLI gate is the
+record.
+
+**Coverage correction (Track 8 review of the live module, 2026-11-24).** The first gate record
+claimed 13/13 live cases genuinely covered. A review session (`ses_df11546b…`) showed that was
+present-and-passing, not mutant-proven, and the weakest case was a defect the planner itself had
+introduced: the partial-save test pre-deleted both keys after `create`, so "the mixin skipped the
+unloaded field" and "the mixin invalidated it via the `update_fields` branch" were observationally
+identical. Four MEDIUM holes were filed (3262–3265) and four LOW cleanups (3266–3269), all now
+closed; 3270 (a *repo-wide* `_pg_available()` that dials `localhost:5434` while ignoring
+`TORTOISE_TEST_DB`) was scoped out of that round and then **closed separately at the user's
+direction** — see the probe note below. Three of
+the four MEDIUM fixes were then **probed by the planner with real mutants**, not accepted on
+analysis — removing the `hasattr` guard drops both keys and fails 3262's test; narrowing
+`except CacheError` to `except RedisCacheError` on the save path lets
+`CacheBackendNotInitializedError` escape and fails 3263's test; dropping `_CODEC.encode` stores the
+datetime stringified (the JSON serializer coerces rather than rejects — the review's stated
+mechanism for that row was wrong, though its conclusion held) and fails 3264's test on
+`isinstance(cached, datetime)`. Sources restored byte-identically after each probe (md5-verified).
+The review did confirm the mixin is genuinely gated against gutting: a `super()`-only
+`CachedFieldsMixin` fails 7 of the live tests, and insert-pk ordering is pinned by the pre-INSERT
+`pk is None` state.
+
+**Shared PG probe (row 3270, closed 2026-11-24).** The row understated the duplication: not 30+
+but **35** test modules each carried a private `_pg_available()` (byte-identical apart from an
+em-dash; **zero** imported it), all dialling `localhost:5434` while every `DB_URL` honoured
+`TORTOISE_TEST_DB` — so a run pointed at another stack skipped silently instead of failing loudly.
+`tests/_pg_env.py` now mirrors the existing `tests/_redis_env.py` precedent (`database_url()`,
+`pg_host_port()`, `pg_available()`, `pg_skip_reason()`, env read at call time) and all 35 modules
+resolve through it via a module-level `_PG_SKIP_REASON`, across **five** marker shapes (24
+module-level `pytestmark`, 5 `_requires_pg` lists, 2 class decorators, 4 class-body indented
+`pytestmark` — the fifth only surfaced during the sweep, which is why the brief specified a rule
+rather than per-form templates). **Decision recorded:** an unreachable target still *skips*, not
+fails, because `AGENTS.md` §Testing mandates `skipif` so the unit suite runs without Docker; the
+fix is that the reason now names the address actually probed. Proven end-to-end, not by
+inspection: `TORTOISE_TEST_DB=postgres://u:p@127.0.0.1:1/x` skips with
+`PostgreSQL not available on 127.0.0.1:1`, and `db.example:6000` is reported verbatim. `tests/test_pg_env.py`
+adds 7 tests (override honoured, default fallback, host/port parsing, closed-port detection,
+reason contents). Rows 3271/3272 implemented it.
+
+Three unit-level gaps this gate first surfaced were closed before the numbers above were taken:
+`ttl=0` now has a unit guard on both the `cached_get` and `prefetch_cached` paths (proven against a
+fake whose `default_ttl` is 300, so a `ttl or default_ttl` regression turns red); the migration
+round-trip test now proves the wrapper is invisible to migrations, with an executed negative control
+so the comparison is demonstrably able to fail; and the assertion that tested tortoise rather than
+this package is gone.
+
+## K. VectorField / asyncpg codec hardening — prompt verification (2026-11-24)
+
+A user-authored task prompt ("VectorField + asyncpg codec — fix / harden / align") was measured
+against the tree before any TODO was filed. **Findings 1–6 and 8–10 are substantively correct**;
+two need nuance and one material defect was missing from the prompt.
+
+| # | Prompt claim | Measured | Verdict |
+|---|---|---|---|
+| 1 | Codec is per-connection; a connection without init degrades silently | Patch site 4 injects `init` into `create_pool` (`__init__.py:540-572`); `test_pg_integration.py::TestPgvectorCodecFreshConnection` already proves a **second pool created after the patch** decodes to `list[float]` | **True, coverage exists** — only `halfvec` on a fresh pool is untested; a connection opened before the patch cannot occur while the import-order guard holds |
+| 2 | `to_db_value` never checks `dimensions` | `vector.py:93-95` returns `list(value)`; `docs/api/vector-field.md:199-203, 205-218` claim the check and show its error | **True** — code and docs disagree |
+| 3 | Extension missing is silent | `__init__.py:241-245` swallows `ValueError`/`AttributeError` with `pass`; no logger | **True** |
+| 4 | Text codec, binary helpers unused by the live codec | `set_type_codec(..., encoder=_encode_vector, decoder=_decode_vector)` with no `format=` (asyncpg default text) | **True** — option A chosen (comment, no knob) |
+| 5 | `halfvec` registration may fail independently | The `try` is inside the per-type loop (`__init__.py:233-245`), so isolation is coded; `test_codec_init_survives_codec_errors` raises for **both** types, so isolation is untested | **True, test gap** |
+| 6 | Schema probe keys on `typname = 'vector'` only, falls back to `public` | `__init__.py:220-232`; fallback documented in the comment | **True** — keep one probe; document it |
+| 8 | `"[]"` / spacing edge cases | `_decode_vector("[]")` is tested; `VectorField.to_python_value("[]")` is not; `"[ ]"` raises `ValueError` (a space token is truthy, then `float(" ")` fails) | **True, test gap** |
+| 9 | Invalid strings raise bare `ValueError` | `vector.py:137` (`float(x)` unwrapped) | **True** |
+| 10 | Docs drift | `docs/api/vector-field.md:172-184` documents **uint32 little-endian, dim-first**; `:164-170` claims asyncpg returns `memoryview` (the text codec returns `list[float]`); `:197-218` promises a dimension check that does not exist | **True, worse than stated** |
+
+**New HIGH finding (missing from the prompt) — the binary helpers are not pgvector-compatible.**
+Verified against the pinned pgvector v0.8.6 source (`src/vector.c::vector_send`,
+`src/halfvec.c::halfvec_send`): the wire header is **`int16 dim` then `int16 unused`**, big-endian.
+This tree packs `[4 + len(body)][ndim]` (`vector.py:110-115`) and reads `ndim` at offset 2
+(`vector.py:161-162`), so:
+
+- real pgvector binary input (`dim` first, `unused = 0` at offset 2) decodes to `ndim = 0` → `[]`
+  — silent data loss in the `to_python_value` bytes/memoryview branch;
+- `_encode_binary` output would be misread by PostgreSQL;
+- `tests/test_pg_integration.py:341-357` builds the same wrong header (`struct.pack(">HH", 0, 3)`)
+  and is gated behind `if isinstance(val, memoryview)`, so it is likely vacuous;
+- `README.md:225` repeats the wrong layout.
+
+This does not affect the default text codec, but it blocks the prompt's option B and falsifies the
+field's own docstring. Fixed before any binary opt-in can be considered (row 3236).
+
+**Scope taken:** Phase 1 (dimension guard, codec logging, resilience tests) + Phase 2A (alignment
+comments only) + Phase 3 docs. **No binary codec opt-in, no new public knob, no new dependency.**
+
+**Gate (2026-11-24, final).** `uv run ruff check src tests` clean; `uv run basedpyright` **0 errors,
+0 warnings, 0 notes**; `REDIS_PASSWORD=redis uv run --extra redis pytest tests/ -q` → **2040 passed,
+1 skipped** (`test_all.py` aggregator; the live Redis leg is included because `redis-ext` now
+accepts the stack's default `redis` password). The eight stale-header fixtures the first pass left
+red were replaced with real `vector_send`/`halfvec_send` payloads, and the per-type isolation gap is
+closed by `_HalfvecMissingConn` in `tests/test_registration.py`. IDE lint
+(`pycharm_lint_files`) stayed unusable — bound to the css-mcp workspace — so the CLI gate is the
+record.
+
