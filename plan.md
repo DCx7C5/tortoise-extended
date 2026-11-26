@@ -1763,3 +1763,34 @@ closed by `_HalfvecMissingConn` in `tests/test_registration.py`. IDE lint
 (`pycharm_lint_files`) stayed unusable — bound to the css-mcp workspace — so the CLI gate is the
 record.
 
+## L. Release 0.2.0 — versioning and tagging (2026-11-26)
+
+**Decision (user, 2026-11-26).** First tagged release: `pyproject.toml` 0.1.0 → 0.2.0, the
+accumulated `[Unreleased]` changelog content cut as `## [0.2.0] - 2026-11-26`, an annotated tag
+`v0.2.0` on the commit that bumps the version, and `[Unreleased]` reopened empty at the same
+commit. This supersedes the "no git tags" statements recorded earlier — §H's trigger note (line
+555), §I.5's "Release v0.2.0" row (line 1135) and §I.6's "no version bump" ruling (line 1196).
+Those are dated records of the rulings in force at the time and stay as written.
+
+**Why now.** The library has one real consumer that pins it by commit: css-mcp declares
+`tortoise-extended = { git = … }`, and each packaging change has cost a manual pin hunt — row 2758
+(the `parent_id` stub fix, blocked until the upstream commit was pushed), row 3065 (`stubPath`
+pointing into site-packages goes dangling after a reinstall) and row 3273 (the current bump, still
+open). A tag plus a versioned changelog section makes the next bump a version change rather than a
+SHA investigation.
+
+**Contents.** Everything accumulated since 0.1.0: `Model.bulk_insert` (COPY, patch site 7),
+`PGPEncryptedField` + `PGPSymEncrypt` / `PGPSymDecrypt`, `VersionMixin`, `distinct_on`, the Redis
+cached-field layer (`CachedField` / `RedisPrimaryField` / `CachedFieldsMixin` plus the four async
+helpers), the VectorField hardening (dimension guard, codec logging, wire-header pinning), the
+docker socket isolation / worker pools / tag-verified pins, the single shared PostgreSQL probe with
+its malformed-DSN error, and the `Field` stub corrections. Detail in `CHANGELOG.md` §`[0.2.0]`.
+
+**Gate (2026-11-26, at the release commit).** `uv run ruff format --check src tests` clean ·
+`uv run ruff check src tests` clean · `uv run basedpyright` **0 errors, 0 warnings, 0 notes** ·
+`REDIS_PASSWORD=redis uv run --extra redis pytest tests/ -q` → **2193 passed, 1 skipped**
+(`test_all.py` aggregator). Version consistency proven on four surfaces: `pyproject.toml`,
+`uv.lock` (editable root package only; `uv lock --check` exit 0 and no other package resolved),
+`importlib.metadata` → `0.2.0`, and `uv build` emitting `tortoise_extended-0.2.0-py3-none-any.whl`
+whose `METADATA` carries `Version: 0.2.0`.
+
