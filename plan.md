@@ -1839,6 +1839,13 @@ TimescaleDB 2.29.2 (`cdeaf38`). **`docs/guides/project-file-tree.md`** implied c
 nodes (`5f7e80e`). **All 105 relative links** across `docs/` + README/CONTRIBUTING/AGENTS/CHANGELOG
 resolve.
 
+**Documented imports were 3-for-365 wrong** (`ad6d101`). Every `from tortoise_extended… import …`
+statement in every markdown file was executed against the installed package: **365 names across 48
+files** now all resolve. Before the fix, `BaseCacheableModel` was imported from
+`tortoise_extended.cache` in `docs/api/cache.md` (2 sites) and `docs/guides/performance.md` — the
+class lives in `tortoise_extended.models.cacheable_model` and is re-exported at the package root;
+`cache/__init__.py`'s own docstring says it is not there.
+
 **`pyproject.toml` wheel comment** (`[tool.hatch.build.targets.wheel]`) still described the overlay
 as "layered over the upstream `tortoise-orm-stubs` dependency". Implementer-owned, so it went to
 `css-developer` rather than a planner edit: the comment now says the overlay *shadows* `tortoise.*`
