@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar, overload, override
 
 import tortoise.validators
+from pypika_tortoise.terms import Term
 from tortoise.models import Model
 
 VALUE = TypeVar("VALUE")
@@ -50,8 +51,11 @@ class Field(Generic[VALUE]):
     related_name: str | None
     null: bool
     unique: bool
-    db_index: bool | None
+    index: bool
+    """The real instance attribute; ``db_index`` is a constructor keyword only."""
     description: str | None
+    docstring: str | None
+    validators: list[tortoise.validators.Validator | Callable[..., None]]
     default: Any
     db_default: Any
     pk: bool
@@ -99,5 +103,10 @@ class Field(Generic[VALUE]):
     def to_db_value(self, value: Any, instance: Any) -> Any: ...
     def to_python_value(self, value: Any) -> Any: ...
     def validate(self, value: Any) -> None: ...
+    def get_for_dialect(
+        self, dialect: str, key: str
+    ) -> str | Callable[..., Term] | None: ...
+    def describe(self, serializable: bool) -> dict[str, object]: ...
+    def deconstruct(self) -> tuple[str, list[object], dict[str, object]]: ...
     @override
     def __repr__(self) -> str: ...

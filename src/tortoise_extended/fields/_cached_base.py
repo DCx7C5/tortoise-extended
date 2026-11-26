@@ -38,13 +38,12 @@ Usage::
 """
 
 from collections.abc import Callable, Mapping
-from typing import Literal, Protocol, cast, override
+from typing import Literal, cast, override
 
 from pypika_tortoise.terms import Term
 from tortoise.fields.base import Field
 from tortoise.fields.relational import RelationalField
 from tortoise.models import Model
-from tortoise.validators import Validator
 
 from tortoise_extended._types import CacheScalar
 from tortoise_extended.cache.base import CacheBackend, CacheKey, Serializer
@@ -56,34 +55,6 @@ __all__ = ["_CachedFieldBase"]
 #: Fallback TTL, in seconds, used when the wrapper does not set one. ``0`` is a
 #: real TTL ("no expiry" in :class:`CacheBackend`), so only ``None`` falls back.
 _DEFAULT_TTL: int = 300
-
-
-class _FieldStubGaps(Protocol):
-    """Field API members the local stub overlay does not declare yet.
-
-    ``src/tortoise_extended/stubs/tortoise-stubs/fields/base.pyi`` omits
-    ``index``, ``docstring``, ``validators``, ``describe``, ``deconstruct`` and
-    ``get_for_dialect``, while the runtime :class:`Field` declares all of them
-    (``index`` is the real instance attribute; ``db_index`` is constructor-only
-    and does not exist at runtime). This protocol restores the surface for type
-    checking; it is the only reason the wrapper reaches into the inner field
-    through :attr:`_CachedFieldBase._inner_api`. The three methods below carry
-    no ``@override`` because the stub overlay declares no base method of the
-    same name — they do override the runtime ``Field``. When the stub overlay
-    gains these members, delete this protocol and read ``self.inner`` directly.
-    """
-
-    index: bool
-    docstring: str | None
-    validators: list[Validator | Callable[..., None]]
-
-    def describe(self, serializable: bool) -> dict[str, object]: ...
-
-    def deconstruct(self) -> tuple[str, list[object], dict[str, object]]: ...
-
-    def get_for_dialect(
-        self, dialect: str, key: str
-    ) -> str | Callable[..., Term] | None: ...
 
 
 def _require_field_instance[F](value: F) -> F:
@@ -136,14 +107,6 @@ class _CachedFieldBase[V](Field[V]):
     _write_policy: Literal["cache_aside", "write_through"] = "cache_aside"
     """Write strategy used by concrete cache fields (declared on the base only)."""
 
-    docstring: str | None
-    """Field docstring (the ``#:`` comment); declared here because the stub overlay omits it."""
-
-    @property
-    def _inner_api(self) -> _FieldStubGaps:
-        """The inner field typed with the members the stub overlay omits."""
-        return cast(_FieldStubGaps, cast(object, self.inner))
-
     def __init__(
         self,
         inner: Field[V],
@@ -195,9 +158,9 @@ class _CachedFieldBase[V](Field[V]):
             default=inner.default,
             db_default=inner.db_default,
             unique=inner.unique,
-            db_index=self._inner_api.index,
+            db_index=self.inner.index,
             description=inner.description,
-            validators=list(self._inner_api.validators),
+            validators=list(self.inner.validators),
         )
 
     @property
@@ -269,6 +232,7 @@ class _CachedFieldBase[V](Field[V]):
             .build()
         )
 
+    @override
     def describe(self, serializable: bool) -> dict[str, object]:
         """Describe the field, presenting the inner field's column contract.
 
@@ -283,7 +247,7 @@ class _CachedFieldBase[V](Field[V]):
             Python objects (see :meth:`tortoise.fields.base.Field.describe`).
         :returns: The field description dictionary.
         """
-        desc = self._inner_api.describe(serializable)
+        desc = self.inner.describe(serializable)
         desc["name"] = self.model_field_name
         desc["db_column"] = self.source_field or self.model_field_name
         if desc.get("description") is None and self.description is not None:
@@ -292,6 +256,7 @@ class _CachedFieldBase[V](Field[V]):
             desc["docstring"] = self.docstring
         return desc
 
+    @override
     def deconstruct(self) -> tuple[str, list[object], dict[str, object]]:
         """Deconstruct the field into the inner field's migration definition.
 
@@ -304,11 +269,12 @@ class _CachedFieldBase[V](Field[V]):
 
         :returns: ``(import_path, args, kwargs)`` tuple.
         """
-        path, args, kwargs = self._inner_api.deconstruct()
+        path, args, kwargs = self.inner.deconstruct()
         if self.description is not None:
             kwargs["description"] = self.description
         return path, args, kwargs
 
+    @override
     def get_for_dialect(
         self, dialect: str, key: str
     ) -> str | Callable[..., Term] | None:
@@ -323,7 +289,7 @@ class _CachedFieldBase[V](Field[V]):
         :param key: The attribute or method name to resolve.
         :returns: The dialect override, or the inner field's default value.
         """
-        return self._inner_api.get_for_dialect(dialect, key)
+        return self.inner.get_for_dialect(dialect, key)
 
     @override
     def to_db_value(self, value: V, instance: Model | type[Model]) -> CacheScalar:
