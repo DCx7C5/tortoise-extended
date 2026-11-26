@@ -1,6 +1,6 @@
 [project]
 name = "tortoise-extended"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tortoise ORM extensions: pgvector, TimescaleDB, HNSW indexes, recursive CTEs, and Redis caching"
 requires-python = ">=3.14"
 license = "MIT"

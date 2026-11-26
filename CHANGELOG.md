@@ -1,10 +1,14 @@
 # Changelog
 
 All notable changes to `tortoise-extended` are recorded here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The project has no release tags yet, so
-the versions below are the `pyproject.toml` version at the time of the change.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases are tagged `vX.Y.Z` on the
+commit that bumps `pyproject.toml`; `[Unreleased]` collects what has landed since the last tag.
 
 ## [Unreleased]
+
+Nothing yet.
+
+## [0.2.0] - 2026-11-26
 
 ### Added
 
