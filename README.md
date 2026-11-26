@@ -453,7 +453,7 @@ docker compose -f docker-compose.dev.yml down
 
 **`postgres-ext` image contents:**
 - PostgreSQL 18 (digest-pinned base image)
-- pgvector 0.8.5 + TimescaleDB (commit-pinned via ARG)
+- pgvector 0.8.6 + TimescaleDB 2.29.2 (commit-pinned via ARG, tag-verified at build)
 - Init script runs from `docker/postgres-ext/scripts/`: `00-extensions.sql` (creates `vector`, `ltree`, `timescaledb`, `pg_trgm`, `uuid-ossp`)
 
 ## Dependencies
