@@ -45,7 +45,7 @@ Usage::
     ).get(id=doc.id)
 """
 
-from typing import Unpack, cast, override
+from typing import Unpack, override
 
 from tortoise.fields.base import Field
 from tortoise.models import Model
@@ -122,7 +122,7 @@ class PGPEncryptedField(Field[bytes]):
     @override
     def to_db_value(
         self,
-        value: bytes | bytearray | memoryview | None,
+        value: bytes | bytearray | memoryview | str | None,
         instance: type[Model] | Model | None,
     ) -> bytes | None:
         """Validate the ciphertext boundary and normalise it to ``bytes``.
@@ -137,11 +137,7 @@ class PGPEncryptedField(Field[bytes]):
         """
         if value is None:
             return None
-        # The annotation says ciphertext is bytes, but this is the boundary an
-        # untyped caller crosses — the refusal below is the whole point of the
-        # field, so widen through a cast rather than trust the annotation.
-        raw = cast(bytes | bytearray | memoryview | str, value)
-        if isinstance(raw, str):
+        if isinstance(value, str):
             raise TypeError(
                 "PGPEncryptedField stores ciphertext bytes, not str: encrypt "
                 "the value first (PGPSymEncrypt(...) or an application-side "
@@ -151,7 +147,7 @@ class PGPEncryptedField(Field[bytes]):
         # ``memoryview`` rejects anything that is not a bytes-like object, so a
         # value outside the contract (an int, a dict) fails here by name
         # instead of being coerced into something plausible.
-        return memoryview(raw).tobytes()
+        return memoryview(value).tobytes()
 
     @override
     def __repr__(self) -> str:
