@@ -200,7 +200,7 @@ commitments.
 
 ### Potential Enhancements
 
-1. **Vector quantization** — pgvector 0.8 ships `halfvec` (16-bit scalar
+1. **Vector quantization** — pgvector 0.7+ ships `halfvec` (16-bit scalar
    quantization) and binary `bit` quantization. Practice:
    - `halfvec` + HNSW: ~50x faster index build with negligible accuracy
      drop — the default for dense vectors at scale.

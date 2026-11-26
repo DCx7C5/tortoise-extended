@@ -8,6 +8,10 @@
   - `ltree` — hierarchical path queries
   - [TimescaleDB](https://www.timescale.com/) — time-series optimization
 
+`ensure_extensions()` (run by `setup()`) creates `vector`, `ltree`, `timescaledb`, `pgcrypto`,
+`pg_trgm` and `uuid-ossp`; `CitextField` additionally needs `citext`, which the bundled Docker
+image creates at first start.
+
 ## Install from git
 
 There is no PyPI release yet, so `uv add tortoise-extended` resolves nothing — install the
