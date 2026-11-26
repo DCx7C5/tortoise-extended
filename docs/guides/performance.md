@@ -23,7 +23,7 @@ entities = await Entity.all()
 
 # Good: LIMIT + vector filter
 entities = (
-    await Entity.filter(embedding__cosine_distance=[[query_vec], 0.5])
+    await Entity.filter(embedding__cosine_distance=[query_vec, 0.5])
     .order_by("embedding__cosine_distance")
     .limit(10)
 )
@@ -31,7 +31,7 @@ entities = (
 # Better: Type filter + vector filter
 entities = (
     await Entity.filter(
-        type="TECHNOLOGY", embedding__cosine_distance=[[query_vec], 0.5]
+        type="TECHNOLOGY", embedding__cosine_distance=[query_vec, 0.5]
     )
     .order_by("embedding__cosine_distance")
     .limit(10)
@@ -296,7 +296,7 @@ async def profile_search():
 
     # Execute search
     results = (
-        await Entity.filter(embedding__cosine_distance=[[query_vec], 0.5])
+        await Entity.filter(embedding__cosine_distance=[query_vec, 0.5])
         .order_by("embedding__cosine_distance")
         .limit(10)
     )

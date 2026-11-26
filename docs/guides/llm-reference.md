@@ -170,13 +170,13 @@ Pick the base per model — each is opt-in and independent:
 
 ```python
 # Cosine distance (most common for embeddings)
-Entity.filter(embedding__cosine_distance=[[query_vec], 0.5])
+Entity.filter(embedding__cosine_distance=[query_vec, 0.5])
 
 # L2 distance
-Entity.filter(embedding__l2_distance=[[query_vec], 0.3])
+Entity.filter(embedding__l2_distance=[query_vec, 0.3])
 
 # Inner product (negated — higher = more similar)
-Entity.filter(embedding__inner_product=[[query_vec], 0.8])
+Entity.filter(embedding__inner_product=[query_vec, 0.8])
 ```
 
 > Note the double brackets: the value is a **list containing** `[vector, threshold]`.
@@ -200,7 +200,7 @@ Category.filter(path__match="root.*.child")
 
 ```python
 items = (
-    await Item.filter(embedding__cosine_distance=[[query_embedding], 0.5])
+    await Item.filter(embedding__cosine_distance=[query_embedding, 0.5])
     .order_by("embedding__cosine_distance")
     .limit(10)
 )

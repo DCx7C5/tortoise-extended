@@ -65,7 +65,7 @@ similar = sorted(chunks, key=lambda c: cosine_similarity(query_vec, c.embedding)
 
 # After (pgvector queries)
 chunks = (
-    await Chunk.filter(embedding__cosine_distance=[[query_vec], 0.5])
+    await Chunk.filter(embedding__cosine_distance=[query_vec, 0.5])
     .order_by("embedding__cosine_distance")
     .limit(10)
 )

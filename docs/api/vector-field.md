@@ -152,14 +152,14 @@ query_vec = [0.1, 0.2, 0.3, ...]
 
 # Cosine similarity
 chunks = (
-    await Chunk.filter(embedding__cosine_distance=[[query_vec], 0.5])
+    await Chunk.filter(embedding__cosine_distance=[query_vec, 0.5])
     .order_by("embedding__cosine_distance")
     .limit(10)
 )
 
 # L2 distance
 chunks = (
-    await Chunk.filter(embedding__l2_distance=[[query_vec], 0.3])
+    await Chunk.filter(embedding__l2_distance=[query_vec, 0.3])
     .order_by("embedding__l2_distance")
     .limit(10)
 )

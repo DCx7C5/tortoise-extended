@@ -110,7 +110,7 @@ class Entity(models.Model):
 ```python
 # Query
 entities = (
-    await Entity.filter(embedding__l2_distance=[[query_vec], 0.5])
+    await Entity.filter(embedding__l2_distance=[query_vec, 0.5])
     .order_by("embedding__l2_distance")
     .limit(10)
 )
@@ -125,7 +125,7 @@ entities = (
 ```python
 # Query
 entities = (
-    await Entity.filter(embedding__cosine_distance=[[query_vec], 0.3])
+    await Entity.filter(embedding__cosine_distance=[query_vec, 0.3])
     .order_by("embedding__cosine_distance")
     .limit(10)
 )
@@ -140,7 +140,7 @@ entities = (
 ```python
 # Query
 entities = (
-    await Entity.filter(embedding__inner_product=[[query_vec], 0.8])
+    await Entity.filter(embedding__inner_product=[query_vec, 0.8])
     .order_by("embedding__inner_product")
     .limit(10)
 )
@@ -160,7 +160,7 @@ from myapp.models import Entity  # define in your project
 # Find similar entities
 query_embedding = await get_embedding("machine learning")
 similar = (
-    await Entity.filter(embedding__cosine_distance=[[query_embedding], 0.5])
+    await Entity.filter(embedding__cosine_distance=[query_embedding, 0.5])
     .order_by("embedding__cosine_distance")
     .limit(10)
 )
@@ -172,7 +172,7 @@ similar = (
 # Search within entity type
 similar = (
     await Entity.filter(
-        type="TECHNOLOGY", embedding__cosine_distance=[[query_embedding], 0.5]
+        type="TECHNOLOGY", embedding__cosine_distance=[query_embedding, 0.5]
     )
     .order_by("embedding__cosine_distance")
     .limit(10)
@@ -183,7 +183,7 @@ similar = (
     await Entity.filter(
         type__in=["TECHNOLOGY", "CONCEPT"],
         metadata__contains={"source": "arxiv"},
-        embedding__cosine_distance=[[query_embedding], 0.5],
+        embedding__cosine_distance=[query_embedding, 0.5],
     )
     .order_by("embedding__cosine_distance")
     .limit(10)

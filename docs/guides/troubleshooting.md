@@ -172,7 +172,7 @@ asyncpg.exceptions.QueryCanceledError: query canceled due to user request
 ```python
 # Add LIMIT
 entities = (
-    await Entity.filter(embedding__cosine_distance=[[query_vec], 0.5])
+    await Entity.filter(embedding__cosine_distance=[query_vec, 0.5])
     .order_by("embedding__cosine_distance")
     .limit(10)
 )
@@ -205,7 +205,7 @@ MemoryError: Unable to allocate array
 async def paginated_search(query_vec, page: int = 1, page_size: int = 10):
     offset = (page - 1) * page_size
     return (
-        await Entity.filter(embedding__cosine_distance=[[query_vec], 0.5])
+        await Entity.filter(embedding__cosine_distance=[query_vec, 0.5])
         .order_by("embedding__cosine_distance")
         .offset(offset)
         .limit(page_size)
@@ -215,7 +215,7 @@ async def paginated_search(query_vec, page: int = 1, page_size: int = 10):
 # Or use streaming
 async def streaming_search(query_vec):
     async for entity in Entity.filter(
-        embedding__cosine_distance=[[query_vec], 0.5]
+        embedding__cosine_distance=[query_vec, 0.5]
     ).order_by("embedding__cosine_distance"):
         yield entity
 ```
@@ -335,7 +335,7 @@ profiler.enable()
 
 # Your code here
 results = (
-    await Entity.filter(embedding__cosine_distance=[[query_vec], 0.5])
+    await Entity.filter(embedding__cosine_distance=[query_vec, 0.5])
     .order_by("embedding__cosine_distance")
     .limit(10)
 )

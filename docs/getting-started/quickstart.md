@@ -5,7 +5,8 @@ This guide walks you through setting up tortoise-extended and performing your fi
 ## 1. Start the Database
 
 ```bash
-cp .env.example .env   # configure POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+cp .env.example .env   # set POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+                       # and REDIS_PASSWORD — compose fails without it
 docker compose -f docker-compose.dev.yml up -d
 ```
 
@@ -65,14 +66,14 @@ async def vector_search():
 
     # Cosine similarity
     entities = (
-        await Entity.filter(embedding__cosine_distance=[[query_embedding], 0.5])
+        await Entity.filter(embedding__cosine_distance=[query_embedding, 0.5])
         .order_by("embedding__cosine_distance")
         .limit(10)
     )
 
     # L2 distance
     entities = (
-        await Entity.filter(embedding__l2_distance=[[query_embedding], 0.3])
+        await Entity.filter(embedding__l2_distance=[query_embedding, 0.3])
         .order_by("embedding__l2_distance")
         .limit(10)
     )
