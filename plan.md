@@ -1794,3 +1794,61 @@ its malformed-DSN error, and the `Field` stub corrections. Detail in `CHANGELOG.
 `importlib.metadata` → `0.2.0`, and `uv build` emitting `tortoise_extended-0.2.0-py3-none-any.whl`
 whose `METADATA` carries `Version: 0.2.0`.
 
+
+## M. Post-release documentation truth pass (2026-11-26)
+
+The 0.2.0 release work surfaced docs that had never been true or had drifted. Corrected in
+`879a1ed` (`docs: correct install and dependency claims`), all five files measured rather than
+assumed:
+
+- **No PyPI release exists.** `https://pypi.org/pypi/tortoise-extended/json` returns **404**, so
+  every `uv add tortoise-extended` instruction was dead. Replaced with
+  `uv add "tortoise-extended @ git+https://github.com/DCx7C5/tortoise-extended@v0.2.0"` in
+  `docs/getting-started/installation.md`, `docs/guides/migration.md`, `docs/api/cache.md`,
+  `docs/guides/caching.md`; `main` is named as the moving branch and the tag as the fixed point.
+- **`tortoise-orm-stubs >=1.0.2` was listed as a runtime dependency** in
+  `docs/getting-started/installation.md` and `README.md` but is absent from `[project]`
+  dependencies — removed from both. The pages now state that consumers get `tortoise.*` typing
+  from `tortoise-orm`'s own `py.typed` marker and that `src/tortoise_extended/stubs/` is a dev
+  artifact excluded from the wheel.
+- **`pglast >=8.9,<9` was a real dependency but undocumented**; added to both dependency lists.
+- `README.md` test block now starts with `uv run ruff format --check src tests`, matching
+  `AGENTS.md` §Verification Gate.
+
+**Proof, not assertion.** The documented command was run verbatim in a clean Python 3.14 `uv`
+project (`/tmp/opencode`, discarded): it resolved the tag to `bd11970`, built, and installed
+`tortoise-extended==0.2.0` alongside `tortoise-orm==1.1.9` (asyncpg), `pypika-tortoise==0.6.5`,
+`msgspec`, `argon2-cffi`, `pglast==8.9`, `redis==8.2.0` (+`hiredis`) and **no** `tortoise-orm-stubs`;
+`import tortoise_extended` → `0.2.0` and `tortoise_extended.patch` callable. All relative links in
+the five touched files resolve.
+
+**Vector-filter examples were one bracket too deep** (`2db1518`). Every doc wrote
+`field__cosine_distance=[[query_vec], 0.5]`, but the filter's compound form is
+`[query_vector, threshold]`, so the shipped parser read the query vector as
+`[[0.1, 0.2, 0.3]]` — measured: `_parse_vector_threshold([[v], 0.5], …)` returns
+`([[0.1, 0.2, 0.3]], 0.5)` while `([v, 0.5], …)` returns `([0.1, 0.2, 0.3], 0.5)`. 26 occurrences
+across `docs/api/{graph-filters,vector-field}.md`, `docs/architecture/vector-search.md`,
+`docs/guides/{llm-reference,migration,performance,troubleshooting}.md` plus two in `quickstart.md`
+corrected; the prose in `graph-filters.md` already stated `[vector, threshold]`.
+
+**`CONTRIBUTING.md` gate** (`9637adc`) listed three checks, missing `ruff format --check`; it now
+lists all four and the live-Redis invocation. **`CONTRIBUTING`/`README` Docker line** — README said
+pgvector 0.8.5 and left TimescaleDB unversioned; the Dockerfile pins pgvector 0.8.6 and
+TimescaleDB 2.29.2 (`cdeaf38`). **`docs/guides/project-file-tree.md`** implied callers must wrap
+`move_to()` in `in_transaction()`; the method already opens its own transaction and row-locks both
+nodes (`5f7e80e`). **All 105 relative links** across `docs/` + README/CONTRIBUTING/AGENTS/CHANGELOG
+resolve.
+
+**`pyproject.toml` wheel comment** (`[tool.hatch.build.targets.wheel]`) still described the overlay
+as "layered over the upstream `tortoise-orm-stubs` dependency". Implementer-owned, so it went to
+`css-developer` rather than a planner edit: the comment now says the overlay *shadows* `tortoise.*`
+and that consumers get typing from `tortoise-orm`'s own `py.typed`. Verified by the dispatch:
+`ruff format --check` clean, `ruff check` clean, `basedpyright` 0/0/0, and a fresh wheel containing
+`tortoise_extended/__init__.py` with **no** `stubs` entry.
+
+**Verification caveat (environment, not repo).** During this pass the shell carried
+`UV_PROJECT_ENVIRONMENT` / `VIRTUAL_ENV` pointing at another project's `.venv`, so `uv run` measured
+that interpreter rather than this repo's `.venv`. Tool versions matched and the gate was re-run with
+both variables unset (`sys.executable` → `tortoise-extended/.venv/bin/python`), identical output.
+When the gate result looks surprising in a shared shell, check `uv run python -c "import sys;
+print(sys.executable)"` first.
