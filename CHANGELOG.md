@@ -6,7 +6,34 @@ commit that bumps `pyproject.toml`; `[Unreleased]` collects what has landed sinc
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `PgCryptoError` is re-exported from the package root, so
+  `from tortoise_extended import PgCryptoError` catches the algorithm-allowlist refusal without
+  reaching into `tortoise_extended.exceptions`. It was the only domain error missing from the root
+  `__all__`.
+- `PGPSymEncrypt` and `PGPSymDecrypt` are re-exported from the package root **and** from
+  `tortoise_extended.expressions`, matching `Digest` / `DigestHex` / `HMACDigest`. Shipped in 0.2.0
+  but reachable only from `tortoise_extended.expressions.pgcrypto`.
+
+### Changed
+
+- `PGPEncryptedField.to_db_value` now declares `str` in its parameter annotation — the type it
+  refuses — instead of widening through `cast()`. Behaviour is unchanged (`str` still raises
+  `TypeError` naming the field); the signature stops contradicting the guard.
+
+### Fixed
+
+- Documentation corrections with no code impact: install instructions said
+  `uv add tortoise-extended`, which resolves nothing (pypi.org returns 404); `tortoise-orm-stubs`
+  was listed as a dependency after it had been removed, and the real `pglast` requirement was
+  missing; vector-filter examples were written `[[query_vec], 0.5]`, one bracket deeper than the
+  supported `[query_vector, threshold]` form, so the query vector rendered as `[[0.1, 0.2, 0.3]]`;
+  `BaseCacheableModel` was imported from `tortoise_extended.cache`, which does not carry it;
+  `exceptions.md` omitted `PgCryptoError`, `TortoiseVersionError` and `PatchConflictError`;
+  `pgcrypto.md` documented neither the six accepted algorithms nor the error they raise; README
+  carried stale pgvector/TimescaleDB versions and a contributor-only Quick Start.
+
 
 ## [0.2.0] - 2026-11-26
 

@@ -1866,3 +1866,48 @@ print(sys.executable)"` first.
 (`test_all.py` aggregator), the same numbers as the release commit — the pass touched only `.md`
 files and one `pyproject.toml` comment. `uv run` was run with `UV_PROJECT_ENVIRONMENT`/`VIRTUAL_ENV`
 unset and `sys.executable` confirmed as this repo's `.venv`.
+
+## N. pgcrypto surface audit (2026-11-26)
+
+Prompted by "what about pgcrypt stuff" after the documentation pass. The feature itself measured
+sound; its *published surface* did not.
+
+**Behaviour is proven, not claimed.** `tests/test_pgcrypto.py` asserts the rendered SQL (`DIGEST`,
+`ENCODE(DIGEST(…), 'hex')`, `HMAC(…, key, algo)`, `PGP_SYM_ENCRYPT`/`PGP_SYM_DECRYPT`, `options`
+omitted when `None`, embedded quotes doubled) and, against live PostgreSQL, that `DigestHex` equals
+`hashlib.sha256`, a raw digest is 32 bytes, `HMACDigest` equals Python's `hmac.new`, and a
+`RawSQL("current_setting('app.encryption_key')")` key resolves server-side and matches. The six-name
+allowlist rejects anything else at construction with `PgCryptoError`.
+`tests/test_pgp_encrypted_field.py` asserts the column is `bytea` in `information_schema`, round-trips
+`bytes`/NULL, and that `pgp_sym_encrypt` → column → `pgp_sym_decrypt` returns the plaintext.
+
+**Gaps found and fixed.**
+
+- `PgCryptoError` was the only domain error not re-exported from the root, and `PGPSymEncrypt` /
+  `PGPSymDecrypt` were exported from **nowhere** (not the root, not `tortoise_extended.expressions`)
+  while the `Digest` family is in both. Fixed in `3d29399`; root `__all__` = 123 names, still sorted.
+- `docs/api/exceptions.md` omitted `PgCryptoError`, `TortoiseVersionError` **and**
+  `PatchConflictError` from both the hierarchy and the trigger table; `docs/api/index.md` omitted
+  `PGPEncryptedField` from the field list, the symmetric pair from the pgcrypto entry and three
+  names from its exception import block; `docs/api/pgcrypto.md` had a duplicate `---` and documented
+  neither the allowlist nor its error; `docs/architecture/overview.md` and
+  `docs/guides/llm-reference.md` listed only the three hash helpers. Fixed in `1998fed`; all 377
+  documented import names across 48 markdown files now resolve.
+- `PGPEncryptedField.to_db_value` reached its `str` refusal through
+  `cast(bytes | bytearray | memoryview | str, value)` because the parameter annotation excluded
+  `str`. Removed in `b308171` by widening the annotation to `bytes | bytearray | memoryview | str |
+  None` — the signature now states what the method refuses; the base stub takes `Any`, so the
+  contravariant override is legal. No `cast`, `Any` or `type: ignore` remains in either pgcrypto
+  module.
+
+**Left alone deliberately.** `PGPEncryptedField.to_db_value`'s `:param value:` line still reads "the
+ciphertext to store, or ``None``" — the `str` case is covered by `:raises TypeError:`. The ~200
+remaining `cast()` calls in `cache/` are a separate, much larger cleanup: the standing no-cast
+directive has not been applied repo-wide, and the three in `_cached_base.py` are already recorded as
+load-bearing (§context of the 0.2.0 work).
+
+**Gate (2026-11-26, after all three commits).** `uv run ruff format --check src tests` clean ·
+`uv run ruff check src tests` clean · `uv run basedpyright` **0 errors, 0 warnings, 0 notes** ·
+`REDIS_PASSWORD=redis uv run --extra redis pytest tests/ -q` → **2199 passed, 1 skipped**. The +6
+over the release commit is exactly `test_exports.py` parametrising over the three new `__all__`
+names (2 tests each) — not new behaviour.
