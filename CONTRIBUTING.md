@@ -28,13 +28,15 @@ leaving the field silently unregistered.
 ## Checks
 
 ```bash
-uv run ruff check src tests      # clean
-uv run basedpyright              # 0 errors
-uv run pytest tests/ -q          # green, against the Docker database
+uv run ruff format --check src tests   # clean
+uv run ruff check src tests            # clean
+uv run basedpyright                    # 0 errors
+uv run pytest tests/ -q                # green, against the Docker database
 ```
 
-All three must pass before a change is considered done. `tests/` is not type-gated; the strict
-basedpyright gate covers `src/`.
+All four must pass before a change is considered done. `tests/` is not type-gated; the strict
+basedpyright gate covers `src/`. The live Redis leg needs the password exported:
+`REDIS_PASSWORD=… uv run --extra redis pytest tests/ -q`.
 
 ## Rules
 
