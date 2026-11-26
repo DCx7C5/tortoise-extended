@@ -195,8 +195,8 @@ LIMIT 10;
 ```python
 # Initialize Redis once at startup
 from tortoise import Tortoise, fields, models
-from tortoise_extended import RedisCache, cached
-from tortoise_extended.cache import BaseCacheableModel, CachedQuerySet
+from tortoise_extended import BaseCacheableModel, RedisCache, cached
+from tortoise_extended.cache import CachedQuerySet
 
 await RedisCache.init(url="redis://localhost:6379/0")
 await Tortoise.init(

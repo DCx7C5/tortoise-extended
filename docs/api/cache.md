@@ -32,7 +32,8 @@ uv add 'redis[hiredis]'
 ```python
 import tortoise_extended  # noqa: F401 — apply patches
 from tortoise import Tortoise, fields
-from tortoise_extended.cache import RedisCache, BaseCacheableModel, cached
+from tortoise_extended import BaseCacheableModel
+from tortoise_extended.cache import RedisCache, cached
 
 # Initialize Redis
 await RedisCache.init(url="redis://localhost:6379/0")
@@ -123,7 +124,7 @@ and add your own columns.
 
 ```python
 from tortoise import fields
-from tortoise_extended.cache import BaseCacheableModel
+from tortoise_extended import BaseCacheableModel
 
 
 class Entity(BaseCacheableModel):
