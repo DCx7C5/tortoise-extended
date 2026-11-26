@@ -4,8 +4,11 @@ Tortoise ORM extensions for PostgreSQL graph/vector workloads — pgvector, Time
 
 ## Quick Start
 
+There is no PyPI release yet — install from git and pin a release tag (add `[redis]` for the
+caching extras):
+
 ```bash
-uv sync --all-extras
+uv add "tortoise-extended @ git+https://github.com/DCx7C5/tortoise-extended@v0.2.0"
 ```
 
 ```python
