@@ -67,8 +67,8 @@ class Field(Generic[VALUE]):
         """True when the field declares a database-level default."""
         ...
 
-    def get_db_default_value(self) -> DatabaseDefault:
-        """Return the ``DatabaseDefault`` sentinel for unset db_default fields."""
+    def get_db_default_value(self) -> DatabaseDefault | None:
+        """Return a ``DatabaseDefault`` when the field sets a db default, else ``None``."""
         ...
 
     @property
