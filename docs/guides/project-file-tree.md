@@ -92,8 +92,8 @@ await node.get_ancestors()
 await node.get_path_to_root()
 
 # Move a directory — validates cycles, cascades path+depth to descendants
-async with in_transaction():
-    await directory.move_to(new_parent)
+# (move_to runs its own transaction and locks both rows; do not wrap it)
+await directory.move_to(new_parent)
 
 # Integrity check before writes are released
 errors = await node.validate_hierarchy()
