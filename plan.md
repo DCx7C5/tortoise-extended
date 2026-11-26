@@ -1859,3 +1859,10 @@ that interpreter rather than this repo's `.venv`. Tool versions matched and the 
 both variables unset (`sys.executable` → `tortoise-extended/.venv/bin/python`), identical output.
 When the gate result looks surprising in a shared shell, check `uv run python -c "import sys;
 print(sys.executable)"` first.
+
+**Gate at the end of the docs pass (`ad6d101`+).** `uv run ruff format --check src tests` clean ·
+`uv run ruff check src tests` clean · `uv run basedpyright` **0 errors, 0 warnings, 0 notes** ·
+`REDIS_PASSWORD=redis uv run --extra redis pytest tests/ -q` → **2193 passed, 1 skipped**
+(`test_all.py` aggregator), the same numbers as the release commit — the pass touched only `.md`
+files and one `pyproject.toml` comment. `uv run` was run with `UV_PROJECT_ENVIRONMENT`/`VIRTUAL_ENV`
+unset and `sys.executable` confirmed as this repo's `.venv`.
