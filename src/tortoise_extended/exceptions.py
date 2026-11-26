@@ -13,6 +13,8 @@ onto the feature areas:
 - :class:`GraphError` — graph models and traversals
 - :class:`RecursiveCTEError` — recursive CTE builders
 - :class:`HybridSearchError` — hybrid vector + FTS search
+- :class:`PgCryptoError` — a pgcrypto hash/HMAC helper received an algorithm
+  name outside the six pgcrypto implements
 - :class:`TimescaleError` — TimescaleDB managers and migrations
 - :class:`MigrationOperationError` — migration operations
 - :class:`SetupError` — database lifecycle/bootstrap failures (e.g. a

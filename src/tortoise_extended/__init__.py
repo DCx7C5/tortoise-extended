@@ -74,6 +74,7 @@ from tortoise_extended.exceptions import (
     LTreeFieldError,
     MigrationOperationError,
     PatchConflictError,
+    PgCryptoError,
     RecursiveCTEError,
     RedisCacheError,
     SetupError,
@@ -121,6 +122,8 @@ from tortoise_extended.expressions.pgcrypto import (
     Digest,
     DigestHex,
     HMACDigest,
+    PGPSymDecrypt,
+    PGPSymEncrypt,
 )
 from tortoise_extended.expressions.recursive_cte import RecursiveCTE
 from tortoise_extended.expressions.windows import (
@@ -723,9 +726,12 @@ __all__ = [
     "NodeMixin",
     "NodeTree",
     "PGPEncryptedField",
+    "PGPSymDecrypt",
+    "PGPSymEncrypt",
     "PageInfo",
     "PatchConflictError",
     "PathField",
+    "PgCryptoError",
     "RecursiveCTE",
     "RecursiveCTEError",
     "RedisCache",
