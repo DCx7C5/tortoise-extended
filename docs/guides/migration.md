@@ -4,8 +4,10 @@
 
 ### Step 1: Install Package
 
+There is no PyPI release yet, so install from git and pin a release tag:
+
 ```bash
-uv add tortoise-extended
+uv add "tortoise-extended @ git+https://github.com/DCx7C5/tortoise-extended@v0.2.0"
 ```
 
 ### Step 2: Import Before Tortoise

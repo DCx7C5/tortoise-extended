@@ -459,13 +459,17 @@ docker compose -f docker-compose.dev.yml down
 ## Dependencies
 
 ```
-tortoise-orm >=1.1.7,<1.2        (with the asyncpg extra)
-tortoise-orm-stubs >=1.0.2
-msgspec >=0.21.0
+tortoise-orm[asyncpg] >=1.1.7,<1.2  (asyncpg driver comes via this extra)
 pypika-tortoise >=0.6.5,<0.7
-argon2-cffi >=25.1.0             (argon2id hashing for BaseUserModel)
-redis[hiredis] >=7.0.0           (optional `redis` extra)
+msgspec >=0.21.0
+argon2-cffi >=25.1.0                (argon2id hashing for BaseUserModel)
+pglast >=8.9,<9                     (PostgreSQL grammar for continuous aggregates)
+redis[hiredis] >=7.0.0              (optional `redis` extra)
 ```
+
+There is no `tortoise-orm-stubs` dependency: `tortoise-orm` ships its own `py.typed` marker, so
+consumers get `tortoise.*` typing inline. The overlay under `src/tortoise_extended/stubs/` is a
+development artifact excluded from the built wheel.
 
 Add new dependencies with `uv add <pkg>` so `pyproject.toml` stays the single source of truth.
 
@@ -473,6 +477,7 @@ Add new dependencies with `uv add <pkg>` so `pyproject.toml` stays the single so
 
 ```bash
 uv sync --all-extras
+uv run ruff format --check src tests
 uv run ruff check src tests
 uv run basedpyright
 uv run pytest tests/ -v

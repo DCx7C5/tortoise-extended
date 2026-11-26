@@ -15,8 +15,10 @@ The cache module provides:
 
 ## Installation
 
+There is no PyPI release yet, so install from git with the `redis` extra:
+
 ```bash
-uv add 'tortoise-extended[redis]'
+uv add "tortoise-extended[redis] @ git+https://github.com/DCx7C5/tortoise-extended@v0.2.0"
 ```
 
 Or manually:

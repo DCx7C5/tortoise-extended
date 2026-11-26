@@ -14,7 +14,9 @@ They are optional. Nothing changes for models that do not use them.
 
 ## Requirements
 
-- The `redis` extra: `uv add "tortoise-extended[redis]"`.
+- The `redis` extra —
+  `uv add "tortoise-extended[redis] @ git+https://github.com/DCx7C5/tortoise-extended@v0.2.0"`.
+  (`uv add 'tortoise-extended[redis]'` resolves nothing: there is no PyPI release yet.)
 - `RedisCache.init(...)` before the first cache call. Field construction never touches
   Redis; the backend is resolved lazily on each operation.
 - The usual rule still applies: `import tortoise_extended` before `Tortoise.init()`.
