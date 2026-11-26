@@ -143,9 +143,9 @@ strictSetInference = false
 # lives under `src/tortoise_extended/stubs/tortoise-stubs/` and is DEV-ONLY: it is
 # NOT shipped in the wheel. The strict type gate resolves `tortoise.*` by pointing
 # `[tool.basedpyright] stubPath` at `src/tortoise_extended/stubs` (a `tortoise-stubs`
-# package that merges onto `tortoise.*`), layered over the upstream `tortoise-orm-stubs`
-# dependency. Consumers get correct `tortoise.*` typing from the upstream stubs +
-# runtime; the local overlay only corrects specific typing gaps for this library's
+# package that shadows `tortoise.*`). There is no `tortoise-orm-stubs` dependency:
+# `tortoise-orm` ships its own `py.typed` marker, so consumers get `tortoise.*`
+# typing inline; the local overlay only corrects specific gaps for this library's
 # dev gate and stays out of the published artifact.
 packages = ["src/tortoise_extended"]
 exclude = ["src/tortoise_extended/stubs"]
