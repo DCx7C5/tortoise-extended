@@ -158,6 +158,10 @@ Pick the base per model — each is opt-in and independent:
 | `Digest` | `from tortoise_extended.expressions.pgcrypto import Digest` | Raw binary hash digest |
 | `DigestHex` | `from tortoise_extended.expressions.pgcrypto import DigestHex` | Hex-encoded hash digest |
 | `HMACDigest` | `from tortoise_extended.expressions.pgcrypto import HMACDigest` | Keyed HMAC hash |
+| `PGPSymEncrypt` | `from tortoise_extended.expressions.pgcrypto import PGPSymEncrypt` | OpenPGP symmetric ciphertext (`bytea`), in-database |
+| `PGPSymDecrypt` | `from tortoise_extended.expressions.pgcrypto import PGPSymDecrypt` | In-database decryption back to `text` |
+| `PGPEncryptedField` | `from tortoise_extended import PGPEncryptedField` | `bytea` column for ciphertext; refuses `str`, not indexable |
+| `PgCryptoError` | `from tortoise_extended import PgCryptoError` | Unsupported pgcrypto algorithm, raised at construction |
 | `CreateHypertable` | `from tortoise_extended.migrations.operations import CreateHypertable` | Hypertable via built-in migration writer |
 | `ensure_extensions` | `from tortoise_extended import ensure_extensions` | `CREATE EXTENSION IF NOT EXISTS` for the six required extensions |
 | `setup` | `from tortoise_extended import setup` | Startup fan-out: extensions → schemas → each stream model's `setup()` |

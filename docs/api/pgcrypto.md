@@ -25,6 +25,18 @@ from tortoise_extended.expressions.pgcrypto import (
 )
 ```
 
+All five are also re-exported from the package root, so
+`from tortoise_extended import Digest, HMACDigest, PGPSymEncrypt` works too.
+
+## Algorithms
+
+`Digest`, `DigestHex` and `HMACDigest` accept exactly the six algorithms
+pgcrypto's `digest()` / `hmac()` implement: `md5`, `sha1`, `sha224`, `sha256`,
+`sha384`, `sha512`. Anything else raises
+[`PgCryptoError`](exceptions.md) **at query-construction time**, before a
+connection is touched — an unknown name would otherwise surface as a
+database-side `Unrecognized hash algorithm` error.
+
 ## Digest
 
 `digest(data, algorithm)` — raw binary hash (`bytea`).
@@ -98,8 +110,6 @@ rows = await Document.annotate(
 | `algorithm` | `str` | `"sha256"` | Hash algorithm |
 
 **Returns:** `bytea`.
-
----
 
 ---
 

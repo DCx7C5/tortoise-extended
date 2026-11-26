@@ -97,7 +97,7 @@ Results (list[dict])
 | `expressions/pathfinding.py` | Pathfinding | Shortest path, all paths, cycles |
 | `expressions/hybrid_search.py` | Hybrid search | Vector + FTS weighted scoring |
 | `expressions/ltree_filters.py` | ltree operators | Ancestor/descendant/match filters |
-| `expressions/pgcrypto.py` | pgcrypto helpers | `Digest`, `DigestHex`, `HMACDigest` |
+| `expressions/pgcrypto.py` | pgcrypto helpers | `Digest`, `DigestHex`, `HMACDigest`, `PGPSymEncrypt`, `PGPSymDecrypt` |
 | `models/base.py` | Model base | `BaseModel` (BigInt pk) |
 | `models/unified.py` | Unified-id base | `UnifiedIdModel` (BigInt pk + UUID7 `uid`) |
 | `models/user.py` | User base model | `BaseUserModel` (email/password auth) |

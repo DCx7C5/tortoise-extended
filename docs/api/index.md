@@ -6,7 +6,7 @@ API documentation for the public modules.
 
 - **[VectorField](vector-field.md)** — pgvector column type for vector similarity search
 - **[LTreeField](ltree-field.md)** — PostgreSQL ltree type for hierarchical paths
-- **[Fields](fields.md)** — InetField, IPv4Field, MacAddrField, MacAddr8Field, CitextField, PathField, URLField, UUID4Field, UUID7Field, CharField
+- **[Fields](fields.md)** — InetField, IPv4Field, MacAddrField, MacAddr8Field, CitextField, PathField, URLField, UUID4Field, UUID7Field, CharField, PGPEncryptedField
 - **[Indexes](indexes.md)** — HNSW, IVFFlat, and GiST index types
 - **[Graph Filters](graph-filters.md)** — pgvector distance operators (L2, cosine, inner product)
 - **[Recursive CTE](recursive-cte.md)** — Recursive Common Table Expressions
@@ -19,7 +19,7 @@ API documentation for the public modules.
 - **[Window Functions](windows.md)** — `row_number`, `rank`, `dense_rank`, `ntile` and `sum_over`/`avg_over`/`count_over`/`min_over`/`max_over` analytics builders for `annotate()`
 - **[Pagination](pagination.md)** — `QuerySet.paginate(page, page_size)` and the `PageInfo` metadata
 - **[QuerySet helpers](queryset.md)** — `QuerySet.random()` (random ordering) and `distinct_on()` (`DISTINCT ON`, hydrated instances)
-- **[pgcrypto](pgcrypto.md)** — pgcrypto query helpers (Digest, DigestHex, HMACDigest)
+- **[pgcrypto](pgcrypto.md)** — pgcrypto query helpers (Digest, DigestHex, HMACDigest, PGPSymEncrypt, PGPSymDecrypt)
 - **[Graph (Node/Edge/Hierarchy)](graph.md)** — BaseNode, BaseGraphEdgeModel, BaseHierarchyModel base classes (BaseGraphNodeModel is the deprecated alias)
 - **[Model Bases](models.md)** — BaseModel, UnifiedIdModel, BaseUserModel, BaseSoftDeleteModel + SoftDeleteQuerySet, TimestampMixin
 - **[TimescaleDB](timescale.md)** — HypertableManager, CompressionManager, RetentionPolicy, ContinuousAggregateManager
@@ -122,7 +122,9 @@ from tortoise_extended import (
 ```python
 from tortoise_extended.expressions.pgcrypto import (
     Digest, DigestHex, HMACDigest,
+    PGPSymEncrypt, PGPSymDecrypt,
 )
+# or from the package root: from tortoise_extended import Digest, DigestHex, HMACDigest, PGPSymEncrypt, PGPSymDecrypt
 ```
 
 ### Pagination
@@ -158,9 +160,12 @@ from tortoise_extended import (
     HierarchyError,
     RecursiveCTEError,
     HybridSearchError,
+    PgCryptoError,
     TimescaleError,
     MigrationOperationError,
+    PatchConflictError,
     SetupError,
     TortoiseExtendedError,
+    TortoiseVersionError,
 )
 ```
